@@ -18,6 +18,7 @@
 using QuickLook.Common.Helpers;
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -141,7 +142,10 @@ internal sealed class UpdateDialog : Window
                 System.IO.Directory.CreateDirectory(smokeDir);
                 System.IO.File.WriteAllText(System.IO.Path.Combine(smokeDir, "update-dialog.txt"),
                     $"title={Title}\nbackdrop={DiagnoseBackdrop()}\n" +
-                    $"size={ActualWidth:0}x{ActualHeight:0}\nbuttons={DiagnoseButtons()}\n");
+                    $"size={ActualWidth:0}x{ActualHeight:0}\nbuttons={DiagnoseButtons()}\n" +
+                    // v5.0.1: the smoke test asserts the dialog follows the UI language
+                    // (it used to fall back to the Chinese failsafe on an English UI).
+                    $"language={CultureInfo.CurrentUICulture.Name}\n");
             }
             catch
             {

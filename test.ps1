@@ -425,8 +425,23 @@ if (Test-Path -LiteralPath $warmUpDiag) {
     Assert ($warmed -match 'QuickLook\.Plugin\.') "预览预热覆盖了预览家族: $($warmed.Trim())"
 }
 
+# v5.0.1: 更新界面曾经在英文系统上显示中文 —— 新增的 Update_* 文案只补到了
+# zh-CN/zh-TW，而翻译的回退链是「当前语言 → 父语言 → en → 中文 failsafe」，英文用户
+# 于是落到了中文兜底文案上。这里直接拿代码里用到的键去对 en / zh-CN / zh-TW 三个区块，
+# 缺一个就失败（en 是回退链的兜底，必须齐全）。
+$translationFile = Join-Path $root 'QuickLookNext\Translations.config'
+[xml]$translations = Get-Content -LiteralPath $translationFile -Raw
+$usedUpdateKeys = Get-ChildItem (Join-Path $root 'QuickLookNext') -Recurse -Filter *.cs |
+    Select-String -Pattern 'TranslationHelper\.Get\("(Update_[A-Za-z]+)"' -AllMatches |
+    ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+Assert ($usedUpdateKeys.Count -gt 0) '找到了更新界面的文案键'
+foreach ($locale in 'en', 'zh-CN', 'zh-TW') {
+    $missingKeys = @($usedUpdateKeys | Where-Object { $null -eq $translations.Translations.$locale.SelectSingleNode($_) })
+    Assert ($missingKeys.Count -eq 0) "更新界面文案在 $locale 齐全（缺少: $($missingKeys -join ', ')）"
+}
+
 # v3.41.0: 更新提示框 —— 用假 release 打开真实对话框，它在冒烟模式下 2 秒后自动
-# 关闭并写下诊断（材质 + 尺寸 + 按钮文案），据此断言材质与按钮。
+# 关闭并写下诊断（材质 + 尺寸 + 按钮文案 + 界面语言），据此断言材质与文案。
 $dialogDiag = Join-Path $smoke 'update-dialog.txt'
 Remove-Item -LiteralPath $dialogDiag -Force -ErrorAction SilentlyContinue
 Start-Process -FilePath $exe -ArgumentList '/test-update-prompt'
@@ -437,6 +452,12 @@ Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process 
 Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托盘菜单相同的材质'
 Assert ($dialogText -match 'material=(host-backdrop|acrylic)') '更新对话框报告了所用的材质'
 Assert ($dialogText -match 'update=.*;ignore=') '更新对话框包含 立即更新 / 忽略更新 两个按钮'
+# v5.0.1: 对话框文案必须跟随界面语言，不能落回中文 failsafe。
+$uiLang = if ($dialogText -match 'language=([A-Za-z-]+)') { $Matches[1] } else { '' }
+Assert ($uiLang -ne '') '更新对话框报告了界面语言'
+if ($uiLang -notlike 'zh*') {
+    Assert ($dialogText -notmatch '[\u4e00-\u9fff]') "英文界面下更新对话框无中文回落（language=$uiLang）"
+}
 
 # v3.43.0: 下载进度面板 —— 同一套材质 + 进度真的在走 + 完成后切到「正在安装」。
 $progressDiag = Join-Path $smoke 'update-progress.txt'
@@ -449,7 +470,16 @@ Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process 
 Assert ($progressText -match 'accent-applied=True') '下载进度面板使用相同的材质'
 Assert ($progressText -match 'material=(host-backdrop|acrylic)') '下载进度面板报告了所用的材质'
 Assert ($progressText -match 'detail=100%.*MB') '下载进度面板显示了进度与已下载体积'
-Assert ($progressText -match 'status=.*安装') '下载完成后进度面板切到安装提示'
+# v5.0.1: 状态文案同样跟随界面语言（以前固定断言中文，其实是在断言那个 bug）。
+$progressLang = if ($progressText -match 'language=([A-Za-z-]+)') { $Matches[1] } else { '' }
+Assert ($progressLang -ne '') '下载进度面板报告了界面语言'
+if ($progressLang -like 'zh*') {
+    Assert ($progressText -match 'status=.*安装') '下载完成后进度面板切到安装提示'
+}
+else {
+    Assert ($progressText -match '(?i)status=.*installing') '下载完成后进度面板切到安装提示（跟随界面语言）'
+    Assert ($progressText -notmatch '[\u4e00-\u9fff]') "英文界面下下载进度面板无中文回落（language=$progressLang）"
+}
 
 # ---------- 6. Shell 集成验证（空格键链路：Explorer 选区读取） ----------
 Write-Host "== 8/9 Shell 集成验证 ==" -ForegroundColor Cyan

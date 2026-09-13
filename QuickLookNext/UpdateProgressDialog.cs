@@ -17,6 +17,7 @@
 
 using QuickLook.Common.Helpers;
 using System;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -167,12 +168,12 @@ internal sealed class UpdateProgressDialog : Window
         {
             var fraction = Math.Clamp((double)received / total.Value, 0, 1);
             _fill.Width = width * fraction;
-            _detail.Text = $"{fraction * 100:0}%  ·  {Megabytes(received)} / {Megabytes(total.Value)} MB";
+            _detail.Text = $"{fraction * 100:0}%  ·  {Size(received)} / {Size(total.Value)}";
         }
         else
         {
             _fill.Width = width;
-            _detail.Text = $"{Megabytes(received)} MB";
+            _detail.Text = Size(received);
         }
     }
 
@@ -242,7 +243,7 @@ internal sealed class UpdateProgressDialog : Window
                 File.WriteAllText(Path.Combine(smokeDir, "update-progress.txt"),
                     $"title={Title}\nbackdrop={DiagnoseBackdrop()}\n" +
                     $"size={ActualWidth:0}x{ActualHeight:0}\ndetail={_detail.Text}\n" +
-                    $"status={_status.Text}\n");
+                    $"status={_status.Text}\nlanguage={CultureInfo.CurrentUICulture.Name}\n");
             }
             catch
             {
@@ -356,5 +357,13 @@ internal sealed class UpdateProgressDialog : Window
     private Color GetTintColor()
         => _isDark ? Color.FromRgb(0x2A, 0x24, 0x20) : Color.FromRgb(0xF8, 0xF6, 0xF4);
 
-    private static double Megabytes(long bytes) => bytes / 1024d / 1024d;
+    /// <summary>
+    /// v5.0.1: "12.3 MB", never the full double the progress arithmetic produces
+    /// (it used to read like "60.12675467123377 MB"). Small values stay in KB so the
+    /// first moments of a download still show movement.
+    /// </summary>
+    private static string Size(long bytes)
+        => bytes < 1024L * 1024L
+            ? $"{bytes / 1024d:0} KB"
+            : $"{bytes / 1024d / 1024d:0.0} MB";
 }
