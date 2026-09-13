@@ -25,13 +25,30 @@ internal static class ThemePalette
     private static readonly Brush DarkSeparator = Create("#14FFFFFF");
     private static readonly Brush LightBorder = Create("#26000000");
     private static readonly Brush DarkBorder = Create("#26FFFFFF");
-    // v5.0.2: the menu surfaces are back on WCA acrylic with the double tint they used
-    // before 5.0.0 - accent 30% (MenuSurface.TintOpacity) under these brushes. 5.0.0's
-    // host backdrop wanted the alpha taken down to #38/#33 (~20%) to let the blur show
-    // through, but that left the surface ~30% opaque, i.e. the wallpaper went straight
-    // through the menu. #8C (55%) dark / #B8 (72%) light put the material back.
-    private static readonly Brush LightTint = Create("#B8F8F6F4");
-    private static readonly Brush DarkTint = Create("#8C20242A");
+    // The menu surface is WCA acrylic (see MenuSurface) under a double tint: the accent
+    // tint at MenuSurface.TintOpacity over a brush at TintBrushAlpha. The two layers
+    // multiply, so the surface ends up at
+    //     effective opacity = 1 - (1 - accentOpacity) * (1 - brushAlpha)
+    // Tuning history while matching the Windows 11 menu look: the pre-5.0.0 acrylic was
+    // #8C/#B8 at 30% accent (~70%/80% effective, "milky"), 5.0.0's host backdrop used
+    // #38/#33 at 12% accent (~30%, read as fully transparent), then #24/#49/#92/#B8/#DB
+    // were measured in turn. A blue-teal base (#0C2A3A at 90%) was tried and dropped - it
+    // looked like TranslucentTB's own theme colour rather than this app's neutral material.
+    // v5.0.3: settled on ~30% effective (accent 30%, brush 0%), i.e. the composite opacity
+    // 5.0.0's host backdrop had, but back on WCA acrylic and on the original neutral
+    // colours. Measured with the menu at one fixed spot, surface luminance over the bright
+    // wallpaper (L~117) as the opacity went up: 10% -> 113, 20% -> 104, 30% -> 96,
+    // 40% -> 87, 60% -> 70, 90% -> ~52 (a dark panel). 30% keeps the wallpaper readable
+    // through the panel while the menu still reads as a surface rather than clear glass.
+    private const byte TintBrushAlpha = 0x00;
+    private static readonly Color LightTintColor = Color.FromRgb(0xF8, 0xF6, 0xF4);
+    private static readonly Color DarkTintColor = Color.FromRgb(0x20, 0x24, 0x2A);
+
+    /// <summary>The tint colour the accent policy and the panel brush both paint.</summary>
+    internal static Color TintColor(bool isDark) => isDark ? DarkTintColor : LightTintColor;
+
+    private static readonly Brush LightTint = CreateTint(LightTintColor);
+    private static readonly Brush DarkTint = CreateTint(DarkTintColor);
     private static readonly Brush LightButtonBg = Create("#14000000");
     private static readonly Brush DarkButtonBg = Create("#14FFFFFF");
     private static readonly Brush LightButtonHover = Create("#24000000");
@@ -106,6 +123,13 @@ internal static class ThemePalette
     private static Brush Create(string hex)
     {
         var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Brush CreateTint(Color color)
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(TintBrushAlpha, color.R, color.G, color.B));
         brush.Freeze();
         return brush;
     }

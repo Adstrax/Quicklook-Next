@@ -27,16 +27,27 @@ namespace QuickLookNext.Helpers;
 /// it keeps the WCA acrylic it has always used.
 /// <para>
 /// v5.0.2: the original recipe, WCA acrylic (ACCENT_ENABLE_ACRYLICBLURBEHIND) plus the
-/// app's own double tint - an accent tint at 30% (<see cref="TintOpacity"/>) under a
-/// brush at 55% dark / 72% light (see ThemePalette.Tint), about 70% opacity in dark mode.
+/// app's own double tint - the accent tint at 30% (<see cref="TintOpacity"/>) under a
+/// panel brush (see ThemePalette.Tint). v5.0.3 settled the pair at a ~30% surface: the
+/// accent tint alone, with the brush contributing no extra coverage.
 /// </para>
 /// <para>
 /// 5.0.0 had switched these four surfaces to the Windows 11 host backdrop
 /// (ACCENT_ENABLE_HOSTBACKDROP, accent state 5) and taken both tint layers down with it
 /// (accent 12% + a ~20% brush, ~30% opacity). On screen the menu then read as a fully
 /// transparent pane - the wallpaper went straight through and the surface stopped looking
-/// like a material at all. 5.0.1 kept that recipe; v5.0.2 puts the acrylic and its tint
-/// back.
+/// like a material at all. 5.0.1 kept that recipe, v5.0.2 put the acrylic back, and
+/// v5.0.3 re-tuned the opacity on top of it.
+/// </para>
+/// <para>
+/// The alternative worth recording: DWM's own Desktop Acrylic
+/// (DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW, "the effect for transient
+/// windows, also known as Background Acrylic") renders as a flat fallback colour on these
+/// WPF windows - measured on both the tray menu (also when forced to the foreground) and
+/// the plugin manager. The real material is composited by the composition/XAML stack
+/// (DesktopAcrylicController + a composition target, as PowerToys' always-active backdrop
+/// does), which a plain WPF window does not have; that is why these surfaces keep using
+/// WCA acrylic.
 /// </para>
 /// </summary>
 internal static class MenuSurface
@@ -51,9 +62,9 @@ internal static class MenuSurface
     /// </summary>
     internal static bool Apply(Window window, bool isDark)
     {
-        var tint = isDark
-            ? Color.FromRgb(0x2A, 0x24, 0x20)
-            : Color.FromRgb(0xF8, 0xF6, 0xF4);
+        // One definition for both layers: the accent tint and ThemePalette.Tint are the
+        // same colour, only the alphas differ (see ThemePalette for the recipe).
+        var tint = ThemePalette.TintColor(isDark);
 
         WindowHelper.DisableDwmBlur(window); // clears a previous material, restores corners
         return WindowHelper.EnableAcrylicBlur(window, tint, isDark, TintOpacity);
