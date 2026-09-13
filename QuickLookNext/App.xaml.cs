@@ -300,6 +300,48 @@ public partial class App : Application
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
+        // Hidden test hook (/test-update-now): runs the real "update now" path for
+        // the fake release - progress panel, download, install, restart - so the
+        // download UI can be verified against an actual package.
+        if (e.Args.Contains("/test-update-now"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    var fakePath = Path.Combine(SmokeDir, "fake-release.json");
+                    var release = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(fakePath));
+                    // Like the real path (AskAndUpdate): the download runs on a
+                    // background thread so the progress panel stays responsive.
+                    _ = Task.Run(() => Updater.UpdateNowForTest(release));
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/test-update-now failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
+        // Hidden test hook (/test-update-progress): shows the download panel and
+        // feeds it a fake download, so the smoke test can check the material and the
+        // progress without pulling 62 MB from GitHub.
+        if (e.Args.Contains("/test-update-progress"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    var dialog = UpdateProgressDialog.Show("9.9.9");
+                    dialog.Show();
+                    dialog.RunSmokeTestHook();
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/test-update-progress failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         if (e.Args.Contains("/test-auto-update"))
         {
             Dispatcher.BeginInvoke(new Action(() =>

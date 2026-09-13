@@ -2,6 +2,37 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.43.0
+
+### 更新体验（下载进度）
+
+- 以前点「立即更新」只有一条通知，之后 62MB 的下载过程没有任何提示，下载完应用突然
+  退出重启 —— 慢网下很容易以为卡死。现在下载期间显示与更新提示同一套材质（非分层
+  WCA Acrylic）的进度面板：版本号、进度条、百分比与「已下载 / 总体积」、
+  「下载完成后会自动安装并重启」，完成后切成「下载完成，正在安装并重启…」
+- 面板上可以**取消**（按钮或 Esc）：取消即中止下载、保留当前版本、不做任何替换，
+  并提示「已取消更新，仍在使用当前版本。」（取消不再被当成失败）
+- 进度上报做了节流（约 10 次/秒），62MB 的下载不会用调度器操作淹没 UI 线程
+- 长度未知时（服务端不报 Content-Length）自动降级为「正在下载… + 已下载体积」
+
+### 文档（使用说明.txt）
+
+- 随包分发的使用说明从 4 条扩到完整说明：更新怎么用（自动检查 / 立即更新 /
+  忽略更新 / 更新失败看 `%TEMP%\QuickLookNext-update.log`）、数据与日志位置
+  （`UserData\QuickLookNext.config`、`QuickLookNext.Exception.log`、
+  `plugin-usage.json`），以及三个可选开关（`WarmUpPreviewFamilies`、
+  `WarmUpFamilyCount`、`WebView2IdleTimeoutSeconds`）的写法与代价
+
+## QuickLook-Next 3.42.1
+
+### 测试（性能与内存基线）
+
+- 冒烟测试新增第 6 步：启动后立刻测量**第一次预览**的耗时（图片 / 文本 / Markdown），
+  写入 `ql-smoke\baseline.txt`，超过 1000ms 判失败（正常 100–350ms，WMI 那次回归是
+  1.2–1.8s）；`Scripts\measure-preview.ps1` 增加 `-Memory` 开关
+- 程序行为无变化，仅核查记录：WebView2 空闲回收正常（关闭预览后 Chromium 很快退出），
+  使用后常驻内存不是泄漏（第三次 Office 起持平，GC 正常）
+
 ## QuickLook-Next 3.42.0
 
 ### 优化（每类格式的第一次预览）

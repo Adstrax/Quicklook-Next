@@ -435,6 +435,18 @@ Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process 
 Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托盘菜单相同的 Acrylic 材质'
 Assert ($dialogText -match 'update=.*;ignore=') '更新对话框包含 立即更新 / 忽略更新 两个按钮'
 
+# v3.43.0: 下载进度面板 —— 同一套材质 + 进度真的在走 + 完成后切到「正在安装」。
+$progressDiag = Join-Path $smoke 'update-progress.txt'
+Remove-Item -LiteralPath $progressDiag -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath $exe -ArgumentList '/test-update-progress'
+for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $progressDiag); $i++) { Start-Sleep -Milliseconds 300 }
+$progressText = if (Test-Path -LiteralPath $progressDiag) { Get-Content -LiteralPath $progressDiag -Raw } else { '' }
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
+
+Assert ($progressText -match 'accent-applied=True') '下载进度面板使用相同的 Acrylic 材质'
+Assert ($progressText -match 'detail=100%.*MB') '下载进度面板显示了进度与已下载体积'
+Assert ($progressText -match 'status=.*安装') '下载完成后进度面板切到安装提示'
+
 # ---------- 6. Shell 集成验证（空格键链路：Explorer 选区读取） ----------
 Write-Host "== 8/9 Shell 集成验证 ==" -ForegroundColor Cyan
 $shellProbe = @"

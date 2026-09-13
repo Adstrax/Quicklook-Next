@@ -26,6 +26,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -33,6 +34,22 @@ namespace QuickLookNext.Helpers;
 
 internal class Updater
 {
+    /// <summary>
+    /// v3.43.0: how an update attempt ended. <see cref="Cancelled"/> is the user
+    /// saying no (or closing the progress panel), which is not a failure and must not
+    /// be reported as one.
+    /// </summary>
+    private enum UpdateOutcome
+    {
+        Installed,
+        Cancelled,
+        Unavailable,
+        Failed,
+    }
+
+    /// <summary>v3.43.0: download progress, in bytes.</summary>
+    internal readonly record struct DownloadProgress(long Received, long? Total);
+
     // v3.31.0: refuse obviously oversized packages before writing them to disk.
     private const long MaxPackageBytes = 400L * 1024 * 1024;
 
@@ -196,20 +213,52 @@ internal class Updater
     /// <summary>
     /// v3.35.0: downloads and installs the release, then exits so the update script
     /// can replace the files. Runs on a background thread.
+    /// <para>
+    /// v3.43.0: the user watches this happen - the download reports its progress to
+    /// <see cref="UpdateProgressDialog"/>, and cancelling it (the panel's button or
+    /// Esc) abandons the download and leaves the running version alone.
+    /// </para>
     /// </summary>
     private static void RunUpdate(JObject release, string version)
     {
-        Application.Current.Dispatcher.Invoke(() =>
-            TrayIconManager.ShowNotification(string.Empty,
-                string.Format(
-                    TranslationHelper.Get("Update_AutoDownloading",
-                        failsafe: "发现新版本 {0}，正在自动下载并更新..."),
-                    version),
-                timeout: 20000));
+        var cancellation = new CancellationTokenSource();
+        UpdateProgressDialog dialog = null;
+        IProgress<DownloadProgress> progress = null;
 
-        if (TryAutoUpdate(release))
+        Application.Current.Dispatcher.Invoke(() =>
         {
-            Application.Current.Dispatcher.Invoke(() => Application.Current.Shutdown());
+            // Built on the UI thread so the progress callbacks marshal to it.
+            progress = new Progress<DownloadProgress>(p => dialog?.Report(p.Received, p.Total));
+
+            dialog = UpdateProgressDialog.Show(version, cancellation.Cancel);
+            dialog.Show();
+        });
+
+        var outcome = TryAutoUpdate(release, progress, cancellation.Token);
+
+        if (outcome == UpdateOutcome.Installed)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                dialog?.SetStatus(TranslationHelper.Get("Update_Installing",
+                    failsafe: "下载完成，正在安装并重启…"));
+
+                // Give the panel a moment to paint the final state before the app
+                // goes away - the file swap happens after this process exits.
+                Application.Current.Shutdown();
+            });
+
+            return;
+        }
+
+        Application.Current.Dispatcher.Invoke(() => dialog?.CloseSafely());
+
+        if (outcome == UpdateOutcome.Cancelled)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+                TrayIconManager.ShowNotification(string.Empty,
+                    TranslationHelper.Get("Update_Cancelled",
+                        failsafe: "已取消更新，仍在使用当前版本。")));
             return;
         }
 
@@ -233,7 +282,8 @@ internal class Updater
     /// cannot start.
     /// Returns false (without shutting down) when auto-update is impossible.
     /// </summary>
-    private static bool TryAutoUpdate(JObject release)
+    private static UpdateOutcome TryAutoUpdate(JObject release,
+        IProgress<DownloadProgress> progress = null, CancellationToken cancellation = default)
     {
         try
         {
@@ -255,17 +305,25 @@ internal class Updater
             }
 
             if (string.IsNullOrEmpty(downloadUrl))
-                return false;
+            {
+                // v3.43.0: these give up quietly, which made "the update does
+                // nothing" impossible to diagnose from the log.
+                ProcessHelper.WriteLog($"Auto update unavailable: release {tag} has no QuickLook-Next-*.zip asset");
+                return UpdateOutcome.Unavailable;
+            }
 
             if (!IsTrustedDownloadUrl(downloadUrl))
             {
                 ProcessHelper.WriteLog($"Auto update refused: untrusted download URL ({downloadUrl})");
-                return false;
+                return UpdateOutcome.Unavailable;
             }
 
             var appDir = App.AppPath;
             if (string.IsNullOrEmpty(appDir) || !IsWritable(appDir))
-                return false;
+            {
+                ProcessHelper.WriteLog($"Auto update unavailable: cannot write to the app folder ({appDir})");
+                return UpdateOutcome.Unavailable;
+            }
 
             var workDir = Path.Combine(Path.GetTempPath(), "QuickLookNext.Update");
 
@@ -285,9 +343,9 @@ internal class Updater
             if (Directory.Exists(extractDir))
                 Directory.Delete(extractDir, recursive: true);
 
-            var sha256 = DownloadPackage(downloadUrl, zipPath);
+            var sha256 = DownloadPackage(downloadUrl, zipPath, progress, cancellation);
             if (sha256 == null)
-                return false;
+                return UpdateOutcome.Cancelled;
 
             ZipFile.ExtractToDirectory(zipPath, extractDir);
 
@@ -300,7 +358,7 @@ internal class Updater
                  !File.Exists(Path.Combine(extractDir, "lib", "QuickLook.Common.dll"))))
             {
                 ProcessHelper.WriteLog("Auto update refused: package does not look like a QuickLook-Next build");
-                return false;
+                return UpdateOutcome.Failed;
             }
 
             File.WriteAllText(logPath,
@@ -319,12 +377,18 @@ internal class Updater
                 WindowStyle = ProcessWindowStyle.Hidden,
             });
 
-            return true;
+            return UpdateOutcome.Installed;
+        }
+        catch (OperationCanceledException)
+        {
+            ProcessHelper.WriteLog("Auto update cancelled by the user");
+            return UpdateOutcome.Cancelled;
         }
         catch (Exception e)
         {
             Debug.WriteLine($"Auto update failed: {e}");
-            return false;
+            ProcessHelper.WriteLog($"Auto update failed: {e}");
+            return UpdateOutcome.Failed;
         }
     }
 
@@ -334,6 +398,14 @@ internal class Updater
     /// download was rejected.
     /// </summary>
     private static string DownloadPackage(string url, string targetPath)
+        => DownloadPackage(url, targetPath, null, default);
+
+    /// <summary>
+    /// v3.43.0: same download, but reporting progress and honouring cancellation.
+    /// Returns null when the download was cancelled.
+    /// </summary>
+    private static string DownloadPackage(string url, string targetPath,
+        IProgress<DownloadProgress> progress, CancellationToken cancellation)
     {
         using var download = CreateHttpClient(TimeSpan.FromMinutes(5));
         using var response = download
@@ -350,10 +422,12 @@ internal class Updater
             return null;
         }
 
+        progress?.Report(new DownloadProgress(0, declaredLength));
+
         using (var content = response.Content.ReadAsStream())
         using (var file = File.Create(targetPath))
         {
-            CopyWithLimit(content, file, MaxPackageBytes);
+            CopyWithLimit(content, file, MaxPackageBytes, declaredLength, progress, cancellation);
         }
 
         using var package = File.OpenRead(targetPath);
@@ -362,20 +436,36 @@ internal class Updater
         return Convert.ToHexString(sha.ComputeHash(package));
     }
 
-    private static void CopyWithLimit(Stream source, Stream destination, long limit)
+    private static void CopyWithLimit(Stream source, Stream destination, long limit,
+        long? declaredLength, IProgress<DownloadProgress> progress, CancellationToken cancellation)
     {
         var buffer = new byte[81920];
         long total = 0;
+        var reportedAt = 0L;
+        var watch = Stopwatch.StartNew();
         int read;
 
         while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
         {
+            cancellation.ThrowIfCancellationRequested();
+
             total += read;
             if (total > limit)
                 throw new InvalidDataException($"Update package exceeds the {limit} byte limit");
 
             destination.Write(buffer, 0, read);
+
+            // Report at most ~10 times a second: the panel only shows whole
+            // percentages, and a 62 MB download would otherwise flood the UI thread
+            // with one dispatcher operation per 80 KB chunk.
+            if (progress != null && watch.ElapsedMilliseconds - reportedAt >= 100)
+            {
+                reportedAt = watch.ElapsedMilliseconds;
+                progress.Report(new DownloadProgress(total, declaredLength));
+            }
         }
+
+        progress?.Report(new DownloadProgress(total, declaredLength));
     }
 
     /// <summary>
@@ -496,7 +586,8 @@ internal class Updater
     /// Test hook for the auto-update pipeline: feeds a (possibly fake) release
     /// object into the same download/install path used by CheckForUpdates.
     /// </summary>
-    internal static bool RunAutoUpdate(JObject release) => TryAutoUpdate(release);
+    internal static bool RunAutoUpdate(JObject release)
+        => TryAutoUpdate(release) == UpdateOutcome.Installed;
 
     /// <summary>
     /// v3.40.0: tells the user how the last update went.
@@ -572,6 +663,14 @@ internal class Updater
         var version = (string)release["tag_name"] ?? "0.0.0";
         AskAndUpdate(release, version);
     }
+
+    /// <summary>
+    /// v3.43.0 test hook: runs the whole "update now" path for a (possibly fake)
+    /// release - progress panel, download, install, restart - which is what the
+    /// panel and the cancellation handling need to be verified against.
+    /// </summary>
+    internal static void UpdateNowForTest(JObject release)
+        => RunUpdate(release, (string)release["tag_name"] ?? "0.0.0");
 
     private static JObject DownloadJson(string url)
     {

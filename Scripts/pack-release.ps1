@@ -214,6 +214,8 @@ Set-Content -LiteralPath (Join-Path $package 'portable.lock') `
     -Value 'This file makes QuickLook-Next portable.' -Encoding ASCII
 
 # v3.20.0: 首次使用说明（尤其是 .NET 运行时依赖），随包一起分发
+# v3.43.0: 补上「更新怎么用 / 出问题看哪里 / 两个可选开关」，这些以前只在代码
+# 注释和提交信息里，用户看不到。
 $firstRunNote = @'
 QuickLook-Next 使用说明
 
@@ -223,6 +225,33 @@ QuickLook-Next 使用说明
    如果启动时提示缺少运行时，点击提示窗口中的下载按钮安装，然后重新打开。
    下载地址：https://dotnet.microsoft.com/download/dotnet/10.0
 4. 便携模式：数据目录跟随本文件夹（UserData），可整体移动。
+
+更新
+----------------------------------------
+* 程序每天自动检查一次更新；也可以右键托盘图标 →「检查更新…」手动检查。
+* 发现新版本后会询问「立即更新 / 忽略更新」：
+  - 立即更新：显示下载进度（可取消），下载完成后自动退出、替换文件并重启；
+  - 忽略更新：这个版本不再打扰，下次手动检查时仍会再问一次。
+* 更新只替换程序文件，UserData（设置、插件、缓存）不会被改动。
+* 更新失败：程序下次启动会弹通知说明原因，详情见
+  %TEMP%\QuickLookNext-update.log；也可以直接到发布页手动下载 zip 覆盖安装。
+
+数据与日志
+----------------------------------------
+* 设置：UserData\QuickLookNext.config（各插件设置在 UserData\QuickLook*.config）
+* 出错日志：UserData\QuickLookNext.Exception.log（排查问题时最有用）
+* 预览使用统计：UserData\plugin-usage.json（仅本地，用于决定预热哪些格式）
+
+可选开关（写在 UserData\QuickLookNext.config 的 <Settings> 里）
+----------------------------------------
+* <WarmUpPreviewFamilies>false</WarmUpPreviewFamilies>
+  关闭「启动后台预热常用格式」。关掉可省约 20-25MB 内存，
+  代价是每类格式第一次预览慢约 90ms。默认 true。
+* <WarmUpFamilyCount>3</WarmUpFamilyCount>
+  预热几个格式（默认 2，按使用统计选最常用的几个）。
+* <WebView2IdleTimeoutSeconds>60</WebView2IdleTimeoutSeconds>
+  网页类预览（Markdown / HTML / Office）空闲多少秒后回收 Chromium 内存，
+  默认 300，设为 0 表示一直保留。
 '@
 Set-Content -LiteralPath (Join-Path $package '使用说明.txt') `
     -Value $firstRunNote -Encoding UTF8
