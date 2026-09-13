@@ -251,7 +251,8 @@ if ($env:QL_SMOKE_CI -eq '1') {
 }
 else {
     Assert ($dwmDiag -match 'accent-applied=True') '托盘菜单材质已应用（WCA 调用成功）'
-# v5.0.0: 菜单类界面优先使用 Win11 host backdrop，失败时回退 WCA acrylic。
+# v5.0.2: 菜单类界面回到 WCA acrylic。这条断言只要求「确实报告了一种材质」，
+# 防止哪天又退化成完全没有材质（host-backdrop 是 5.0.0/5.0.1 用过的，正则保留兼容）。
 Assert ($dwmDiag -match 'material=(host-backdrop|acrylic)') '托盘菜单报告了所用的材质'
 }
 Assert ($dwmDiag -match 'more-menu-opened=true') 'More 菜单复用同一 Acrylic 菜单路径'

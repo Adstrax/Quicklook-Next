@@ -169,21 +169,10 @@ public static class WindowHelper
 Marshal.FreeHGlobal(accentPtr);
 }
 
+    // v5.0.2: ACCENT_ENABLE_HOSTBACKDROP (accent state 5) was tried in 5.0.0/5.0.1 for the
+    // menu surfaces and read as a fully transparent pane on screen; the helper for it is
+    // gone again and every surface paints this acrylic.
     public static bool EnableAcrylicBlur(Window window, Color tintColor, bool isDarkTheme, double tintOpacity = 0.7d)
-        => EnableAccentBlur(window, tintColor, isDarkTheme, tintOpacity,
-            AccentState.AccentEnableAcrylicblurbehind);
-
-    /// <summary>
-    /// v5.0.0: ACCENT_ENABLE_HOSTBACKDROP (5). TranslucentTB documents this state as
-    /// "allows desktop apps to use Compositor.CreateHostBackdropBrush", i.e. the
-    /// backdrop the Windows 11 menus are made of, rather than the WCA acrylic the app
-    /// has been painting itself. Everything else is the same recipe as the acrylic.
-    /// </summary>
-    public static bool EnableHostBackdropBlur(Window window, Color tintColor, bool isDarkTheme, double tintOpacity = 0.3d)
-        => EnableAccentBlur(window, tintColor, isDarkTheme, tintOpacity, (AccentState)5);
-
-    private static bool EnableAccentBlur(Window window, Color tintColor, bool isDarkTheme,
-        double tintOpacity, AccentState state)
     {
         window.Background = Brushes.Transparent;
 
@@ -207,7 +196,7 @@ Marshal.FreeHGlobal(accentPtr);
 
         var accent = new AccentPolicy();
         var accentStructSize = Marshal.SizeOf(accent);
-        accent.AccentState = state;
+        accent.AccentState = AccentState.AccentEnableAcrylicblurbehind;
         accent.GradientColor = ToAbgr(tintColor, tintOpacity);
 
         var accentPtr = Marshal.AllocHGlobal(accentStructSize);

@@ -25,12 +25,13 @@ internal static class ThemePalette
     private static readonly Brush DarkSeparator = Create("#14FFFFFF");
     private static readonly Brush LightBorder = Create("#26000000");
     private static readonly Brush DarkBorder = Create("#26FFFFFF");
-    // v5.0.0: the menu surfaces moved to the Windows 11 host backdrop (see
-    // MenuSurface), which is far more transparent than the old double tinted acrylic
-    // - the brush alpha had to come down with it, otherwise the material is hidden
-    // behind ~75% of flat colour. Measured against the real Windows 11 menu.
-    private static readonly Brush LightTint = Create("#38F8F6F4");
-    private static readonly Brush DarkTint = Create("#3320242A");
+    // v5.0.2: the menu surfaces are back on WCA acrylic with the double tint they used
+    // before 5.0.0 - accent 30% (MenuSurface.TintOpacity) under these brushes. 5.0.0's
+    // host backdrop wanted the alpha taken down to #38/#33 (~20%) to let the blur show
+    // through, but that left the surface ~30% opaque, i.e. the wallpaper went straight
+    // through the menu. #8C (55%) dark / #B8 (72%) light put the material back.
+    private static readonly Brush LightTint = Create("#B8F8F6F4");
+    private static readonly Brush DarkTint = Create("#8C20242A");
     private static readonly Brush LightButtonBg = Create("#14000000");
     private static readonly Brush DarkButtonBg = Create("#14FFFFFF");
     private static readonly Brush LightButtonHover = Create("#24000000");

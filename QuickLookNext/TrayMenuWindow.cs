@@ -597,8 +597,7 @@ internal sealed class TrayMenuWindow : Window
         // blur with the borderless window, so there is no square frosted
         // frame and no native frame shadow around the menu.
         WindowHelper.DisableDwmBlur(this);
-        Helpers.MenuSurface.Apply(this, _isDark);
-        _accentApplied = true;
+        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark);
     }
 
     private Color GetTintColor()

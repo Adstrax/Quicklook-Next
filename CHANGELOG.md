@@ -2,6 +2,25 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 5.0.2
+
+### 界面材质：菜单类界面回到原来的 WCA acrylic
+
+5.0.0 把托盘菜单、插件管理窗口、更新提示和下载进度面板换成了 Windows 11 的 host
+backdrop（`ACCENT_ENABLE_HOSTBACKDROP`），并把两层 tint 一起压低（accent 12% + 画刷
+约 20%，合成不透明度只剩约 30%）。实际观感是菜单几乎全透明——壁纸直接透进来，不再像
+一层材质。
+
+这一版把这四个界面**改回 5.0.0 之前的配方**：
+
+- 材质回到 WCA acrylic（`ACCENT_ENABLE_ACRYLICBLURBEHIND`）
+- tint 恢复成原来的两层：accent 30% + 画刷 55%（深色 `#8C20242A`）／72%（浅色
+  `#B8F8F6F4`），深色下合成约 70% 不透明度
+- `WindowHelper.EnableHostBackdropBlur` 随之删除（不再有调用者）
+- 预览窗口始终未变，继续使用它原来的 WCA acrylic
+
+5.0.1 的更新界面文案与体积显示修复保持不动。
+
 ## QuickLook-Next 5.0.1
 
 ### 更新界面：文案跟随界面语言，体积数字不再是一长串小数

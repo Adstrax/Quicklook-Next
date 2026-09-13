@@ -346,8 +346,7 @@ public partial class PluginManagerWindow : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        Helpers.MenuSurface.Apply(this, _isDark);
-        _accentApplied = true;
+        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark);
     }
 
     private Color GetTintColor()

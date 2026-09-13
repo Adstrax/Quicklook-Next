@@ -297,8 +297,7 @@ internal sealed class UpdateDialog : Window
         // Same pipeline as the tray menu: no DWM backdrop, WCA acrylic instead, so
         // the blur follows the rounded panel and the window has no native frame.
         WindowHelper.DisableDwmBlur(this);
-        Helpers.MenuSurface.Apply(this, _isDark);
-        _accentApplied = true;
+        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark);
     }
 
     private Color GetTintColor()
