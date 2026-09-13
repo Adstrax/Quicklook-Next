@@ -255,7 +255,7 @@ internal sealed class UpdateProgressDialog : Window
         timer.Start();
     }
 
-    internal string DiagnoseBackdrop() => $"accent-applied={_accentApplied}";
+    internal string DiagnoseBackdrop() => $"accent-applied={_accentApplied} {Helpers.MenuSurface.Diagnose()}";
 
     private FrameworkElement BuildContent()
     {
@@ -349,7 +349,8 @@ internal sealed class UpdateProgressDialog : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = WindowHelper.EnableAcrylicBlur(this, GetTintColor(), _isDark, 0.3d);
+        Helpers.MenuSurface.Apply(this, _isDark);
+        _accentApplied = true;
     }
 
     private Color GetTintColor()

@@ -154,7 +154,7 @@ internal sealed class UpdateDialog : Window
         timer.Start();
     }
 
-    internal string DiagnoseBackdrop() => $"accent-applied={_accentApplied}";
+    internal string DiagnoseBackdrop() => $"accent-applied={_accentApplied} {Helpers.MenuSurface.Diagnose()}";
 
     private string _buttonLabels = string.Empty;
 
@@ -293,7 +293,8 @@ internal sealed class UpdateDialog : Window
         // Same pipeline as the tray menu: no DWM backdrop, WCA acrylic instead, so
         // the blur follows the rounded panel and the window has no native frame.
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = WindowHelper.EnableAcrylicBlur(this, GetTintColor(), _isDark, 0.3d);
+        Helpers.MenuSurface.Apply(this, _isDark);
+        _accentApplied = true;
     }
 
     private Color GetTintColor()

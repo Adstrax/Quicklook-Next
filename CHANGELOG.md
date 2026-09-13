@@ -2,6 +2,34 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 5.0.0
+
+### 界面材质：菜单类界面改用 Windows 11 的 host backdrop
+
+托盘菜单以前看起来和 Win11 右键菜单不一样，原因是材质不同：
+
+- 我们用的是 **WCA acrylic**（`ACCENT_ENABLE_ACRYLICBLURBEHIND`）+ 自己叠的 tint，
+  而且叠了两层（accent 约 30% + 画刷约 55%），所以壁纸几乎透不出来、发白发平；
+- Win11 的右键菜单用的是系统材质，模糊更柔、壁纸颜色明显透出来。
+
+这次改用 `ACCENT_ENABLE_HOSTBACKDROP`（accent state 5）——TranslucentTB 在
+`Common/undoc/user32.hpp` 里的注释是"allows desktop apps to use
+Compositor.CreateHostBackdropBrush"，也就是 Win11 菜单所用的那层。关键是：**它在
+不抢焦点的窗口上也能渲染**（DWM 的 SystembackdropType 在非激活窗口上会变成纯色，
+这也是预览窗口当年只能用 WCA 的原因）。同时把 tint 降下来（accent 12% + 画刷约
+20%），壁纸才真正透得出来。
+
+- 生效范围：**托盘菜单、插件管理窗口、更新提示、下载进度面板**
+- **预览窗口保持不变**（继续用 WCA acrylic，它是唯一在非聚焦下验证过可用的方案）
+- 不支持 host backdrop 的系统（Win10、Win11 21H2 及更早）自动回退到原来的 WCA
+  acrylic；回退路径只是 tint 更淡，依然是同一套配方
+- 冒烟测试新增断言：各菜单界面必须报告实际使用的材质（`material=host-backdrop`
+  或 `material=acrylic`），避免以后静默退化成"没有材质"
+
+实验依据：并排渲染四个候选（WCA / DWM backdrop 3 / DWM backdrop 6 / DWM + 原生窗框
+激活与否）后，只有状态 5 + 降 tint 的观感与真实菜单一致；四个候选的截图与真实菜单
+对照在开发记录里（`Build/probe-v8-small.png`、`Build/win11-menu-2-small.png`）。
+
 ## QuickLook-Next 3.43.0
 
 ### 更新体验（下载进度）

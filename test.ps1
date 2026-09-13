@@ -250,7 +250,9 @@ if ($env:QL_SMOKE_CI -eq '1') {
     Write-Host 'SKIP: 托盘菜单 Acrylic（CI 环境）' -ForegroundColor Yellow
 }
 else {
-    Assert ($dwmDiag -match 'accent-applied=True') '托盘菜单 Acrylic 已应用（WCA 调用成功）'
+    Assert ($dwmDiag -match 'accent-applied=True') '托盘菜单材质已应用（WCA 调用成功）'
+# v5.0.0: 菜单类界面优先使用 Win11 host backdrop，失败时回退 WCA acrylic。
+Assert ($dwmDiag -match 'material=(host-backdrop|acrylic)') '托盘菜单报告了所用的材质'
 }
 Assert ($dwmDiag -match 'more-menu-opened=true') 'More 菜单复用同一 Acrylic 菜单路径'
 Assert ((Get-LogLength) -eq $before) '插件加载无失败（日志零新增）'
@@ -432,7 +434,8 @@ for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $dialogDiag); $i++) { S
 $dialogText = if (Test-Path -LiteralPath $dialogDiag) { Get-Content -LiteralPath $dialogDiag -Raw } else { '' }
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
-Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托盘菜单相同的 Acrylic 材质'
+Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托盘菜单相同的材质'
+Assert ($dialogText -match 'material=(host-backdrop|acrylic)') '更新对话框报告了所用的材质'
 Assert ($dialogText -match 'update=.*;ignore=') '更新对话框包含 立即更新 / 忽略更新 两个按钮'
 
 # v3.43.0: 下载进度面板 —— 同一套材质 + 进度真的在走 + 完成后切到「正在安装」。
@@ -443,7 +446,8 @@ for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $progressDiag); $i++) {
 $progressText = if (Test-Path -LiteralPath $progressDiag) { Get-Content -LiteralPath $progressDiag -Raw } else { '' }
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
-Assert ($progressText -match 'accent-applied=True') '下载进度面板使用相同的 Acrylic 材质'
+Assert ($progressText -match 'accent-applied=True') '下载进度面板使用相同的材质'
+Assert ($progressText -match 'material=(host-backdrop|acrylic)') '下载进度面板报告了所用的材质'
 Assert ($progressText -match 'detail=100%.*MB') '下载进度面板显示了进度与已下载体积'
 Assert ($progressText -match 'status=.*安装') '下载完成后进度面板切到安装提示'
 

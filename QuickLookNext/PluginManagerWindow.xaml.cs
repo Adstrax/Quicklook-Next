@@ -99,7 +99,7 @@ public partial class PluginManagerWindow : Window
     /// Test hook: reports whether the WCA acrylic call succeeded, matching the
     /// tray menu's diagnostics so the smoke test can assert the same backdrop.
     /// </summary>
-    internal string DiagnoseBackdrop() => $"accent-applied={_accentApplied}";
+    internal string DiagnoseBackdrop() => $"accent-applied={_accentApplied} {Helpers.MenuSurface.Diagnose()}";
 
     private void RefreshList()
     {
@@ -346,7 +346,8 @@ public partial class PluginManagerWindow : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = WindowHelper.EnableAcrylicBlur(this, GetTintColor(), _isDark, 0.3d);
+        Helpers.MenuSurface.Apply(this, _isDark);
+        _accentApplied = true;
     }
 
     private Color GetTintColor()
