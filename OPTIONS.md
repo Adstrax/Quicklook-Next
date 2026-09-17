@@ -67,6 +67,16 @@ Example:
 - Example:
   - `<Topmost>True</Topmost>`
 
+### `<PreviewWindowSize>`
+- Default: empty
+- Type: `String` (`<width>x<height>`, in device-independent pixels)
+- Description: The preview window size the user last dragged the window to. Written by the app
+  and used for the next previews, including after a restart; `Reset window size` in the preview's
+  More menu clears it and goes back to the size the current plugin asks for. Values smaller than
+  200x150 or larger than 20000 on either side are ignored.
+- Example:
+  - `<PreviewWindowSize>1280x720</PreviewWindowSize>`
+
 ### `<ShowInTaskbar>`
 - Default: `False`
 - Type: `Boolean`

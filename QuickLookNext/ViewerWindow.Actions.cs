@@ -267,6 +267,13 @@ public partial class ViewerWindow
 
         var newRect = ResizeAndCentreExistingWindow(size);
 
+        // v5.0.4: this resize comes from the plugin (PDF asks for the measured page size),
+        // not from the user. Without the flag the SizeChanged handler would store it as the
+        // user's custom size, so every later preview would come up at whatever size the last
+        // document happened to need.
+        if (Math.Abs(newRect.Width - Width) > 0.5 || Math.Abs(newRect.Height - Height) > 0.5)
+            _ignoreNextWindowSizeChange = true;
+
         this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
     }
 
@@ -518,7 +525,10 @@ public partial class ViewerWindow
         var newSize = new Size(newWidth, newHeight);
 
         // If the user has adjusted the window size, keep it
-        if (_customWindowSize != Size.Empty)
+        // v5.0.4: ...but only for previews that can be resized at all - the audio panel and
+        // the info panel ask for a fixed size (CanResize = false) and must not inherit a
+        // remembered 1920x1080.
+        if (_customWindowSize != Size.Empty && ContextObject.CanResize)
             newSize = _customWindowSize;
 
         return newSize;
@@ -583,6 +593,14 @@ public partial class ViewerWindow
                 Icon = FontSymbols.Copy,
                 Command = CopyPathToClipboard,
             },
+            // v5.0.4: the custom size is remembered now, so there has to be a way back to
+            // the size the current plugin asks for.
+            new()
+            {
+                Header = TranslationHelper.Get("MW_ResetWindowSize", failsafe: "Reset window size"),
+                Icon = FontSymbols.FitPage,
+                Command = ResetWindowSize,
+            },
         };
 
         if (_pluginMoreMenuEntries.Count > 0)
@@ -592,6 +610,23 @@ public partial class ViewerWindow
         }
 
         return entries;
+    }
+
+    /// <summary>
+    /// v5.0.4: drops the remembered custom size and goes back to the size the current plugin
+    /// asks for (the More menu's "Reset window size" entry). The programmatic resize is
+    /// flagged so it does not become the user's new custom size.
+    /// </summary>
+    private void ResetWindowSize()
+    {
+        _customWindowSize = Size.Empty;
+        PersistWindowSize(); // also clears the stored setting
+
+        var target = ComputeWindowSize();
+        if (Math.Abs(target.Width - Width) > 0.5 || Math.Abs(target.Height - Height) > 0.5)
+            _ignoreNextWindowSizeChange = true;
+
+        PositionWindow(target);
     }
 
     private void CopyPathToClipboard()
