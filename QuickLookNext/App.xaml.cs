@@ -300,6 +300,23 @@ public partial class App : Application
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
+        // v5.0.7: /test-data-cache opens the "data & cache" panel, which measures what the app
+        // stores, writes <smokeDir>\data-cache.txt and closes itself again.
+        if (e.Args.Contains("/test-data-cache"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    DataCacheWindow.ShowWindow(smokeMode: true);
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/test-data-cache failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         // Hidden test hook (/test-update-now): runs the real "update now" path for
         // the fake release - progress panel, download, install, restart - so the
         // download UI can be verified against an actual package.

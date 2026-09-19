@@ -244,6 +244,14 @@ internal partial class TrayIconManager : IDisposable
                 Icon = FontSymbols.FolderOpen,
                 Command = () => Process.Start("explorer.exe", SettingHelper.LocalDataPath),
             },
+            new TrayMenuEntry
+            {
+                // v5.0.7: shows how much of the data folder is rebuildable cache and clears it
+                // (upstream #1933).
+                Header = TranslationHelper.Get("Icon_DataCache", failsafe: "Data && cache..."),
+                Icon = FontSymbols.Broom,
+                Command = () => DataCacheWindow.ShowWindow(),
+            },
             TrayMenuEntry.Separator,
             new TrayMenuEntry
             {

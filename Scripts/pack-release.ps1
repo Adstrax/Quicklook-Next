@@ -241,6 +241,9 @@ QuickLook-Next 使用说明
 * 设置：UserData\QuickLookNext.config（各插件设置在 UserData\QuickLook*.config）
 * 出错日志：UserData\QuickLookNext.Exception.log（排查问题时最有用）
 * 预览使用统计：UserData\plugin-usage.json（仅本地，用于决定预热哪些格式）
+* 占用与清理：托盘菜单 →「数据与缓存…」，可以看到数据目录占了多少、一键清理
+  可重建的缓存（WebView2 的着色器/网页缓存、更新残留文件）；登录状态、设置与日志
+  不会被删除。
 
 可选开关（写在 UserData\QuickLookNext.config 的 <Settings> 里）
 ----------------------------------------

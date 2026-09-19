@@ -2,6 +2,31 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 5.0.7
+
+### 数据与缓存：看得见占用，一键清理可重建的缓存（上游 #1933）
+
+托盘菜单新增**「数据与缓存…」**（在「打开数据文件夹」下面），面板显示三行数字：
+
+| 项 | 内容 |
+|---|---|
+| 缓存 | WebView2 的着色器/GPU/网页缓存（`GrShaderCache`、`ShaderCache`、`Default\Cache`、`GPUCache`…）、`BrowserMetrics`、更新残留（`%TEMP%\QuickLookNext.Update`、`QuickLookNext-update.cmd`） |
+| 设置与日志 | 配置、`plugin-usage.json`、`QuickLookNext.Exception.log`，以及 WebView2 profile 里**不是缓存**的部分（Cookies、Local Storage…） |
+| 合计 | 上面两项之和 |
+
+「清理缓存」只删除白名单里的可重建内容，**登录状态、设置、统计与日志一律保留**；正在被占用的文件
+（WebView2 还在跑）不会让清理失败，而是提示"部分文件正在使用，可稍后再清理"。面板还带
+「打开数据文件夹」。顺带：旋转 profile 后遗留的 `WebView2_Data_1` 之类目录，其缓存同样会被清掉，
+但目录本身与里面的数据不动。
+
+本机实测（本地产物）：缓存 11.7 MB + 设置与日志 991.9 KB = 合计 12.7 MB，与目录实测一致。
+
+新增单元测试 `CacheUsageTests`（5 条）：只删白名单、登录数据/设置/日志存活、遗留 profile 的缓存
+被清理但目录保留、文件占用时报告而不抛异常、目录不存在时无副作用。测试套件 44/44 通过。
+
+隐藏测试钩子：`/test-data-cache` 会打开面板、把数字写进 `<smokeDir>\data-cache.txt` 后自动关闭
+（供后续冒烟断言使用）。
+
 ## QuickLook-Next 5.0.6
 
 ### 大图保护收尾：坐标空间按"解码尺寸"，不再按"原图尺寸"
