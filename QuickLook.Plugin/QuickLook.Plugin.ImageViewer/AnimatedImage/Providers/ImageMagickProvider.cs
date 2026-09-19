@@ -129,8 +129,11 @@ internal class ImageMagickProvider : AnimationProvider
 
             mi.AutoOrient();
 
-            if (mi.Width != (int)fullSize.Width || mi.Height != (int)fullSize.Height)
-                mi.Resize((uint)fullSize.Width, (uint)fullSize.Height);
+            // v5.0.5: cap very large decodes the same way the WIC path does (some formats -
+            // TIFF/PSD/DICOM/RAW - come through ImageMagick instead).
+            var decodeSize = DecodePixelLimit.Limit(fullSize);
+            if (mi.Width != (int)decodeSize.Width || mi.Height != (int)decodeSize.Height)
+                mi.Resize((uint)decodeSize.Width, (uint)decodeSize.Height);
 
             mi.Density = new Density(DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Horizontal,
                 DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Vertical);

@@ -620,7 +620,6 @@ public partial class ViewerWindow
     private void ResetWindowSize()
     {
         _customWindowSize = Size.Empty;
-        PersistWindowSize(); // also clears the stored setting
 
         var target = ComputeWindowSize();
         if (Math.Abs(target.Width - Width) > 0.5 || Math.Abs(target.Height - Height) > 0.5)

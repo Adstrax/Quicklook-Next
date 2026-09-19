@@ -149,8 +149,11 @@ internal class NativeProvider : AnimationProvider
                 img.UriSource = Path;
                 img.CacheOption = BitmapCacheOption.OnLoad;
                 img.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                img.DecodePixelWidth = (int)(rotate ? fullSize.Height : fullSize.Width);
-                img.DecodePixelHeight = (int)(rotate ? fullSize.Width : fullSize.Height);
+                // v5.0.5: cap the full-resolution decode so a huge image cannot exhaust
+                // memory (see DecodePixelLimit; the aspect ratio is preserved).
+                var decodeSize = DecodePixelLimit.Limit(fullSize);
+                img.DecodePixelWidth = (int)(rotate ? decodeSize.Height : decodeSize.Width);
+                img.DecodePixelHeight = (int)(rotate ? decodeSize.Width : decodeSize.Height);
                 img.EndInit();
 
                 var img2 = ApplyTransformFromExif(img, Meta.GetOrientation());

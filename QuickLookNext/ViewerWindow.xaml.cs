@@ -45,11 +45,6 @@ public partial class ViewerWindow : Window
 {
     private Size _customWindowSize = Size.Empty;
     private bool _ignoreNextWindowSizeChange;
-    // v5.0.4: the user's custom preview size is remembered across runs (issue: "remember
-    // the last size, or a custom size, for video previews"). Writes are debounced - a drag
-    // fires one SizeChanged per frame.
-    private const string WindowSizeKey = "PreviewWindowSize";
-    private DispatcherTimer _windowSizePersistTimer;
     private string _path = string.Empty;
     private FileSystemWatcher _autoReloadWatcher;
     private readonly bool _autoReload;
@@ -121,7 +116,6 @@ public partial class ViewerWindow : Window
         FontFamily = new FontFamily(TranslationHelper.Get("UI_FontFamily", failsafe: "Segoe UI"));
 
         SizeChanged += SaveWindowSizeOnSizeChanged;
-        LoadSavedWindowSize();
 
         StateChanged += (_, _) =>
         {
@@ -246,11 +240,6 @@ public partial class ViewerWindow : Window
 
     public new void Close()
     {
-        // v5.0.4: a resize that is still waiting for its debounce must not be lost when the
-        // preview goes away.
-        if (_windowSizePersistTimer?.IsEnabled == true)
-            PersistWindowSize();
-
         // Workaround to prevent DPI jump animation when closing window in .NET Framework 4.6.2
         // Safe to remove this line if QuickLookNext no longer targets .NET Framework 4.6.2
         Hide();
@@ -586,56 +575,6 @@ public partial class ViewerWindow : Window
 
         // by user?
         _customWindowSize = new Size(Width, Height);
-
-        // v5.0.4: remember it for the next run too. Maximised/fullscreen states are not
-        // sizes the user chose.
-        if (WindowState == WindowState.Normal && !_isFullscreen)
-            ScheduleWindowSizePersist();
-    }
-
-    /// <summary>
-    /// v5.0.4: restores the size the user last dragged the preview window to, so the
-    /// choice survives a restart instead of falling back to whatever size the plugin asks
-    /// for (video previews are sized from the clip's resolution).
-    /// </summary>
-    private void LoadSavedWindowSize()
-    {
-        if (WindowSizeSetting.TryParse(
-                SettingHelper.Get(WindowSizeKey, string.Empty, "QuickLookNext"),
-                out var size))
-        {
-            _customWindowSize = size;
-        }
-    }
-
-    /// <summary>
-    /// v5.0.4: a drag fires SizeChanged for every frame - write the setting once the window
-    /// has settled instead of on every event.
-    /// </summary>
-    private void ScheduleWindowSizePersist()
-    {
-        if (_windowSizePersistTimer == null)
-        {
-            _windowSizePersistTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
-            _windowSizePersistTimer.Tick += (_, _) => PersistWindowSize();
-        }
-
-        _windowSizePersistTimer.Stop();
-        _windowSizePersistTimer.Start();
-    }
-
-    /// <summary>
-    /// v5.0.4: writes the remembered size, or clears the setting when the user reset it
-    /// (see the Reset window size entry in the preview's More menu).
-    /// </summary>
-    private void PersistWindowSize()
-    {
-        _windowSizePersistTimer?.Stop();
-
-        SettingHelper.Set(
-            WindowSizeKey,
-            _customWindowSize == Size.Empty ? string.Empty : WindowSizeSetting.Format(_customWindowSize),
-            "QuickLookNext");
     }
 
     /// <summary>

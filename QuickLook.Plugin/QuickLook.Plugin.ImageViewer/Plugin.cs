@@ -64,6 +64,9 @@ public sealed partial class Plugin : IViewer, IMoreMenu
     private string _currentPath;
     private MetaProvider _meta;
     private bool _active;
+    // v5.0.5: set when the current image is decoded below its real size (see DecodePixelLimit);
+    // used to say so in the title and to collect the big buffers when the preview closes.
+    private bool _decodeLimited;
 
     private IWebImagePanel _ipWeb;
     private IWebMetaProvider _metaWeb;
@@ -323,9 +326,21 @@ public sealed partial class Plugin : IViewer, IMoreMenu
                 context.PendingViewerContent = _ip;
         };
 
+        // v5.0.5: a very large image is decoded below its real size (see DecodePixelLimit) -
+        // say so in the title instead of letting the user wonder why zooming past a point
+        // stops adding detail. The file's real pixel size stays in the title either way.
+        _decodeLimited = !size.IsEmpty && DecodePixelLimit.IsLimited(size);
+        var limitHint = _decodeLimited
+            ? " · " + string.Format(
+                TranslationHelper.Get("Image_PreviewLimited",
+                    failsafe: "scaled preview (limit {0} MP)",
+                    domain: "QuickLook.Plugin.ImageViewer"),
+                DecodePixelLimit.MaxPixels / 1_000_000)
+            : string.Empty;
+
         context.Title = size.IsEmpty
             ? $"{Path.GetFileName(path)}"
-            : $"{size.Width}×{size.Height}: {Path.GetFileName(path)}";
+            : $"{size.Width}×{size.Height}: {Path.GetFileName(path)}{limitHint}";
 
         _ip.ImageUriSource = ImageHelper.FilePathToFileUrl(path);
 
@@ -346,5 +361,14 @@ public sealed partial class Plugin : IViewer, IMoreMenu
 
         _ipWeb?.Dispose();
         _ipWeb = null;
+
+        // v5.0.5: a capped (very large) image leaves hundreds of MB of managed buffers behind,
+        // so collect them now instead of waiting for the next natural collection. Only in that
+        // case - forcing a collection on every preview close would cost latency for nothing.
+        if (_decodeLimited)
+        {
+            _decodeLimited = false;
+            GC.Collect(2, GCCollectionMode.Default, blocking: false, compacting: false);
+        }
     }
 }

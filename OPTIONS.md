@@ -67,16 +67,6 @@ Example:
 - Example:
   - `<Topmost>True</Topmost>`
 
-### `<PreviewWindowSize>`
-- Default: empty
-- Type: `String` (`<width>x<height>`, in device-independent pixels)
-- Description: The preview window size the user last dragged the window to. Written by the app
-  and used for the next previews, including after a restart; `Reset window size` in the preview's
-  More menu clears it and goes back to the size the current plugin asks for. Values smaller than
-  200x150 or larger than 20000 on either side are ignored.
-- Example:
-  - `<PreviewWindowSize>1280x720</PreviewWindowSize>`
-
 ### `<ShowInTaskbar>`
 - Default: `False`
 - Type: `Boolean`
@@ -311,6 +301,17 @@ These keys are also stored in `QuickLookNext.config`.
 - Description: Allow setting of font size used in the text viewer.
 - Example:
   - `<FontSize>13</FontSize>`
+
+### `<MaxDecodePixels>` (image viewer)
+- Default: `40000000` (40 MP)
+- Type: `Integer`
+- Description: Largest image size the image viewer decodes at full resolution. Images above this are
+  scaled down proportionally before decoding (the title shows the file's real pixel size plus a
+  "scaled preview" hint), which keeps very large scans/panoramas from exhausting memory. The preview
+  window still opens at the image's aspect ratio; only sharpness at extreme zoom is affected.
+  Set to `0` to disable the cap (the pre-5.0.5 behaviour).
+- Example:
+  - `<MaxDecodePixels>80000000</MaxDecodePixels>`
 
 ## Notes
 
