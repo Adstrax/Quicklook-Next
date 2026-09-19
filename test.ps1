@@ -226,6 +226,14 @@ Add-XlsxEntry $pptxZip 'ppt/slides/_rels/slide2.xml.rels' '<?xml version="1.0" e
 $pptxZip.Dispose()
 $pptxFs.Dispose()
 
+# v5.0.9: a truncated video for the "unplayable media must not crash the app" guard.
+if (Test-Path -LiteralPath (Join-Path $smoke 'test.mp4')) {
+    $videoBytes = [IO.File]::ReadAllBytes((Join-Path $smoke 'test.mp4'))
+    [IO.File]::WriteAllBytes(
+        (Join-Path $smoke 'test-corrupt.mp4'),
+        $videoBytes[0..([int]($videoBytes.Length * 0.4))])
+}
+
 # ---------- 4. 启动 + 插件加载 ----------
 Write-Host "== 4/9 启动并验证插件加载 ==" -ForegroundColor Cyan
 $before = Get-LogLength
@@ -271,6 +279,14 @@ $previews = @(
 if (Test-Path (Join-Path $smoke 'test.mp4')) {
     $previews += @{ File = 'test.mp4'; Title = 'test.mp4' }
 }
+# v5.0.9: a video the media player cannot open must show an error panel, not take the app
+# down. Found by the 22-sample video matrix (docs/research-video-matrix.md): MediaFailed is
+# raised on WPFMediaKit's own worker thread, and touching the visual tree from there used to
+# kill the process. The entry expects a log line - the failure has to be reported, not
+# silently swallowed - but the process-alive assertion above is the actual guard.
+if (Test-Path (Join-Path $smoke 'test-corrupt.mp4')) {
+    $previews += @{ File = 'test-corrupt.mp4'; Title = 'test-corrupt.mp4'; ExpectLog = $true }
+}
 if (Test-Path (Join-Path $smoke 'test.pdf')) {
     $previews += @{ File = 'test.pdf'; Title = 'test.pdf' }
 }
@@ -301,7 +317,12 @@ foreach ($pv in $previews) {
         $titles = Get-QuickLookNextWindows $p.Id
         Assert (($titles -join ' ') -match [regex]::Escape($pv.Title)) "预览窗口出现: $($pv.Title)"
     }
-    Assert ((Get-LogLength) -eq $before) "预览 $label 无错误（日志零新增）"
+    if ($pv.ExpectLog) {
+        Assert ((Get-LogLength) -gt $before) "预览 $label 报错被记录（可预期：损坏文件）"
+    }
+    else {
+        Assert ((Get-LogLength) -eq $before) "预览 $label 无错误（日志零新增）"
+    }
 
     # v1.2.36: regression guard - the preview window must be centered on the
     # screen that contains it (the off-screen warm-up once broke this).

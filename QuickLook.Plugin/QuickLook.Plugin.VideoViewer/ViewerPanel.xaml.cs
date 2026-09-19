@@ -272,14 +272,28 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     {
         _mediaSettled = true;
 
-        videoThumbnail.Source = null;
-        videoThumbnail.Visibility = Visibility.Collapsed;
-
-        ((MediaUriElement)sender).Dispatcher.BeginInvoke(new Action(() =>
+        // v5.0.9: WPFMediaKit raises this on its own worker thread. The two lines that clear the
+        // thumbnail used to run right here, and touching the visual tree from that thread throws -
+        // on a thread nobody catches, which took the whole process down. Every file whose media
+        // player cannot open (a 0-byte or truncated video, a container with a missing codec)
+        // crashed the app because of it, instead of showing an error. All UI work now happens on
+        // the dispatcher, the user gets a sentence instead of a stack trace, and the details go to
+        // the log.
+        var dispatcher = (sender as MediaUriElement)?.Dispatcher ?? Dispatcher;
+        dispatcher.BeginInvoke(new Action(() =>
         {
+            videoThumbnail.Source = null;
+            videoThumbnail.Visibility = Visibility.Collapsed;
+
+            ProcessHelper.WriteLog($"Video preview failed for \"{mediaElement?.Source}\": {e.Exception}");
+
+            var translationFile = Path.Combine(
+                Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Translations.config");
+
             _context.ViewerContent = new TextBlock()
             {
-                Text = e.Exception.ToString(),
+                Text = TranslationHelper.Get("VV_PlaybackFailed", translationFile,
+                    failsafe: "This video could not be played."),
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center,
             };

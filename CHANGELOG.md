@@ -2,6 +2,37 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 5.0.9
+
+### 修复：打不开的视频会让整个应用崩溃
+
+预览一个"媒体播放器打不开"的视频（损坏文件、0 字节文件、缺少解码器的容器）时，**整个 QuickLook 会直接退出**，
+而不是提示"这个视频打不开"。
+
+原因：`QuickLook.Plugin.VideoViewer.ViewerPanel.MediaFailed` 是 WPFMediaKit 在**自己的工作线程**上回调的，
+而它开头两行就直接改视觉树（清空缩略图）→ 非 UI 线程访问抛 `InvalidOperationException`，异常落在没有捕获的
+工作线程上 → 进程退出。日志里那两条 8 行堆栈（0 字节文件、截断文件）就是它，与上游
+[#1768](https://github.com/QL-Win/QuickLook/issues/1768) "Cannot open videos" 属同一类现象。
+
+现在所有 UI 操作都在窗口 Dispatcher 上执行；用户看到的是一句提示（**"无法播放此视频。"** /
+This video could not be played），完整异常写进日志（不再把原始堆栈贴在面板上）。
+
+### 视频健壮性回归：22 个样本全绿
+
+新增一套可复跑的视频矩阵（用 ffmpeg 生成样本，脚本随仓库）：
+
+- **容器/编码**：MP4、MOV、MKV、AVI、WMV、WebM、TS、FLV、OGV；H.264、H.265（8-bit 与 10-bit）、AV1、
+  VP9+Opus、MPEG-2、WMV2+WMA、Theora+Vorbis
+- **变体**：4K、6 分钟长视频、竖屏 240×320、旋转元数据、可变帧率、无音轨、纯音频（MP3/M4A）、
+  中文+带空格路径、截断文件、0 字节文件
+
+结果：**22/22 全部正常出画面**（299–1422 ms，中位数约 350 ms），**0 崩溃、0 无响应**；两个故意损坏的
+文件优雅报错并写日志。换句话说，上游那几类"视频打不开"的报障（#1768/#1844/#1968）在我们这条
+LAVFilters 路径上没有复现——这正是这次回归的价值：要么抓到 bug（抓到了，见上），要么拿到实测证据。
+
+冒烟测试新增守卫：先把 `test.mp4` 截断成 `test-corrupt.mp4` 再预览，断言**进程存活**且**确实写了错误日志**
+（不需要 ffmpeg）。完整记录与复跑方式见 `docs/research-video-matrix.md`。
+
 ## QuickLook-Next 5.0.8
 
 ### 图片提取文字（OCR，上游 #1608）
