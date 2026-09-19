@@ -122,15 +122,23 @@ internal sealed class UpdateDialog : Window
     }
 
     /// <summary>
-    /// v3.40.0 test hook: when the smoke test set up its directory, close the prompt
-    /// by itself (answering "ignore") and record what it looked like, so test.ps1 can
-    /// assert the material and the layout without clicking.
+    /// v3.40.0 test hook: when the smoke test asked for the prompt, close it by itself
+    /// (answering "ignore") and record what it looked like, so test.ps1 can assert the
+    /// material and the layout without clicking.
+    /// <para>
+    /// v5.0.11: this used to arm itself whenever <c>App.SmokeDir</c> was set - and that
+    /// property is never empty (it falls back to <c>%TEMP%\ql-smoke</c>), so the timer
+    /// closed the real prompt two seconds after it appeared, answering "ignore" on the
+    /// user's behalf. The hook is now tied to the /test-update-prompt switch that runs
+    /// it, and to nothing else.
+    /// </para>
     /// </summary>
     private void RunSmokeTestHook()
     {
-        var smokeDir = App.SmokeDir;
-        if (string.IsNullOrEmpty(smokeDir))
+        if (!App.IsUpdatePromptTestEnabled)
             return;
+
+        var smokeDir = App.SmokeDir;
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2000) };
         timer.Tick += (_, _) =>

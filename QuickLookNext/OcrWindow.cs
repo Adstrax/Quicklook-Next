@@ -19,6 +19,7 @@ using QuickLook.Common.Helpers;
 using QuickLookNext.Helpers;
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -260,9 +261,17 @@ internal sealed class OcrWindow : Window
         try
         {
             Directory.CreateDirectory(App.SmokeDir);
+
+            // v5.0.11: which engine won, and what every other engine answered - the language
+            // choice is what decides the quality, so the run has to be visible.
+            var attempts = string.Join("; ", OcrRecognizer.LastAttempts.Select(a =>
+                $"{a.Language}:score={a.Score},script={a.InScript}/{a.Characters}"));
+
             File.WriteAllText(
                 Path.Combine(App.SmokeDir, "ocr.txt"),
-                $"path={_path}\nstatus={status}\nchars={_result.Length}\ntext={_result.Replace("\r\n", "\n").Replace('\r', '\n')}\n");
+                $"path={_path}\nstatus={status}\nchars={_result.Length}\n" +
+                $"attempts={attempts}\n" +
+                $"text={_result.Replace("\r\n", "\n").Replace('\r', '\n')}\n");
         }
         catch
         {

@@ -205,6 +205,10 @@ public partial class ViewerWindow : Window
 
         buttonMore.Click += (_, _) => ToggleMoreMenu();
 
+        // v5.0.11: the OCR entry moved out of the More menu into the toolbar; it is
+        // shown only while the image viewer owns the preview (see BeginShow).
+        buttonOcr.Click += (_, _) => ExtractText();
+
         // Set UI translations
         buttonTop.ToolTip = TranslationHelper.Get("MW_StayTop");
         buttonPin.ToolTip = TranslationHelper.Get("MW_PreventClosing");
@@ -212,6 +216,7 @@ public partial class ViewerWindow : Window
         buttonShare.ToolTip = TranslationHelper.Get("MW_Share");
         buttonReload.ToolTip = TranslationHelper.Get("MW_Reload", failsafe: "Reload");
         buttonMore.ToolTip = TranslationHelper.Get("MW_More", failsafe: "More");
+        buttonOcr.ToolTip = TranslationHelper.Get("MW_ExtractText", failsafe: "Extract text (OCR)");
     }
 
     /// <summary>

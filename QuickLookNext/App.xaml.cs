@@ -94,6 +94,16 @@ public partial class App : Application
     // 10 s while the session runs (see Helpers/MemoryDiagnostics.cs).
     internal static bool IsMemoryDiagnosticsEnabled { get; private set; }
 
+    // v5.0.11: the update prompt's and the download panel's smoke hooks close the
+    // window by themselves. They used to decide "am I being tested?" from
+    // SmokeDir being set - which it always is (it falls back to %TEMP%\ql-smoke),
+    // so the real prompt answered "ignore" two seconds after it appeared. The
+    // hooks are now driven by the switches that actually ask for them, and these
+    // flags exist so nothing in the shipping path can arm them again.
+    internal static bool IsUpdatePromptTestEnabled { get; private set; }
+
+    internal static bool IsUpdateProgressTestEnabled { get; private set; }
+
     // The WMI video-controller query used by the blacklist check can take
     // hundreds of milliseconds on some machines. Compute it lazily on a
     // background thread (kicked off in OnStartup) so it never blocks the
@@ -147,6 +157,8 @@ public partial class App : Application
         DisableFocusMonitor = e.Args.Contains("/test-no-focusmonitor");
         IsPreviewDiagEnabled = e.Args.Contains("/test-preview-diag");
         IsMemoryDiagnosticsEnabled = e.Args.Contains("/test-memory");
+        IsUpdatePromptTestEnabled = e.Args.Contains("/test-update-prompt");
+        IsUpdateProgressTestEnabled = e.Args.Contains("/test-update-progress");
         if (IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Start();
         if (IsPreviewDiagEnabled)
@@ -154,8 +166,12 @@ public partial class App : Application
             try
             {
                 Directory.CreateDirectory(SmokeDir);
+                // v5.0.11: the update-prompt hook is what makes a dialog close by
+                // itself, so a run has to be able to show whether it is armed.
                 File.AppendAllText(Path.Combine(SmokeDir, "topbar-hook.txt"),
-                    $"{DateTime.Now:HH:mm:ss.fff} diag-flag-on{Environment.NewLine}");
+                    $"{DateTime.Now:HH:mm:ss.fff} diag-flag-on " +
+                    $"update-prompt-hook={IsUpdatePromptTestEnabled} " +
+                    $"update-progress-hook={IsUpdateProgressTestEnabled}{Environment.NewLine}");
             }
             catch
             {
@@ -283,7 +299,11 @@ public partial class App : Application
         // v3.35.0: /test-update-prompt feeds the same fake release into the
         // "update now / ignore" prompt, so the dialog can be exercised (and its
         // answer checked in QuickLookNext.config) without touching GitHub.
-        if (e.Args.Contains("/test-update-prompt"))
+        // v5.0.11: /test-update-prompt-hold shows that same prompt but leaves it
+        // alone, because the prompt used to answer itself "ignore" two seconds
+        // after opening (see App.IsUpdatePromptTestEnabled). That is how the
+        // regression is checked: start this, wait, and see the dialog still there.
+        if (e.Args.Contains("/test-update-prompt") || e.Args.Contains("/test-update-prompt-hold"))
         {
             Dispatcher.BeginInvoke(new Action(() =>
             {

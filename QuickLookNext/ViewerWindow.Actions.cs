@@ -465,6 +465,12 @@ public partial class ViewerWindow
         _path = path;
         Plugin = matchedPlugin;
 
+        // v5.0.11: text recognition belongs to the toolbar now, and only the image
+        // viewer can offer it - every other preview hides the button again.
+        buttonOcr.Visibility = IsImagePreview() && !string.IsNullOrEmpty(path)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
         ContextObject.Reset();
 
         // v5.0.10 (#827): hand the plugin the monitor this preview is going to
@@ -754,16 +760,6 @@ public partial class ViewerWindow
             },
         };
 
-        if (IsImagePreview())
-        {
-            entries.Add(new TrayMenuEntry
-            {
-                Header = TranslationHelper.Get("MW_ExtractText", failsafe: "Extract text (OCR)"),
-                Icon = FontSymbols.Scan,
-                Command = ExtractText,
-            });
-        }
-
         if (_pluginMoreMenuEntries.Count > 0)
         {
             entries.Add(TrayMenuEntry.Separator);
@@ -774,9 +770,13 @@ public partial class ViewerWindow
     }
 
     /// <summary>
-    /// v5.0.8: whether the image viewer produced the current preview. The OCR entry only appears
-    /// there, and it is implemented in the app because the image plugin does not reference the
-    /// WinRT projection the OCR API lives in (see <see cref="OcrRecognizer"/>).
+    /// v5.0.8: whether the image viewer produced the current preview. It is the only plugin that
+    /// can offer text recognition, which is implemented in the app because the image plugin does
+    /// not reference the WinRT projection the OCR API lives in (see <see cref="OcrRecognizer"/>).
+    /// <para>
+    /// v5.0.11: this now drives the toolbar button instead of a "More" menu entry - the feature
+    /// was two clicks deep in a submenu and users did not find it.
+    /// </para>
     /// </summary>
     private bool IsImagePreview()
         => Plugin?.GetType().Assembly.GetName().Name

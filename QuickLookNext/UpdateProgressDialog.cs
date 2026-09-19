@@ -208,15 +208,21 @@ internal sealed class UpdateProgressDialog : Window
     }
 
     /// <summary>
-    /// v3.43.0 test hook: when the smoke test set up its directory, show the panel,
-    /// feed it a fake download and record what it looked like - so the smoke test can
-    /// assert the material and the progress without downloading 62 MB.
+    /// v3.43.0 test hook: when the smoke test asked for the download panel, feed it a
+    /// fake download and record what it looked like - so the smoke test can assert the
+    /// material and the progress without downloading 62 MB.
+    /// <para>
+    /// v5.0.11: gated on the /test-update-progress switch instead of "a smoke directory
+    /// exists" - the latter is always true (it falls back to %TEMP%\ql-smoke), which
+    /// turned the hook into a trap for any future caller on the real download path.
+    /// </para>
     /// </summary>
     internal void RunSmokeTestHook()
     {
-        var smokeDir = App.SmokeDir;
-        if (string.IsNullOrEmpty(smokeDir))
+        if (!App.IsUpdateProgressTestEnabled)
             return;
+
+        var smokeDir = App.SmokeDir;
 
         var received = 0L;
         const long total = 64L * 1024 * 1024;
