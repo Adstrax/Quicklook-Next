@@ -180,6 +180,56 @@ public partial class ViewerWindow
             : ResizeAndCentreNewWindow(size);
 
         this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
+
+        WriteWindowRectDiag(size, DesktopSizeForNextPlacement());
+    }
+
+    /// <summary>
+    /// v5.0.10 (QL-Win/QuickLook#827): the monitor a window-sized request is
+    /// measured against - which is the monitor the placement below is going to
+    /// use. A new-window placement centres on the monitor of the foreground
+    /// window (the source the user is previewing from), while an existing
+    /// window keeps its position and is only pulled back onto its own monitor.
+    /// </summary>
+    private Size DesktopSizeForNextPlacement()
+    {
+        return IsLoaded && !_warmShown
+            ? GetDesktopSizeInDip(new WindowInteropHelper(this).Handle)
+            : GetTargetDesktopSizeInDip();
+    }
+
+    /// <summary>
+    /// v5.0.10 (QL-Win/QuickLook#827): the monitor the preview is going to be
+    /// shown on, in DIP. The preview never activates, so the foreground window
+    /// is normally the Explorer (or other source) window the user is previewing
+    /// from - the same window <see cref="ResizeAndCentreNewWindow"/> centres on.
+    /// Falls back to the preview window's own monitor, then to the primary one.
+    /// </summary>
+    private Size GetTargetDesktopSizeInDip()
+    {
+        var hwnd = User32.GetForegroundWindow();
+        if (hwnd == IntPtr.Zero)
+            hwnd = new WindowInteropHelper(this).Handle;
+
+        if (hwnd == IntPtr.Zero)
+            return new Size(SystemParameters.WorkArea.Width, SystemParameters.WorkArea.Height);
+
+        return GetDesktopSizeInDip(hwnd);
+    }
+
+    /// <summary>
+    /// v5.0.10: working area of the monitor that hosts <paramref name="hwnd"/>,
+    /// converted from pixels to DIP with that same monitor's scale factor.
+    /// </summary>
+    private static Size GetDesktopSizeInDip(nint hwnd)
+    {
+        var desktop = WindowHelper.GetDesktopRectFromWindowInPixel(hwnd);
+        var scale = DisplayDeviceHelper.GetScaleFactorFromWindow(hwnd);
+
+        if (scale.Horizontal <= 0f || scale.Vertical <= 0f)
+            return new Size(desktop.Width, desktop.Height);
+
+        return new Size(desktop.Width / scale.Horizontal, desktop.Height / scale.Vertical);
     }
 
     private Rect ResizeAndCentreExistingWindow(Size size)
@@ -265,6 +315,12 @@ public partial class ViewerWindow
         if (!IsLoaded || WindowState == WindowState.Maximized)
             return;
 
+        // v5.0.10 (#827): the plugin measured its content for the monitor the
+        // preview was opened on, and this window is that window - keep it on
+        // that screen instead of letting it grow past the edges.
+        size = PreviewWindowSizing.ClampToDesktop(
+            size, GetDesktopSizeInDip(new WindowInteropHelper(this).Handle));
+
         var newRect = ResizeAndCentreExistingWindow(size);
 
         // v5.0.4: this resize comes from the plugin (PDF asks for the measured page size),
@@ -275,6 +331,84 @@ public partial class ViewerWindow
             _ignoreNextWindowSizeChange = true;
 
         this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
+    }
+
+    /// <summary>
+    /// v5.0.10 (QL-Win/QuickLook#827): Windows keeps a window's *physical* size
+    /// when it moves to a monitor with a different scale factor, so the size in
+    /// DIP changes on the way - and a preview that was comfortably sized on a
+    /// 250% 4K panel becomes a window several monitors wide the moment the same
+    /// physical size lands on a 100% 1080p screen. Whenever the DPI of this
+    /// window changes, pull it back onto the monitor it is now on.
+    /// </summary>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+
+        if (!IsLoaded || WindowState == WindowState.Maximized || _isFullscreen)
+            return;
+
+        // The size and position Win32 proposed arrive with this same message;
+        // re-fit once the layout has settled on them.
+        Dispatcher.BeginInvoke(new Action(RefitWindowToItsOwnDesktop), DispatcherPriority.Loaded);
+    }
+
+    private void RefitWindowToItsOwnDesktop()
+    {
+        if (!IsLoaded || WindowState == WindowState.Maximized || _isFullscreen)
+            return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        var desktop = GetDesktopSizeInDip(hwnd);
+        if (Width <= desktop.Width + 0.5d && Height <= desktop.Height + 0.5d)
+            return;
+
+        // Same rule as ApplyResizeRequest: this is the host correcting itself,
+        // not the user choosing a size, so it must not be remembered as one.
+        _ignoreNextWindowSizeChange = true;
+
+        var size = PreviewWindowSizing.ClampToDesktop(new Size(Width, Height), desktop);
+        var newRect = ResizeAndCentreExistingWindow(size);
+
+        this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
+
+        WriteWindowRectDiag(size, desktop);
+    }
+
+    /// <summary>
+    /// v5.0.10 (#827): test hook - record where the preview window ended up
+    /// after a placement, together with the monitor it was measured against.
+    /// On a single-monitor machine these numbers must be exactly the ones from
+    /// before the fix; on a mixed-DPI machine the window rect has to stay
+    /// inside <c>monitorPx</c>. Enabled by the /test-preview-diag switch.
+    /// </summary>
+    private void WriteWindowRectDiag(Size size, Size desktop)
+    {
+        if (!App.IsPreviewDiagEnabled)
+            return;
+
+        try
+        {
+            var rect = this.GetWindowRectInPixel();
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var monitor = hwnd == IntPtr.Zero
+                ? new Rect()
+                : WindowHelper.GetDesktopRectFromWindowInPixel(hwnd);
+
+            Directory.CreateDirectory(App.SmokeDir);
+            File.WriteAllText(Path.Combine(App.SmokeDir, "preview-rect.txt"),
+                $"dip={size.Width:0.##}x{size.Height:0.##}{Environment.NewLine}" +
+                $"px={rect.Width:0}x{rect.Height:0} at=({rect.Left:0},{rect.Top:0}){Environment.NewLine}" +
+                $"monitorPx=({monitor.Left:0},{monitor.Top:0},{monitor.Width:0},{monitor.Height:0}){Environment.NewLine}" +
+                $"desktopDip={desktop.Width:0.##}x{desktop.Height:0.##}{Environment.NewLine}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex.Message);
+        }
     }
 
     internal void UnloadPlugin()
@@ -333,6 +467,14 @@ public partial class ViewerWindow
 
         ContextObject.Reset();
 
+        // v5.0.10 (#827): hand the plugin the monitor this preview is going to
+        // be shown on, so that the size it asks for and the screen the window is
+        // placed on are the same one - the mismatch between the two is what made
+        // a large landscape image open several monitors wide on mixed-DPI setups.
+        // A live lookup is used rather than a cached one: this runs on every
+        // preview, right before the first placement and before Prepare below.
+        ContextObject.HostDesktopSize = GetTargetDesktopSizeInDip();
+
         // v1.2.14: keep the previous content visible until the new one takes
         // over (avoids the blank gray window during switches); _staleViewerContent
         // is cleared by the ViewerContent change handler at the swap.
@@ -357,7 +499,7 @@ public partial class ViewerWindow
             else
             {
                 ContextObject.PreferredSize = new Size(800, 600);
-                PositionWindow(ComputeWindowSize());
+                PositionWindow(ComputeWindowSize(clampToDesktop: true));
             }
 
             _warmShown = false;
@@ -424,7 +566,7 @@ public partial class ViewerWindow
         ContextObject.ShowBusyIndicator &= _staleViewerContent == null;
         ContextObject.IsBusy = true;
 
-        var newSize = ComputeWindowSize();
+        var newSize = ComputeWindowSize(clampToDesktop: true);
         if (_customWindowSize == Size.Empty)
             _ignoreNextWindowSizeChange = true;
 
@@ -516,7 +658,7 @@ public partial class ViewerWindow
         }, DispatcherPriority.Input);
     }
 
-    private Size ComputeWindowSize()
+    private Size ComputeWindowSize(bool clampToDesktop = false)
     {
         var newHeight = ContextObject.PreferredSize.Height + BorderThickness.Top + BorderThickness.Bottom +
                         (ContextObject.TitlebarOverlap ? 0 : windowCaptionContainer.Height);
@@ -529,9 +671,18 @@ public partial class ViewerWindow
         // the info panel ask for a fixed size (CanResize = false) and must not inherit a
         // remembered 1920x1080.
         if (_customWindowSize != Size.Empty && ContextObject.CanResize)
-            newSize = _customWindowSize;
+            return _customWindowSize;
 
-        return newSize;
+        // v5.0.10 (#827): last guard between a plugin's desired size and the
+        // screen. A plugin may ask for a fixed size, or ask at a moment when the
+        // monitor under the cursor has already changed; whatever the reason,
+        // the window must never be larger than the monitor it is placed on -
+        // that is exactly how a large landscape image ended up stretching
+        // across three monitors. A size the user dragged themselves is left
+        // alone (returned above): that is their choice, not a sizing error.
+        return clampToDesktop
+            ? PreviewWindowSizing.ClampToDesktop(newSize, DesktopSizeForNextPlacement())
+            : newSize;
     }
 
     private void ClearMoreMenuEntries()
@@ -646,7 +797,7 @@ public partial class ViewerWindow
     {
         _customWindowSize = Size.Empty;
 
-        var target = ComputeWindowSize();
+        var target = ComputeWindowSize(clampToDesktop: true);
         if (Math.Abs(target.Width - Width) > 0.5 || Math.Abs(target.Height - Height) > 0.5)
             _ignoreNextWindowSizeChange = true;
 

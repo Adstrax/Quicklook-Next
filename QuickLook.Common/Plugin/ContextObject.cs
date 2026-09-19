@@ -241,6 +241,16 @@ public class ContextObject : INotifyPropertyChanged
     public event PropertyChangedEventHandler PropertyChanged;
 
     /// <summary>
+    /// v5.0.10: usable area (in DIP) of the monitor the preview window is going
+    /// to be shown on. The host sets this before calling <c>IViewer.Prepare</c>
+    /// so that <see cref="SetPreferredSizeFit"/> measures against the same
+    /// screen the window is placed on afterwards; plugins should not set it
+    /// themselves. When it is empty (a plugin used outside the viewer window,
+    /// or an old host) the current desktop is used, as before.
+    /// </summary>
+    public Size HostDesktopSize { get; set; }
+
+    /// <summary>
     /// Set the size of viewer window, scale or shrink to fit (to screen resolution).
     /// The window can take maximum (maxRatio*resolution) space.
     /// </summary>
@@ -248,16 +258,16 @@ public class ContextObject : INotifyPropertyChanged
     /// <param name="maxRatio">The maximum percent (over screen resolution) it can take.</param>
     public double SetPreferredSizeFit(Size size, double maxRatio)
     {
-        if (maxRatio > 1)
-            maxRatio = 1;
+        // v5.0.10 (QL-Win/QuickLook#827): measure against the monitor the host
+        // is about to place the window on. Asking the monitor of the foreground
+        // window here - while the window itself was centred on another one -
+        // was what let a large landscape image be sized for one screen and
+        // shown on another, ending up several monitors wide.
+        var desktop = HostDesktopSize;
+        if (desktop.Width <= 0d || desktop.Height <= 0d)
+            desktop = WindowHelper.GetCurrentDesktopSize();
 
-        var max = WindowHelper.GetCurrentDesktopSize();
-
-        var widthRatio = max.Width * maxRatio / size.Width;
-        var heightRatio = max.Height * maxRatio / size.Height;
-
-        var ratio = Math.Min(widthRatio, heightRatio);
-        if (ratio > 1) ratio = 1;
+        var ratio = PreviewWindowSizing.FitRatio(size, desktop, maxRatio);
 
         PreferredSize = new Size { Width = size.Width * ratio, Height = size.Height * ratio };
 

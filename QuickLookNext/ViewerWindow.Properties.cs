@@ -131,7 +131,7 @@ public partial class ViewerWindow : INotifyPropertyChanged
                 if (ContextObject.DeferResizeUntilReady)
                 {
                     ContextObject.DeferResizeUntilReady = false;
-                    PositionWindow(ComputeWindowSize());
+                    PositionWindow(ComputeWindowSize(clampToDesktop: true));
                 }
 
                 // v1.2.14: force the layout synchronously so the just-swapped
