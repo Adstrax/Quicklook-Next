@@ -58,11 +58,19 @@ internal class NativeProvider : AnimationProvider
             {
                 try
                 {
+                    // v5.0.5: scale the placeholder to the size the rendered frame will use
+                    // (DecodePixelLimit's target) instead of the original image size. The panel
+                    // computes its fit/zoom from the placeholder and does not recompute it when the
+                    // frame swaps in, so the two geometries have to agree; scaling to the capped
+                    // target rather than the original size is what keeps a huge image from
+                    // materialising an image-sized surface (the bulk of the ~1 GB peak measured
+                    // before this change).
+                    var target = DecodePixelLimit.Limit(fullSize);
                     var cachedScaled = rotate
                         ? new TransformedBitmap(cachedImg,
-                            new ScaleTransform(fullSize.Height / cachedImg.PixelWidth, fullSize.Width / cachedImg.PixelHeight))
+                            new ScaleTransform(target.Height / cachedImg.PixelWidth, target.Width / cachedImg.PixelHeight))
                         : new TransformedBitmap(cachedImg,
-                            new ScaleTransform(fullSize.Width / cachedImg.PixelWidth, fullSize.Height / cachedImg.PixelHeight));
+                            new ScaleTransform(target.Width / cachedImg.PixelWidth, target.Height / cachedImg.PixelHeight));
 
                     var cachedRotated = ApplyTransformFromExif(cachedScaled, orientation);
 
@@ -95,11 +103,14 @@ internal class NativeProvider : AnimationProvider
 
                 DecodedImageCache.Add(cacheKey, img);
 
+                // v5.0.5: see the cache-hit path above - scaled to the frame's target size, not the
+                // original image size.
+                var target = DecodePixelLimit.Limit(fullSize);
                 var scaled = rotate
                     ? new TransformedBitmap(img,
-                        new ScaleTransform(fullSize.Height / img.PixelWidth, fullSize.Width / img.PixelHeight))
+                        new ScaleTransform(target.Height / img.PixelWidth, target.Width / img.PixelHeight))
                     : new TransformedBitmap(img,
-                        new ScaleTransform(fullSize.Width / img.PixelWidth, fullSize.Height / img.PixelHeight));
+                        new ScaleTransform(target.Width / img.PixelWidth, target.Height / img.PixelHeight));
 
                 var rotated = ApplyTransformFromExif(scaled, orientation);
 

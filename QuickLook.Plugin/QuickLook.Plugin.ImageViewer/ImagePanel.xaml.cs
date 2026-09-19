@@ -278,12 +278,35 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         {
             _zoomFactor = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(ZoomDisplayFactor));
 
             if (_isZoomFactorFirstSet)
             {
                 _isZoomFactorFirstSet = false;
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// v5.0.5: what the zoom badge shows. Zoom lives in the decoded bitmap's pixel space, and a
+    /// very large image is decoded below its real size (see <c>DecodePixelLimit</c>) - scaling by
+    /// decoded/real keeps the badge truthful about the file instead of about the downscaled copy.
+    /// </summary>
+    public double ZoomDisplayFactor => ZoomFactor * DecodeScale;
+
+    /// <summary>Decoded size / real image size; 1 for an image decoded at full resolution.</summary>
+    private double DecodeScale
+    {
+        get
+        {
+            var real = _meta?.GetSize() ?? default;
+            var source = viewPanelImage?.Source;
+            if (source == null || real.Width <= 0 || real.Height <= 0)
+                return 1d;
+
+            var scale = Math.Min(source.Width / real.Width, source.Height / real.Height);
+            return double.IsNaN(scale) || scale <= 0 ? 1d : Math.Min(1d, scale);
         }
     }
 

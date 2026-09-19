@@ -78,7 +78,7 @@
                 Opacity="0">
             <TextBlock FontSize="18"
                        Foreground="White"
-                       Text="{Binding ElementName=imagePanel, Path=ZoomFactor, StringFormat={}{0:P0}}" />
+                Text="{Binding ElementName=imagePanel, Path=ZoomDisplayFactor, StringFormat={}{0:P0}}" />
             <Border.Resources>
                 <Storyboard x:Key="StoryboardShowZoomLevelInfo">
                     <DoubleAnimationUsingKeyFrames Storyboard.Target="{Binding Source={x:Reference zoomLevelInfo}}" Storyboard.TargetProperty="Opacity">
