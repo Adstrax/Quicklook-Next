@@ -603,6 +603,16 @@ public partial class ViewerWindow
             },
         };
 
+        if (IsImagePreview())
+        {
+            entries.Add(new TrayMenuEntry
+            {
+                Header = TranslationHelper.Get("MW_ExtractText", failsafe: "Extract text (OCR)"),
+                Icon = FontSymbols.Scan,
+                Command = ExtractText,
+            });
+        }
+
         if (_pluginMoreMenuEntries.Count > 0)
         {
             entries.Add(TrayMenuEntry.Separator);
@@ -610,6 +620,21 @@ public partial class ViewerWindow
         }
 
         return entries;
+    }
+
+    /// <summary>
+    /// v5.0.8: whether the image viewer produced the current preview. The OCR entry only appears
+    /// there, and it is implemented in the app because the image plugin does not reference the
+    /// WinRT projection the OCR API lives in (see <see cref="OcrRecognizer"/>).
+    /// </summary>
+    private bool IsImagePreview()
+        => Plugin?.GetType().Assembly.GetName().Name
+               ?.Equals("QuickLook.Plugin.ImageViewer", StringComparison.OrdinalIgnoreCase) == true;
+
+    private void ExtractText()
+    {
+        if (!string.IsNullOrEmpty(_path))
+            OcrWindow.ShowWindow(_path);
     }
 
     /// <summary>

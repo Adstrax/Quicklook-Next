@@ -317,6 +317,30 @@ public partial class App : Application
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
+        // v5.0.8: /test-ocr runs the OCR path used by the preview's More menu on the image named
+        // in QL_TEST_OCR_FILE and writes the recognized text to <smokeDir>\ocr.txt.
+        if (e.Args.Contains("/test-ocr"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    var file = Environment.GetEnvironmentVariable("QL_TEST_OCR_FILE");
+                    if (string.IsNullOrEmpty(file))
+                    {
+                        ProcessHelper.WriteLog("/test-ocr needs QL_TEST_OCR_FILE");
+                        return;
+                    }
+
+                    OcrWindow.ShowWindow(file, smokeMode: true);
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/test-ocr failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         // Hidden test hook (/test-update-now): runs the real "update now" path for
         // the fake release - progress panel, download, install, restart - so the
         // download UI can be verified against an actual package.
