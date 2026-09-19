@@ -120,6 +120,42 @@ internal static class AppDataUsage
         return new ClearResult(freed, failed);
     }
 
+    /// <summary>
+    /// v5.1.0: deletes the diagnostic log and its rotated copy. This is deliberately its own
+    /// action instead of part of <see cref="ClearCache"/>: the log is data, not cache, and it is
+    /// what a bug report needs - the button next to it lets someone drop it on purpose.
+    /// </summary>
+    internal static ClearResult ClearLogs(string dataPath = null)
+    {
+        dataPath ??= SettingHelper.LocalDataPath;
+
+        long freed = 0;
+        var failed = 0;
+
+        foreach (var name in new[] { ProcessHelper.LogFileName, ProcessHelper.PreviousLogFileName })
+        {
+            var path = Path.Combine(dataPath, name);
+
+            try
+            {
+                if (!File.Exists(path))
+                    continue;
+
+                var size = new FileInfo(path).Length;
+                File.Delete(path);
+                freed += size;
+            }
+            catch (Exception e)
+            {
+                // The app itself writes the log, so it can be open at this very moment.
+                failed++;
+                ProcessHelper.WriteLog($"Clearing the log file \"{path}\" failed: {e.Message}");
+            }
+        }
+
+        return new ClearResult(freed, failed);
+    }
+
     private static IEnumerable<string> CachePaths(string dataPath, string tempPath)
     {
         foreach (var profile in WebViewProfiles(dataPath ?? SettingHelper.LocalDataPath))

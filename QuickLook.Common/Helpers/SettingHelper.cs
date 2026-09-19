@@ -229,6 +229,14 @@ public static class SettingHelper
     }
 
     /// <summary>
+    /// v5.1.0: the folder that holds everything the app keeps next to the user - settings, the
+    /// diagnostic log, the WebView2 profile. Honours <see cref="TestRootOverride"/> so anything
+    /// written through it (the log, in particular) can be redirected by the tests instead of
+    /// landing in the real profile.
+    /// </summary>
+    public static string DataRoot => WithTrailingSeparator(_dataRootOverride ?? LocalDataPath);
+
+    /// <summary>
     /// Drops every cached document and value; the next access re-reads the files.
     /// </summary>
     internal static void ResetCache()

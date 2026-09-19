@@ -136,7 +136,9 @@ internal sealed class DataCacheWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
         };
 
-        return (cache, data, total, status, "clear=" + TranslationHelper.Get("DataCache_Clear", failsafe: "Clear cache"));
+        return (cache, data, total, status,
+            "clear=" + TranslationHelper.Get("DataCache_Clear", failsafe: "Clear cache") +
+            ";log=" + TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear log"));
     }
 
     private TextBlock ValueText()
@@ -220,6 +222,12 @@ internal sealed class DataCacheWindow : Window
         cancel.IsCancel = true;
         cancel.Click += (_, _) => Close();
 
+        // v5.1.0: the log is kept by "clear cache" (it is data), so dropping it needs its own way.
+        var clearLog = CreateButton(
+            TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear log"), primary: false, subtle: true);
+        clearLog.Margin = new Thickness(8, 0, 0, 0);
+        clearLog.Click += async (_, _) => await ClearLogAsync();
+
         var clear = CreateButton(
             TranslationHelper.Get("DataCache_Clear", failsafe: "Clear cache"), primary: true, subtle: false);
         clear.Click += async (_, _) => await ClearAsync();
@@ -232,8 +240,13 @@ internal sealed class DataCacheWindow : Window
         var footer = new Grid { Margin = new Thickness(0, 16, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         footer.ColumnDefinitions.Add(new ColumnDefinition());
-        Grid.SetColumn(openFolder, 0);
-        footer.Children.Add(openFolder);
+
+        var dataActions = new StackPanel { Orientation = Orientation.Horizontal };
+        dataActions.Children.Add(openFolder);
+        dataActions.Children.Add(clearLog);
+
+        Grid.SetColumn(dataActions, 0);
+        footer.Children.Add(dataActions);
         Grid.SetColumn(actions, 1);
         actions.HorizontalAlignment = HorizontalAlignment.Right;
         footer.Children.Add(actions);
@@ -452,5 +465,47 @@ internal sealed class DataCacheWindow : Window
     {
         WindowHelper.DisableDwmBlur(this);
         _accentApplied = MenuSurface.Apply(this, _isDark);
+    }
+
+    /// <summary>
+    /// v5.1.0: drops the diagnostic log (and its rotated copy). Shares the busy flag and the
+    /// messaging style of <see cref="ClearAsync"/> - a log held open by the running app is
+    /// reported instead of throwing.
+    /// </summary>
+    private async Task ClearLogAsync()
+    {
+        if (_busy)
+            return;
+
+        _busy = true;
+        try
+        {
+            var result = await Task.Run(() => AppDataUsage.ClearLogs());
+
+            _status.Text = result.FreedBytes == 0 && result.Complete
+                ? TranslationHelper.Get("DataCache_LogNothingToClear", failsafe: "The log is already empty.")
+                : result.Complete
+                    ? string.Format(
+                        TranslationHelper.Get("DataCache_LogCleared", failsafe: "Log cleared ({0})."),
+                        result.FreedBytes.ToPrettySize(1))
+                    : string.Format(
+                        TranslationHelper.Get("DataCache_LogClearPartial",
+                            failsafe: "Freed {0}; the log is in use - try again later."),
+                        result.FreedBytes.ToPrettySize(1));
+        }
+        catch (Exception e)
+        {
+            ProcessHelper.WriteLog($"Clearing the log failed: {e}");
+            _status.Text = TranslationHelper.Get("DataCache_LogClearFailed",
+                failsafe: "Clearing the log failed.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        // RefreshAsync refuses to run while another measurement is in flight, so this comes after
+        // the flag is released - same as ClearAsync above.
+        await RefreshAsync();
     }
 }

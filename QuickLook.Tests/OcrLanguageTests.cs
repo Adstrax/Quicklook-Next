@@ -123,4 +123,74 @@ internal class OcrLanguageTests
 
         Assert.Equal("使用 Windows 10 的设置", text, "CJK - Latin keeps its space");
     }
+
+    /// <summary>
+    /// v5.1.0: a page that mixes two languages must keep both. Before the fix the page was answered
+    /// by whichever engine scored best overall, so the English lines took the page and the Chinese
+    /// line underneath - which only the Chinese engine could read - vanished from the result.
+    /// </summary>
+    public void EveryLineComesFromTheEngineThatCouldReadIt()
+    {
+        var lines = new[]
+        {
+            OcrRecognizer.Line("en-US", "QuickLook-Next preview notes", 10, 30),
+            OcrRecognizer.Line("en-US", "Invoice 2024-09-17 total 1,238.50 CNY", 60, 80),
+            OcrRecognizer.Line("zh-Hans-CN", "联系人：张三 电话 13800001111", 110, 130),
+            // What the English engine made of that last line before it gave up on it.
+            OcrRecognizer.Line("en-US", "3E:AE", 110, 130),
+        };
+
+        var merged = OcrRecognizer.MergeLines(lines);
+
+        Assert.Equal(3, merged.Count, "one entry per visual line");
+        Assert.Equal("QuickLook-Next preview notes", merged[0], "line 1");
+        Assert.Equal("Invoice 2024-09-17 total 1,238.50 CNY", merged[1], "line 2");
+        Assert.Equal("联系人：张三 电话 13800001111", merged[2], "line 3: the Chinese answer wins its line");
+    }
+
+    public void LinesComeOutInReadingOrderWhateverTheEngineOrderIs()
+    {
+        var lines = new[]
+        {
+            OcrRecognizer.Line("zh-Hans-CN", "第三行", 110, 130),
+            OcrRecognizer.Line("en-US", "First line", 10, 30),
+            OcrRecognizer.Line("zh-Hans-CN", "第二行", 60, 80),
+        };
+
+        var merged = OcrRecognizer.MergeLines(lines);
+
+        Assert.Equal(3, merged.Count, "three lines");
+        Assert.Equal("First line", merged[0], "top line first");
+        Assert.Equal("第二行", merged[1], "then the middle one");
+        Assert.Equal("第三行", merged[2], "then the last one");
+    }
+
+    public void StackedLinesAreNotMergedIntoOne()
+    {
+        // Two lines of normal text share at most a sliver of their boxes.
+        var lines = new[]
+        {
+            OcrRecognizer.Line("en-US", "First line", 10, 30),
+            OcrRecognizer.Line("en-US", "Second line", 28, 48),
+        };
+
+        var merged = OcrRecognizer.MergeLines(lines);
+
+        Assert.Equal(2, merged.Count, "close but separate lines stay separate");
+    }
+
+    public void CloselyOverlappingAnswersAreOneLine()
+    {
+        // Same line, two engines, boxes that only differ by a pixel or two.
+        var lines = new[]
+        {
+            OcrRecognizer.Line("en-US", "Invoice total", 60, 80),
+            OcrRecognizer.Line("zh-Hans-CN", "Invoice total", 61, 79),
+        };
+
+        var merged = OcrRecognizer.MergeLines(lines);
+
+        Assert.Equal(1, merged.Count, "one visual line");
+        Assert.Equal("Invoice total", merged[0], "the shared text is not repeated");
+    }
 }

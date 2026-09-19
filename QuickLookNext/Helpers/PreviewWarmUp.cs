@@ -269,12 +269,15 @@ internal static class PreviewWarmUp
     /// </summary>
     private static void WriteDiagnostics()
     {
+        // v5.1.0: this used to write on every start - the guard was "is a smoke directory set?",
+        // and App.SmokeDir falls back to %TEMP%\ql-smoke, so the answer was always yes. The file
+        // belongs to the run that asked for it (the same trap as the update prompt in 5.0.11).
+        if (!App.IsWarmUpDiagEnabled)
+            return;
+
         try
         {
             var dir = App.SmokeDir;
-            if (string.IsNullOrEmpty(dir))
-                return;
-
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, "warmup.txt"),
                 string.Join(",", _warmed.Take(_warmedCount)) + Environment.NewLine);

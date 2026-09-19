@@ -16,6 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLookNext.Helpers;
+using QuickLook.Common.Helpers;
 using System.IO;
 
 namespace QuickLook.Tests;
@@ -87,6 +88,57 @@ internal class CacheUsageTests : SettingsFixture
         Assert.False(File.Exists(updateScript), "leftover update script is gone");
         Assert.True(File.Exists(cookies), "sign-in data survives");
         Assert.True(File.Exists(config), "settings survive");
+    }
+
+    /// <summary>
+    /// v5.1.0: the log is data, so "clear cache" keeps it - dropping it is its own button, and it
+    /// must take the rotated copy with it and leave everything else alone.
+    /// </summary>
+    public void ClearingTheLogRemovesTheLogAndItsRotatedCopyOnly()
+    {
+        var log = Path.Combine(_data, ProcessHelper.LogFileName);
+        var previous = Path.Combine(_data, ProcessHelper.PreviousLogFileName);
+        var config = Path.Combine(_data, "QuickLookNext.config");
+
+        WriteFile(log, 2048);
+        WriteFile(previous, 1024);
+        WriteFile(config, 512);
+
+        var result = AppDataUsage.ClearLogs(_data);
+
+        Assert.Equal(2048L + 1024L, result.FreedBytes, "freed bytes");
+        Assert.True(result.Complete, "nothing was in use");
+        Assert.False(File.Exists(log), "the log is gone");
+        Assert.False(File.Exists(previous), "the rotated copy is gone");
+        Assert.True(File.Exists(config), "settings survive");
+    }
+
+    public void ClearingAnAbsentLogChangesNothing()
+    {
+        var result = AppDataUsage.ClearLogs(_data);
+
+        Assert.Equal(0L, result.FreedBytes, "nothing freed");
+        Assert.Equal(0, result.FailedItems, "nothing failed");
+    }
+
+    /// <summary>
+    /// v5.1.0: the diagnostic log used to grow forever. Past the cap the file is moved aside once,
+    /// so what is being appended to stays small.
+    /// </summary>
+    public void AnOversizedLogIsRotatedInsteadOfGrowingForever()
+    {
+        var log = ProcessHelper.LogPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(log));
+        File.WriteAllBytes(log, new byte[1024 * 1024 + 1]);
+
+        ProcessHelper.WriteLog("rotation probe");
+
+        Assert.True(File.Exists(ProcessHelper.PreviousLogPath), "the oversized log was moved aside");
+        Assert.True(new FileInfo(ProcessHelper.PreviousLogPath).Length > 1024 * 1024,
+            "and kept its content");
+        Assert.True(new FileInfo(log).Length < 4096, "the new log starts small");
+        Assert.True(File.ReadAllText(log).Contains("rotation probe"),
+            "and holds the message that triggered the rotation");
     }
 
     public void LeftoverProfilesCountAsCacheButKeepTheProfile()

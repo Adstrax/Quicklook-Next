@@ -104,6 +104,11 @@ public partial class App : Application
 
     internal static bool IsUpdateProgressTestEnabled { get; private set; }
 
+    // v5.1.0: same pattern, one more time - the preview warm-up wrote its diagnostics on
+    // every start because it asked "is a smoke directory set?" (always yes). The file is
+    // written for /test-warmup only now.
+    internal static bool IsWarmUpDiagEnabled { get; private set; }
+
     // The WMI video-controller query used by the blacklist check can take
     // hundreds of milliseconds on some machines. Compute it lazily on a
     // background thread (kicked off in OnStartup) so it never blocks the
@@ -159,6 +164,7 @@ public partial class App : Application
         IsMemoryDiagnosticsEnabled = e.Args.Contains("/test-memory");
         IsUpdatePromptTestEnabled = e.Args.Contains("/test-update-prompt");
         IsUpdateProgressTestEnabled = e.Args.Contains("/test-update-progress");
+        IsWarmUpDiagEnabled = e.Args.Contains("/test-warmup");
         if (IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Start();
         if (IsPreviewDiagEnabled)
@@ -439,7 +445,7 @@ public partial class App : Application
             {
                 var path = Path.GetFullPath(e.Args.First());
                 if (Directory.Exists(path) || File.Exists(path))
-                    PipeServerManager.PostMessage(PipeMessages.Toggle, path);
+                    PostPreviewRequest(path);
             }
             catch
             {
@@ -705,8 +711,11 @@ public partial class App : Application
                 var path = Path.GetFullPath(args.First());
                 if (Directory.Exists(path) || File.Exists(path))
                 {
-                    PipeServerManager.PostMessage(PipeMessages.Toggle, path, [.. args.Skip(1)]);
-                    return false;
+                    if (PostPreviewRequest(path, [.. args.Skip(1)]))
+                        return false;
+
+                    // Delivery failed even after the retries: the running instance is stuck, so
+                    // fall through to the "already running" message instead of vanishing.
                 }
             }
             catch
@@ -718,6 +727,34 @@ public partial class App : Application
         // Second instance: duplicate
         MessageBox.Show(TranslationHelper.Get("APP_SECOND_TEXT"), TranslationHelper.Get("APP_SECOND"),
             MessageBoxButton.OK, MessageBoxImage.Information);
+
+        return false;
+    }
+
+    private const int PreviewRequestAttempts = 4;
+    private const int PreviewRequestTimeoutMs = 600;
+    private const int PreviewRequestRetryDelayMs = 250;
+
+    /// <summary>
+    /// v5.1.0: hands a preview request to the pipe server, retrying while the listener comes up.
+    /// One attempt used to be all there was, and when it landed in the gap between two accepted
+    /// connections the request disappeared without a trace: the shell looked like it did nothing,
+    /// and a second instance fell through to the "already running" dialog for a perfectly valid
+    /// path. The server accepts one connection at a time, so that gap is real, not theoretical.
+    /// </summary>
+    private static bool PostPreviewRequest(string path, string[] options = null)
+    {
+        for (var attempt = 1; attempt <= PreviewRequestAttempts; attempt++)
+        {
+            if (PipeServerManager.PostMessage(PipeMessages.Toggle, path, options, PreviewRequestTimeoutMs))
+                return true;
+
+            if (attempt < PreviewRequestAttempts)
+                Thread.Sleep(PreviewRequestRetryDelayMs);
+        }
+
+        ProcessHelper.WriteLog(
+            $"The preview request for \"{path}\" was not delivered after {PreviewRequestAttempts} attempts.");
 
         return false;
     }

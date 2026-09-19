@@ -237,7 +237,7 @@ if (Test-Path -LiteralPath (Join-Path $smoke 'test.mp4')) {
 # ---------- 4. 启动 + 插件加载 ----------
 Write-Host "== 4/9 启动并验证插件加载 ==" -ForegroundColor Cyan
 $before = Get-LogLength
-$p = Start-Process -FilePath $exe -ArgumentList '/autorun /test-tray-menu' -PassThru
+$p = Start-Process -FilePath $exe -ArgumentList '/autorun /test-tray-menu /test-warmup' -PassThru
 $trayMenuSeen = $false
 for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Milliseconds 500

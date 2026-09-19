@@ -63,4 +63,27 @@ internal class OcrDecodeSizeTests
         Assert.Equal(0d, size.Width, "width unchanged");
         Assert.Equal(0d, size.Height, "height unchanged");
     }
+
+    /// <summary>
+    /// v5.1.0: small pictures are enlarged before recognition. Measured on a 560x150 screenshot
+    /// with 14 px text: the Chinese line came back as "138 佣佣 1 1 1 1", and as
+    /// "13800001111" once the same picture was handed over at twice the size.
+    /// </summary>
+    public void SmallImagesAreEnlargedBeforeRecognition()
+    {
+        var size = OcrRecognizer.DecodeSize(new Size(560, 150));
+
+        Assert.Equal(1120d, size.Width, "width doubled");
+        Assert.Equal(300d, size.Height, "height doubled");
+    }
+
+    public void LargerImagesAreStillLeftAtTheirOwnSize()
+    {
+        // The page that started the OCR report: 1264x1522 is read well as it is, and scaling it
+        // would only cost time.
+        var size = OcrRecognizer.DecodeSize(new Size(1264, 1522));
+
+        Assert.Equal(1264d, size.Width, "width unchanged");
+        Assert.Equal(1522d, size.Height, "height unchanged");
+    }
 }

@@ -57,6 +57,17 @@ internal static class OcrRecognizer
     internal const long MaxPixels = 16_000_000L;
 
     /// <summary>
+    /// v5.1.0: the engine reads small text poorly, and CJK worst of all - one 14 px Chinese line
+    /// came back as "138 佣佣 1 1 1 1" while the very same line drawn at 28 px was perfect. A
+    /// picture whose longest side is below this is enlarged by <see cref="SmallImageUpscale"/>
+    /// before it is recognized; bigger pictures are left at their own size, where the text is
+    /// already comfortable.
+    /// </summary>
+    internal const int SmallImageLongestSide = 1000;
+
+    internal const double SmallImageUpscale = 2d;
+
+    /// <summary>
     /// Upper bound on how many engines a single recognition may run. Every installed pack costs one
     /// pass over the bitmap, and a machine rarely has more than two or three.
     /// </summary>
@@ -81,6 +92,14 @@ internal static class OcrRecognizer
     /// <summary>What the last <see cref="RecognizeAsync"/> run tried - diagnostics and tests only.</summary>
     internal static IReadOnlyList<Attempt> LastAttempts { get; private set; } = Array.Empty<Attempt>();
 
+    /// <summary>One engine's answer for one visual line, with the score that decides the merge.</summary>
+    internal readonly record struct LineCandidate(string Language, string Text, double Top, double Bottom,
+        int Score);
+
+    /// <summary>Builds a <see cref="LineCandidate"/>, scoring it like <see cref="Score"/> does.</summary>
+    internal static LineCandidate Line(string language, string text, double top = 0d, double bottom = 0d)
+        => new(language, text, top, bottom, Score(language, text));
+
     /// <summary>Whether any OCR language pack is installed.</summary>
     internal static bool IsAvailable => OcrEngine.AvailableRecognizerLanguages.Count > 0;
 
@@ -96,7 +115,11 @@ internal static class OcrRecognizer
         var scale = 1d;
 
         var longestSide = Math.Max(fullSize.Width, fullSize.Height);
-        if (longestSide > OcrEngine.MaxImageDimension)
+
+        if (longestSide < SmallImageLongestSide)
+            scale = SmallImageUpscale;
+
+        if (longestSide * scale > OcrEngine.MaxImageDimension)
             scale = OcrEngine.MaxImageDimension / longestSide;
 
         var pixels = fullSize.Width * scale * fullSize.Height * scale;
@@ -139,6 +162,7 @@ internal static class OcrRecognizer
             ExifOrientationMode.RespectExifOrientation, ColorManagementMode.ColorManageToSRgb);
 
         var attempts = new List<Attempt>();
+        var lines = new List<LineCandidate>();
         Attempt best = null;
 
         foreach (var language in candidates)
@@ -162,6 +186,16 @@ internal static class OcrRecognizer
 
                 attempts.Add(attempt);
 
+                foreach (var line in result.Lines)
+                {
+                    var lineText = JoinWords(line.Words.Select(word => word.Text));
+                    if (lineText.Length == 0)
+                        continue;
+
+                    var (top, bottom) = Bounds(line);
+                    lines.Add(Line(language.LanguageTag, lineText, top, bottom));
+                }
+
                 // Strictly greater: equal scores keep the earlier candidate, and the list starts
                 // with the languages the user actually has in Windows.
                 if (best == null || attempt.Score > best.Score)
@@ -179,7 +213,79 @@ internal static class OcrRecognizer
         if (best == null)
             throw new InvalidOperationException("no OCR language pack could be used");
 
-        return best.Text;
+        // v5.1.0: the answer is assembled line by line rather than taken from the winner above -
+        // that page-level winner exists for the diagnostics (and for the score of a page that only
+        // one engine could read at all).
+        var merged = MergeLines(lines);
+        return merged.Count == 0 ? string.Empty : string.Join(Environment.NewLine, merged);
+    }
+
+    /// <summary>
+    /// One text per visual line: candidates are grouped by where they were found, and every group
+    /// keeps the answer that scored best inside it.
+    /// <para>
+    /// v5.1.0: a page used to be answered by a single engine, so a page with two languages lost one
+    /// of them. A screenshot with an English heading and an invoice line made the English engine win
+    /// the whole page, and the Chinese line under them - which only the Chinese engine could read -
+    /// disappeared from the result.
+    /// </para>
+    /// </summary>
+    internal static List<string> MergeLines(IEnumerable<LineCandidate> candidates)
+    {
+        var groups = new List<List<LineCandidate>>();
+
+        // Best answers first: the first candidate of a group is the one that will represent it,
+        // and equal scores keep the order of the engines (the user's own language first).
+        foreach (var candidate in candidates.OrderByDescending(c => c.Score))
+        {
+            var group = groups.FirstOrDefault(g => Overlaps(g, candidate));
+
+            if (group == null)
+                groups.Add([candidate]);
+            else
+                group.Add(candidate);
+        }
+
+        return groups
+            .OrderBy(g => g.Min(c => c.Top))
+            .Select(g => g.OrderByDescending(c => c.Score).First().Text)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Whether a candidate sits on the same text line as a group: half of the shorter box has to
+    /// overlap vertically. Two stacked lines of normal text share at most a sliver of their boxes,
+    /// while the same line read by two engines overlaps almost completely.
+    /// </summary>
+    private static bool Overlaps(List<LineCandidate> group, LineCandidate candidate)
+    {
+        var top = group.Min(c => c.Top);
+        var bottom = group.Max(c => c.Bottom);
+
+        var shorter = Math.Min(bottom - top, candidate.Bottom - candidate.Top);
+        if (shorter <= 0d)
+            return false;
+
+        var overlap = Math.Min(bottom, candidate.Bottom) - Math.Max(top, candidate.Top);
+        return overlap >= shorter * 0.5d;
+    }
+
+    /// <summary>Vertical extent of a recognized line, in pixels of the decoded bitmap.</summary>
+    private static (double Top, double Bottom) Bounds(OcrLine line)
+    {
+        var top = double.MaxValue;
+        var bottom = double.MinValue;
+
+        foreach (var word in line.Words)
+        {
+            var rect = word.BoundingRect;
+            top = Math.Min(top, rect.Y);
+            bottom = Math.Max(bottom, rect.Y + rect.Height);
+        }
+
+        // A line the engine gave no geometry for cannot be compared with anything; it ends up as
+        // its own line at the end instead of being merged into somebody else's text.
+        return top > bottom ? (double.MaxValue, double.MaxValue) : (top, bottom);
     }
 
     /// <summary>

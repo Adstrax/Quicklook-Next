@@ -91,10 +91,20 @@ public static class ProcessHelper
     {
         Debug.WriteLine(msg);
 
-        var logFilePath = Path.Combine(SettingHelper.LocalDataPath, @"QuickLookNext.Exception.log");
+        var logFilePath = LogPath;
 
         lock (LogLock)
         {
+            try
+            {
+                RotateLogIfTooLarge(logFilePath);
+            }
+            catch
+            {
+                // Logging must never fail the caller - if the rotation cannot happen (the file is
+                // held by another process), keep appending to the existing file.
+            }
+
             using var writer = new StreamWriter(new FileStream(logFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite));
             writer.BaseStream.Seek(0, SeekOrigin.End);
 
@@ -102,5 +112,32 @@ public static class ProcessHelper
             writer.WriteLine(msg);
             writer.WriteLine();
         }
+    }
+
+    /// <summary>The diagnostic log, and the one rotated copy kept next to it.</summary>
+    public const string LogFileName = "QuickLookNext.Exception.log";
+
+    public const string PreviousLogFileName = LogFileName + ".1";
+
+    public static string LogPath => Path.Combine(SettingHelper.DataRoot, LogFileName);
+
+    public static string PreviousLogPath => Path.Combine(SettingHelper.DataRoot, PreviousLogFileName);
+
+    /// <summary>
+    /// v5.1.0: the log was append-only and nothing ever trimmed it - a run of unplayable videos
+    /// (each one writes a stack trace) could grow it without bound, and the "data &amp; cache" panel
+    /// could only show the size. Past this size the file is moved aside once, so what the log holds
+    /// is always the current session plus the one before it.
+    /// </summary>
+    private const long MaxLogBytes = 1024 * 1024;
+
+    private static void RotateLogIfTooLarge(string logFilePath)
+    {
+        var info = new FileInfo(logFilePath);
+        if (!info.Exists || info.Length < MaxLogBytes)
+            return;
+
+        // The older copy is only kept for the session that just ended.
+        File.Move(logFilePath, PreviousLogPath, overwrite: true);
     }
 }
