@@ -11,11 +11,27 @@
 
 | 项 | 结论 | 关键证据 |
 |---|---|---|
-| ←/→ 切换同目录上/下一个文件 | **可行** | `Scripts/probe-explorer-selection.ps1`：`IFolderView::SelectItem` 能把选区移到相邻项，**且不需要激活窗口（不抢焦点）** |
+| ←/→ 切换同目录上/下一个文件 | **已实现，无需开发**（见 §2.5；本节的"程序化改选区"是被否掉的另一种实现） | `KeystrokeDispatcher` + `FocusMonitor` + `ViewWindowManager.SwitchPreview` |
 | 大图预览保护 | **必要** | 6400 万像素 PNG：首帧 287ms（速度没问题），但私有内存峰值 **1.2–1.7 GB**（普通图 243 MB），关闭后仍留 429 MB（基线 203 MB） |
 | 记住预览窗口尺寸 | **不做** | 上游 8 年间同类请求全部被拒（#169/#821/#492/#1196）；固定尺寸会把一个宽高比强加给所有内容 → 黑边/空白 |
 
 ## 2. ←/→ 文件导航：可行性验证
+
+> **更正（2026-09-19）**：这一项**功能早已实现**——见 §2.5。下面记录的是"另一种实现方式"（由本程序主动改 Explorer 选区）的可行性验证，结论是**不采用**：现有实现更简单，而且不会和插件的方向键冲突。
+
+### 2.5 现有实现（先看这里，别再重复开发）
+
+方向键切换文件在本仓库里是**已有的**功能，机制是"把按键让给资源管理器，再跟随选区"：
+
+1. 全局键盘钩子 `GlobalKeyboardHook.HookProc` 只在按键被 `Handled` 时拦截（`return kea.Handled ? 1 : CallNextHookEx(...)`）；
+   方向键**不会被吞**，所以照常送到资源管理器 → Explorer 自己移动选中项（方向由视图/排序决定，和 macOS Quick Look 一样）；
+2. 按键松开时 `KeystrokeDispatcher` 发 `PipeMessages.Switch`；`ViewWindowManager.SwitchPreview()` 不带路径时**重新读当前选区**并预览
+   （`NativeMethods.QuickLookNext.GetCurrentSelection()`）；
+3. 另外 `FocusMonitor` 在选区/焦点变化时也会主动发 `Switch`（带新路径），两条路径互为兜底。
+
+由此还得到一条现成的"按键归属"规则：**Explorer 持有焦点时方向键用于切换文件；预览窗口被点击获得焦点后，方向键归插件**（视频快进/快退、PDF 翻页等）——两者不冲突，靠焦点天然区分。
+
+上游 issue [#691](https://github.com/QL-Win/QuickLook/issues/691) 里"没做成"的结论是旧信息：当时的难点是"预览窗口不抢输入"，后来的解法就是上面这种"不拦截方向键 + 跟随选区"。
 
 ### 2.1 实测输出
 
@@ -159,7 +175,7 @@ WIC 与 ImageMagick 两条路径都覆盖），标题会标注"已按 40 MP 上�
 
 | 上游 | 诉求 | 上游状态 | 我们的机会 |
 |---|---|---|---|
-| [#691](https://github.com/QL-Win/QuickLook/issues/691) / [#1979](https://github.com/QL-Win/QuickLook/issues/1979) | 应用内 ←/→ 切换文件 | 未做成（卡在"预览窗口不该抢输入/需要改 C++"） | **纯 C# 可做**，见 §2 |
+| [#691](https://github.com/QL-Win/QuickLook/issues/691) / [#1979](https://github.com/QL-Win/QuickLook/issues/1979) | 应用内 ←/→ 切换文件 | 旧结论是"未做成" | **我们已经有了**：不拦截方向键 + 跟随 Explorer 选区，见 §2.5 |
 | [#1054](https://github.com/QL-Win/QuickLook/issues/1054) | 大图预览崩溃 | open，11 条评论 | 见 §4 |
 | [#827](https://github.com/QL-Win/QuickLook/issues/827) / [#1956](https://github.com/QL-Win/QuickLook/issues/1956) | 混合 DPI 多显示器尺寸错 / 改缩放后 Markdown 渲染错 | open | 监听 DPI 变化重新贴合 + WebView2 重新布局 |
 | [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | 图片 OCR 提取文字 | open，10 条评论 | 系统自带 `Windows.Media.Ocr`，我们已引 WinRT 投影，零新依赖 |
@@ -176,8 +192,9 @@ WIC 与 ImageMagick 两条路径都覆盖），标题会标注"已按 40 MP 上�
 
 1. **回退 5.0.4 的"记住窗口尺寸"持久化**（保留其中两处真修复：插件请求的尺寸不再污染用户尺寸、
    固定尺寸预览的 `CanResize` 门控、以及"重置窗口大小"菜单项）——作为 5.0.5 的内容，**尚未发布**；
-2. 大图护栏（§4）——改动小、直接防崩，建议先做；
-3. ←/→ 文件导航（§2）；
+2. 大图护栏（§4）——**已完成**（5.0.5 加解码上限，5.0.6 把坐标空间按解码尺寸，6400 万像素峰值
+   1,705 → 1,156 MB）；
+3. ~~←/→ 文件导航~~——**功能已存在**，不需要开发（见 §2.5），本条已从计划移除；
 4. 之后候选：图片 OCR（#1608）、缓存占用与清理（#1933）、ARM64（#1571）、视频健壮性回归。
 
 ## 7. 复现方式
