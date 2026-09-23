@@ -172,4 +172,48 @@ internal class PreviewWindowSizingTests
         Assert.True(context.PreferredSize.Width <= 4289d && context.PreferredSize.Height <= 631d,
             "the fallback never enlarges the content either");
     }
+
+    /// <summary>
+    /// v5.2.0: the size a plugin asked for is an answer about one screen. When the window lands on
+    /// another one (dragged there, or after a scaling change) the host asks the same question again
+    /// instead of keeping the old answer.
+    /// </summary>
+    public void TheFitIsAskedAgainWhenTheWindowLandsOnAnotherScreen()
+    {
+        var context = new ContextObject { HostDesktopSize = ScreenFullHd };
+        context.SetPreferredSizeFit(new Size(4289, 631), 0.8d);
+
+        Assert.True(Math.Abs(context.PreferredSize.Width - 1536d) < 0.01d,
+            $"fitted for the 1080p screen, got {context.PreferredSize.Width:0.##}");
+
+        context.HostDesktopSize = new Size(1280, 720);
+
+        Assert.True(context.RefitToHostDesktop(), "the same question gets a new answer");
+        Assert.True(Math.Abs(context.PreferredSize.Width - 1024d) < 0.01d,
+            $"width for the smaller screen, got {context.PreferredSize.Width:0.##}");
+        Assert.True(context.PreferredSize.Height < 200d, "and the height follows the shape");
+    }
+
+    public void APluginWithAFixedSizeHasNothingToRefit()
+    {
+        var context = new ContextObject
+        {
+            HostDesktopSize = ScreenFullHd,
+            PreferredSize = new Size(453, 172),
+        };
+
+        Assert.False(context.RefitToHostDesktop(), "no fit request was ever made");
+        Assert.Equal(453d, context.PreferredSize.Width, "the fixed size is untouched");
+    }
+
+    public void TheFitRequestIsForgottenBetweenPreviews()
+    {
+        var context = new ContextObject { HostDesktopSize = ScreenFullHd };
+        context.SetPreferredSizeFit(new Size(4289, 631), 0.8d);
+
+        context.Reset();
+
+        Assert.False(context.RefitToHostDesktop(),
+            "a new preview must not be re-fitted with the previous plugin's request");
+    }
 }

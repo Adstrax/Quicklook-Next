@@ -179,6 +179,48 @@ These keys are also stored in `QuickLookNext.config`.
 - Example:
   - `<WebView2IdleTimeoutSeconds>120</WebView2IdleTimeoutSeconds>`
 
+### `<LowMemoryMode>`
+- Default: `False`
+- Type: `Boolean`
+- Description: Turns both startup warm-ups off. The tray menu has the same switch
+  ("省内存模式 / Low memory mode"), and it takes effect from the next start, because
+  the warm-ups only run while the process starts.
+
+  The two warm-ups exist to make the first preview fast, and both keep memory resident
+  for the life of the tray process. Measured on one machine (single 200% display,
+  nothing previewed, 60 s idle):
+
+  | configuration | private memory | working set |
+  |---|---|---|
+  | nothing warmed | 61 MB | 122 MB |
+  | preview window warmed off-screen | 112-118 MB | 199 MB |
+  | plus the two most-used preview families (default) | 169 MB | 258 MB |
+
+  The window warm-up buys the first preview ~200 ms; the family warm-up buys 100-200 ms
+  on the first preview of each family (text 289 -> 96 ms, image 170 -> 100 ms).
+- Example:
+  - `<LowMemoryMode>True</LowMemoryMode>` to idle at the 61 MB baseline.
+
+### `<WarmUpPreviewFamilies>`
+- Default: `True`
+- Type: `Boolean`
+- Description: Whether the app prepares the preview families this user actually uses
+  (from the usage history) in the background right after startup. Turning it off saves
+  the family share of the table above (about 37-51 MB) and costs the one-time warm-up
+  of the first preview of each family. `<LowMemoryMode>` turns this off as well and is
+  the easier switch.
+- Example:
+  - `<WarmUpPreviewFamilies>False</WarmUpPreviewFamilies>`
+
+### `<WarmUpFamilyCount>`
+- Default: `2`
+- Type: `Integer`
+- Description: How many preview families the warm-up prepares per session. The default
+  is two (text + image); a WebView2 family (Markdown / HTML) costs another 15-25 MB
+  because it leaves a Chromium environment behind.
+- Example:
+  - `<WarmUpFamilyCount>1</WarmUpFamilyCount>` to prepare only the most-used family.
+
 ## QuickLook.Plugin.ImageViewer.config options
 
 ### `<UseColorProfile>`

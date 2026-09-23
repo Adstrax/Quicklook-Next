@@ -92,6 +92,47 @@ internal static class OcrRecognizer
     /// <summary>What the last <see cref="RecognizeAsync"/> run tried - diagnostics and tests only.</summary>
     internal static IReadOnlyList<Attempt> LastAttempts { get; private set; } = Array.Empty<Attempt>();
 
+    /// <summary>
+    /// v5.2.0: how many glyphs the last run refused to believe - see
+    /// <see cref="IsUnreadableGlyph"/>. Reported by /test-ocr so the rule can be seen working.
+    /// </summary>
+    internal static int LastFilteredGlyphCount { get; private set; }
+
+    /// <summary>
+    /// v5.2.0: the Windows engine cannot read circled numbers. Measured with a clean synthetic
+    /// page: both ①②③ (outline) and ❶❷❸ (filled) come back with nothing at all, and on a real
+    /// page a filled ① came back as "0" - worse than nothing, because it invents a number that is
+    /// not in the picture. There is no way to recover the digit (the glyph alone, inverted,
+    /// enlarged and handed to the engine as its own picture, still yields nothing), so the only
+    /// useful behaviour left is to not report a wrong one.
+    /// <para>
+    /// What separates the two: a real digit is clearly taller than it is wide (0.4-0.7), while a
+    /// circled number is a disc and therefore sits in a nearly square box. A lone digit-like
+    /// character in a square box is treated as an unreadable list bullet and dropped.
+    /// </para>
+    /// </summary>
+    internal static bool IsUnreadableGlyph(string text, double width, double height)
+    {
+        var trimmed = text?.Trim();
+        if (trimmed is not { Length: 1 })
+            return false;
+
+        if ("0Oo".IndexOf(trimmed[0]) < 0)
+            return false;
+
+        if (width <= 0d || height <= 0d)
+            return false;
+
+        var aspect = width / height;
+        return aspect >= 0.75d && aspect <= 1.35d;
+    }
+
+    private static bool IsUnreadableGlyph(OcrWord word)
+    {
+        var rect = word.BoundingRect;
+        return IsUnreadableGlyph(word.Text, rect.Width, rect.Height);
+    }
+
     /// <summary>One engine's answer for one visual line, with the score that decides the merge.</summary>
     internal readonly record struct LineCandidate(string Language, string Text, double Top, double Bottom,
         int Score);
@@ -164,6 +205,7 @@ internal static class OcrRecognizer
         var attempts = new List<Attempt>();
         var lines = new List<LineCandidate>();
         Attempt best = null;
+        LastFilteredGlyphCount = 0;
 
         foreach (var language in candidates)
         {
@@ -188,7 +230,7 @@ internal static class OcrRecognizer
 
                 foreach (var line in result.Lines)
                 {
-                    var lineText = JoinWords(line.Words.Select(word => word.Text));
+                    var lineText = JoinWords(ReadableWords(line));
                     if (lineText.Length == 0)
                         continue;
 
@@ -301,7 +343,25 @@ internal static class OcrRecognizer
         => result.Lines.Count == 0
             ? string.Empty
             : string.Join(Environment.NewLine,
-                result.Lines.Select(line => JoinWords(line.Words.Select(word => word.Text))));
+                result.Lines.Select(line => JoinWords(ReadableWords(line))));
+
+    /// <summary>
+    /// The words of a line minus the glyphs that cannot be read (see
+    /// <see cref="IsUnreadableGlyph"/>): a list bullet is dropped, the text around it is kept.
+    /// </summary>
+    private static IEnumerable<string> ReadableWords(OcrLine line)
+    {
+        foreach (var word in line.Words)
+        {
+            if (IsUnreadableGlyph(word))
+            {
+                LastFilteredGlyphCount++;
+                continue;
+            }
+
+            yield return word.Text;
+        }
+    }
 
     /// <summary>
     /// One line, with a separator kept only where the writing system uses one: never between two

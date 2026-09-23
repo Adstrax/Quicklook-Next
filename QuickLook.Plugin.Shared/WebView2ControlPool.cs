@@ -52,6 +52,14 @@ public static class WebView2ControlPool
     private static readonly object Sync = new();
     private static readonly List<(WebView2 Control, string Arguments)> Idle = [];
 
+    // v5.2.0: a parked control keeps the display scaling it was created with. When the app reports
+    // a new scale, everything parked is one screen out of date - drop it, so the next preview gets
+    // a control for the scale that is in effect now (upstream #1956).
+    static WebView2ControlPool()
+    {
+        DisplayScale.Changed += ClearIdle;
+    }
+
     // v3.39.0: parked controls need a live HWND. A WebView2 whose parent window
     // disappears ends up in a state where the next controller creation fails with
     // 0x8007139F, so parked controls wait in this off-screen window instead of
@@ -162,6 +170,24 @@ public static class WebView2ControlPool
 
         foreach (var control in parked)
             DisposeSafely(control);
+    }
+
+    /// <summary>
+    /// v5.2.0: throws a control away instead of parking it. Used for a control that must not be
+    /// reused - Chromium keeps the display scaling it was created with, so a control born on the
+    /// old screen would hand the wrong scale to the next preview (upstream #1956).
+    /// </summary>
+    public static void Discard(WebView2 control)
+    {
+        if (control == null)
+            return;
+
+        lock (Sync)
+        {
+            Idle.RemoveAll(entry => ReferenceEquals(entry.Control, control));
+        }
+
+        DisposeSafely(control);
     }
 
     private static WebView2 CreateControl(string browserArguments)

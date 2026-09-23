@@ -33,6 +33,9 @@ namespace QuickLook.Plugin.Shared;
 public class WebpagePanel : UserControl
 {
     protected Uri _currentUri;
+    /// <summary>v5.2.0: the last HTML handed to <see cref="NavigateToHtml"/>, so a rebuilt
+    /// control can be given the same content back (see <see cref="RecreateForNewScale"/>).</summary>
+    protected string _currentHtml;
     protected string _primaryPath;
     protected string _fallbackPath;
     protected WebView2 _webView;
@@ -50,6 +53,22 @@ public class WebpagePanel : UserControl
             Content = CreateDownloadButton();
         else
             InitializeComponent();
+
+    }
+
+    /// <summary>
+    /// v5.2.0: Chromium keeps the display scaling it was created with, and the pool hands a parked
+    /// control to the next preview unchanged. That is how a Markdown preview ended up laying its
+    /// content out for the previous screen scaling - upstream #1956, "the display area is smaller
+    /// than the window area". Rebuild for the new scale, and drop the parked controls, which carry
+    /// the old one. (<see cref="System.Windows.Media.Visual"/> has no public DPI event - the
+    /// protected notification is the hook.)
+    /// </summary>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+
+        RecreateForNewScale();
     }
 
     protected virtual void InitializeComponent()
@@ -139,7 +158,31 @@ public class WebpagePanel : UserControl
     {
     }
 
-    private void ReleaseWebView()
+    /// <summary>
+    /// v5.2.0: rebuilds this panel's control for the display scaling that is in effect now, and
+    /// reloads the content it was showing. Called when the window's DPI changes; the old control
+    /// is thrown away rather than parked, because the pool must not hand its scale to anyone else.
+    /// </summary>
+    private void RecreateForNewScale()
+    {
+        if (_disposed || _webView == null)
+            return;
+
+        var uri = _currentUri ?? _webView.Source;
+        var html = _currentHtml;
+
+        WebView2ControlPool.ClearIdle();
+        ReleaseWebView(park: false);
+
+        InitializeComponent();
+
+        if (!string.IsNullOrEmpty(html))
+            NavigateToHtml(html);
+        else if (uri != null)
+            NavigateToUri(uri);
+    }
+
+    private void ReleaseWebView(bool park = true)
     {
         var control = _webView;
 
@@ -177,7 +220,10 @@ public class WebpagePanel : UserControl
         if (ReferenceEquals(Content, control))
             Content = null;
 
-        WebView2ControlPool.Release(control);
+        if (park)
+            WebView2ControlPool.Release(control);
+        else
+            WebView2ControlPool.Discard(control);
     }
 
     public void NavigateToFile(string path)
@@ -208,6 +254,8 @@ public class WebpagePanel : UserControl
 
     public void NavigateToHtml(string html)
     {
+        _currentHtml = html;
+
         // v3.32.0: only navigate when the controller really came up - a faulted
         // EnsureCoreWebView2Async (WebView2 runtime missing or being restarted)
         // used to surface as an unhandled "CoreWebView2 prior to being

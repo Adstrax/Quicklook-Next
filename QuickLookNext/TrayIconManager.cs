@@ -213,6 +213,14 @@ internal partial class TrayIconManager : IDisposable
                         Command = ToggleHideTopBarByDefault,
                         IsChecked = SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"),
                     },
+                    // v5.2.0: trade the startup warm-ups for ~100 MB of idle memory.
+                    new TrayMenuEntry
+                    {
+                        Header = TranslationHelper.Get("Icon_LowMemoryMode", failsafe: "Low memory mode"),
+                        Icon = FontSymbols.Leaf,
+                        Command = ToggleLowMemoryMode,
+                        IsChecked = Helpers.StartupWarmUp.IsLowMemoryMode,
+                    },
                 ],
             },
             TrayMenuEntry.Separator,
@@ -412,6 +420,23 @@ internal partial class TrayIconManager : IDisposable
         var manager = ViewWindowManager.GetInstance();
         if (manager.CurrentViewerWindow is { IsVisible: true } w)
             w.ApplyTopBarMode();
+    }
+
+    /// <summary>
+    /// v5.2.0: the low memory mode turns both startup warm-ups off. They only run while the
+    /// process starts, so the switch explains that it takes effect on the next start instead
+    /// of leaving the user wondering why nothing changed right away.
+    /// </summary>
+    private static void ToggleLowMemoryMode()
+    {
+        Helpers.StartupWarmUp.Toggle();
+
+        var on = Helpers.StartupWarmUp.IsLowMemoryMode;
+        ShowNotification(string.Empty,
+            TranslationHelper.Get(on ? "Icon_LowMemoryModeOn" : "Icon_LowMemoryModeOff",
+                failsafe: on
+                    ? "Low memory mode is on - the startup warm-up stays off from the next start."
+                    : "Low memory mode is off - the startup warm-up is back from the next start."));
     }
 
     internal static bool IsDarkTheme()

@@ -269,9 +269,39 @@ public class ContextObject : INotifyPropertyChanged
 
         var ratio = PreviewWindowSizing.FitRatio(size, desktop, maxRatio);
 
+        // v5.2.0: remember what the plugin asked for, so the host can ask the same question
+        // again when the window lands on another screen (see RefitToHostDesktop).
+        _fitContent = size;
+        _fitRatio = maxRatio;
+
         PreferredSize = new Size { Width = size.Width * ratio, Height = size.Height * ratio };
 
         return ratio;
+    }
+
+    private Size _fitContent;
+    private double _fitRatio;
+
+    /// <summary>
+    /// v5.2.0: re-runs the last <see cref="SetPreferredSizeFit"/> against the current
+    /// <see cref="HostDesktopSize"/> - the "make the content fit" question of the plugin, asked
+    /// again for the screen the window is on now. Used when the window is dragged to another
+    /// monitor or when the display scaling changes, where the old answer no longer fits.
+    /// <para>
+    /// Returns false when the plugin did not use the fit helper at all (it set a fixed
+    /// <see cref="PreferredSize"/>, e.g. the info panel); the host then only clamps the window.
+    /// </para>
+    /// </summary>
+    public bool RefitToHostDesktop()
+    {
+        if (_fitContent.Width <= 0d || _fitContent.Height <= 0d ||
+            HostDesktopSize.Width <= 0d || HostDesktopSize.Height <= 0d)
+            return false;
+
+        var before = PreferredSize;
+        SetPreferredSizeFit(_fitContent, _fitRatio);
+
+        return PreferredSize != before;
     }
 
     /// <summary>
@@ -311,6 +341,9 @@ public class ContextObject : INotifyPropertyChanged
         // set to False to prevent showing loading icon
         IsBusy = false;
         PreferredSize = new Size();
+        // v5.2.0: the next preview asks for its own size - never re-fit the previous plugin's.
+        _fitContent = new Size();
+        _fitRatio = 0d;
         CanResize = true;
         FullWindowDragging = false;
 

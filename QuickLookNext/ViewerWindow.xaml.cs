@@ -148,6 +148,8 @@ public partial class ViewerWindow : Window
 
         Closed += (_, _) =>
         {
+            // v5.2.0: SystemEvents is process wide - the window must let go of it.
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             UninstallMouseHook();
             StopTopBarPolling();
         };
@@ -258,6 +260,24 @@ public partial class ViewerWindow : Window
 
         WindowHelper.RemoveWindowControls(this);
 
+        // v5.2.0: publish the scale this window starts at (see DisplayScale).
+        DisplayScale.Notify(VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+        // v5.2.0: the preview belongs to the screen it is on. A drag to another monitor and a
+        // resolution / scaling change both make the size the plugin asked for an answer about the
+        // wrong screen, so both re-fit (see RefitForCurrentScreen).
+        LocationChanged += (_, _) => CheckForMonitorChange();
+
+        try
+        {
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        }
+        catch (Exception ex)
+        {
+            // SystemEvents needs a message pump; if it refuses, the DPI path still works.
+            Debug.WriteLine(ex.Message);
+        }
+
         if (_layeredAcrylic)
         {
             // v1.3.2: on a layered window there is no DWM glass to fill the
@@ -297,6 +317,20 @@ public partial class ViewerWindow : Window
         }
 
         ApplyWindowBackgroundEffects();
+    }
+
+    /// <summary>
+    /// v5.2.0: the display settings changed - a resolution change, a new monitor, another scaling.
+    /// The event arrives on a background thread and the window is a DispatcherObject, so the
+    /// re-fit is queued on the UI thread (and does nothing when the size is still right).
+    /// </summary>
+    private void OnDisplaySettingsChanged(object sender, EventArgs e)
+    {
+        // A scaling change can arrive as a plain display-settings change as well; re-reporting the
+        // window's scale is free when nothing changed (see DisplayScale.Notify).
+        DisplayScale.Notify(VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+        Dispatcher.BeginInvoke(new Action(RefitForCurrentScreen), DispatcherPriority.Loaded);
     }
 
     protected override void OnActivated(EventArgs e)

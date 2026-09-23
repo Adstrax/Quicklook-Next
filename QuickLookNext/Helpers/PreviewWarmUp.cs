@@ -126,6 +126,11 @@ internal static class PreviewWarmUp
 
         _started = true;
 
+        // v5.2.0: the low memory mode is the user saying "I would rather have the memory
+        // back than the head start" - see StartupWarmUp for the measured cost.
+        if (!StartupWarmUp.IsEnabled)
+            return;
+
         if (!SettingHelper.Get(EnabledSetting, true, "QuickLookNext"))
             return;
 

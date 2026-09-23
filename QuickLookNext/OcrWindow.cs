@@ -271,6 +271,9 @@ internal sealed class OcrWindow : Window
                 Path.Combine(App.SmokeDir, "ocr.txt"),
                 $"path={_path}\nstatus={status}\nchars={_result.Length}\n" +
                 $"attempts={attempts}\n" +
+                // v5.2.0: circled numbers (which the engine cannot read) are dropped instead of
+                // being reported as whatever digit they look like - this is how many were.
+                $"filtered={OcrRecognizer.LastFilteredGlyphCount}\n" +
                 $"text={_result.Replace("\r\n", "\n").Replace('\r', '\n')}\n");
         }
         catch

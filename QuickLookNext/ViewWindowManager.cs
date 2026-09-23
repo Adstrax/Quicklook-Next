@@ -348,7 +348,10 @@ private void InitNewViewerWindow()
 
     // v1.2.36: warm up the first Show during startup idle, off-screen, so the
     // first preview appears instantly instead of waiting ~200 ms.
-    _viewerWindow.WarmUp();
+    // v5.2.0: skipped in the low memory mode - the window (and the rendering stack it
+    // pulls in) is then created on the first preview instead, ~+51 MB idle either way.
+    if (Helpers.StartupWarmUp.IsEnabled)
+        _viewerWindow.WarmUp();
 }
 
     public static ViewWindowManager GetInstance()

@@ -193,4 +193,26 @@ internal class OcrLanguageTests
         Assert.Equal(1, merged.Count, "one visual line");
         Assert.Equal("Invoice total", merged[0], "the shared text is not repeated");
     }
+
+    /// <summary>
+    /// v5.2.0: the engine cannot read circled numbers - measured on a clean synthetic page, ①-⑤
+    /// and ❶-❺ both come back as nothing, and on a real page a filled ① was reported as "0". That
+    /// wrong digit is worse than a gap, so a lone digit-like character in a disc-shaped (nearly
+    /// square) box is treated as an unreadable list bullet and dropped.
+    /// </summary>
+    public void ACircledNumberStopsBeingReportedAsADigit()
+    {
+        Assert.True(OcrRecognizer.IsUnreadableGlyph("0", 50, 50), "a square box holding a 0 is a disc");
+        Assert.True(OcrRecognizer.IsUnreadableGlyph("O", 30, 32), "and the same for O");
+        Assert.True(OcrRecognizer.IsUnreadableGlyph("o", 40, 44), "and for o");
+    }
+
+    public void RealCharactersKeepTheirPlace()
+    {
+        Assert.False(OcrRecognizer.IsUnreadableGlyph("0", 20, 40), "a real 0 is taller than it is wide");
+        Assert.False(OcrRecognizer.IsUnreadableGlyph("8", 22, 40), "and so is any other digit");
+        Assert.False(OcrRecognizer.IsUnreadableGlyph("10", 40, 40), "two characters are never a bullet");
+        Assert.False(OcrRecognizer.IsUnreadableGlyph("人生", 40, 40), "nor is text");
+        Assert.False(OcrRecognizer.IsUnreadableGlyph("0", 0, 0), "a box without a size proves nothing");
+    }
 }

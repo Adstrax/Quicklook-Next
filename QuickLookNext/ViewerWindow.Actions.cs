@@ -345,15 +345,29 @@ public partial class ViewerWindow
     {
         base.OnDpiChanged(oldDpi, newDpi);
 
+        // v5.2.0: the one place that is guaranteed to hear about a scaling change (see
+        // DisplayScale) - WebView2 hosts and their parked controls read it from here.
+        DisplayScale.Notify(newDpi.PixelsPerDip);
+
         if (!IsLoaded || WindowState == WindowState.Maximized || _isFullscreen)
             return;
 
         // The size and position Win32 proposed arrive with this same message;
         // re-fit once the layout has settled on them.
-        Dispatcher.BeginInvoke(new Action(RefitWindowToItsOwnDesktop), DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(new Action(RefitForCurrentScreen), DispatcherPriority.Loaded);
     }
 
-    private void RefitWindowToItsOwnDesktop()
+    /// <summary>
+    /// Which monitor the window was last seen on, so a move to another one can be told apart
+    /// from the stream of <see cref="Window.LocationChanged"/> events a drag produces.
+    /// </summary>
+    private string _lastMonitorDevice;
+
+    /// <summary>
+    /// v5.2.0: the window may have been dragged to another monitor. Only that (or the very first
+    /// report) is interesting - the event fires on every pixel of a drag.
+    /// </summary>
+    private void CheckForMonitorChange()
     {
         if (!IsLoaded || WindowState == WindowState.Maximized || _isFullscreen)
             return;
@@ -362,15 +376,64 @@ public partial class ViewerWindow
         if (hwnd == IntPtr.Zero)
             return;
 
+        var device = WinForms.Screen.FromHandle(hwnd)?.DeviceName;
+        if (string.IsNullOrEmpty(device))
+            return;
+
+        if (_lastMonitorDevice == null)
+        {
+            _lastMonitorDevice = device;
+            return;
+        }
+
+        if (string.Equals(_lastMonitorDevice, device, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _lastMonitorDevice = device;
+        RefitForCurrentScreen();
+    }
+
+    /// <summary>
+    /// v5.2.0: the screen the window sits on changed - another monitor, another scale factor or
+    /// another resolution. The size the plugin asked for was an answer about the *old* screen, so
+    /// the question is asked again (see <see cref="ContextObject.RefitToHostDesktop"/>) and the
+    /// window follows, clamped so it can never hang over the edge of the screen it is on.
+    /// <para>
+    /// v5.0.10: before that, this only pulled an oversized window back (the #827 "spans three
+    /// monitors" case), which is still the last step here.
+    /// </para>
+    /// </summary>
+    private void RefitForCurrentScreen()
+    {
+        if (!IsLoaded || WindowState == WindowState.Maximized || _isFullscreen)
+            return;
+
+        // The warm-up window is "shown" off-screen before the first preview; there is nothing to
+        // re-fit for it.
+        if (string.IsNullOrEmpty(_path))
+            return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
         var desktop = GetDesktopSizeInDip(hwnd);
-        if (Width <= desktop.Width + 0.5d && Height <= desktop.Height + 0.5d)
+
+        // The plugin's fit measured the old screen; hand it the new one and ask again. A plugin
+        // that set a fixed size returns false and is simply clamped below, and a size the user
+        // dragged themselves wins over both (see ComputeWindowSize).
+        ContextObject.HostDesktopSize = desktop;
+        ContextObject.RefitToHostDesktop();
+
+        var size = PreviewWindowSizing.ClampToDesktop(ComputeWindowSize(clampToDesktop: true), desktop);
+
+        if (Math.Abs(size.Width - Width) <= 0.5d && Math.Abs(size.Height - Height) <= 0.5d)
             return;
 
         // Same rule as ApplyResizeRequest: this is the host correcting itself,
         // not the user choosing a size, so it must not be remembered as one.
         _ignoreNextWindowSizeChange = true;
 
-        var size = PreviewWindowSizing.ClampToDesktop(new Size(Width, Height), desktop);
         var newRect = ResizeAndCentreExistingWindow(size);
 
         this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
