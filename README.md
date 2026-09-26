@@ -1,200 +1,209 @@
 # QuickLook-Next
 
-**简体中文** | [English](README.en.md)
+**English** | [简体中文](README.zh-CN.md)
 
-> QuickLook 的 **UI 美化与功能完善版**（基于 [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook)
-> 4.5.0 的 .NET 10 迁移版）。
+> A **UI-polished and feature-complete** edition of [QuickLook](https://github.com/QL-Win/QuickLook)
+> (ported to .NET 10, based on the 4.5.0 codebase).
 
-QuickLook-Next 保留完整的文件预览能力，并把预览背景、窗口圆角、主题、托盘菜单、
-插件管理、语言、自动更新等体验全面重构与增强——**功能只多不少**。
+QuickLook-Next keeps the full file-preview capability and rebuilds the experience:
+preview backdrop, rounded corners, themes, tray menu, plugin manager, language
+switching, auto-update — **more features, not fewer**.
 
-独立分支 `lite`，与官方完整版命名隔离（管道 / 互斥体使用 `QuickLookNext.App.*`），
-可同时安装互不干扰。
+It lives on the isolated `lite` branch (named pipes / mutex use `QuickLookNext.App.*`),
+so it can be installed side-by-side with the official build without conflicts.
 
-## 界面一览
+## Screenshots
 
-以下截图均来自实际运行效果。
+All screenshots below show the app running in real use.
 
-### 图片预览
+### Image preview
 
-支持 png / jpg / gif / webp / bmp / psd / raw / heic / svg 等 100+ 图片格式；
-Acrylic 毛玻璃背景一打开即生效并跟随壁纸，窗口带 Win11 原生圆角。
+100+ image formats (png / jpg / gif / webp / bmp / psd / raw / heic / svg etc.)
+with Acrylic backdrop from the first frame that follows the wallpaper, plus
+native Win11 rounded corners.
 
-![图片预览](docs/screenshots/preview-image.png)
+![Image preview](docs/screenshots/preview-image.png)
 
-### Markdown 预览
+### Markdown preview
 
-支持标准 Markdown、mermaid 图表与 MathJax 公式，代码高亮；内容可上下滚动，
-阅读体验流畅。
+Standard Markdown, mermaid diagrams and MathJax formulas with syntax
+highlighting; content scrolls smoothly.
 
-![Markdown 预览](docs/screenshots/preview-markdown.png)
+![Markdown preview](docs/screenshots/preview-markdown.png)
 
-### Office 预览（自研渲染，截图以 Excel 为例）
+### Office preview (self-rendered; screenshot shows Excel)
 
-Excel / Word / PowerPoint 均不再调用 Windows 系统预览组件，改为 OOXML 解析 +
-WebView2 自研渲染；固定浅色纸面、阅读舒适，圆角与主题和整体界面一致，
-无需安装 Office。
+Excel / Word / PowerPoint all use in-house rendering (OOXML parsing + WebView2)
+instead of the Windows system preview component — no Office installation
+required. The screenshot shows Excel as an example.
 
-![Office 预览（Excel 示例）](docs/screenshots/preview-excel.png)
+![Office preview (Excel example)](docs/screenshots/preview-excel.png)
 
-### PDF 预览
+### PDF preview
 
-逐页浏览 PDF，左侧框架区 + 右侧纸面布局清晰，阅读舒适。
+Page-by-page PDF browsing with a clean left frame + right paper layout.
 
-![PDF 预览](docs/screenshots/preview-pdf.png)
+![PDF preview](docs/screenshots/preview-pdf.png)
 
-### 托盘菜单（Acrylic）
+### Tray menu (Acrylic)
 
-毛玻璃托盘菜单，主题 / 背景 / 语言等收进二级子菜单，条目带 Fluent 图标；
-点击选项不会误关菜单。
+Frosted tray menu with theme / backdrop / language in submenus and Fluent
+icons; clicking an option does not accidentally close the menu.
 
-![托盘菜单](docs/screenshots/tray-menu.png)
+![Tray menu](docs/screenshots/tray-menu.png)
 
-### 插件管理面板
+### Plugin manager
 
-列出内置与用户插件，用户插件可直接卸载；老插件无需重新编译即可安装加载。
+Lists built-in and user plugins; user plugins can be uninstalled directly;
+existing plugins load without recompiling.
 
-![插件管理面板](docs/screenshots/plugin-manager.png)
+![Plugin manager](docs/screenshots/plugin-manager.png)
 
-## 相比原版的主要改进
+## Highlights vs. the original
 
-### UI 美化
+### UI polish
 
-- **Acrylic 一打开即生效、跟随壁纸**：原版在 Win11 上使用 DWM Acrylic，而预览窗口
-  从不抢焦点，导致文本 / 代码等内容打开时是纯色、点击后才出现毛玻璃。QuickLook-Next
-  改用 WCA 方案，打开即是毛玻璃，且桌面壁纸变化时背景同步变化
-- **Win11 原生圆角**：毛玻璃与内容一起 8px 圆角，没有方形毛玻璃边角
-- **统一 Acrylic 观感**：预览窗口、托盘菜单、插件管理面板同为无边框非分层
-  WCA 毛玻璃 + DWM 圆角，没有方形毛玻璃边角，也没有多余的外圈投影
-- **亮色 / 暗色 / 跟随系统**：托盘菜单一键切换并持久化，预览立即生效
-- **顶部状态栏默认隐藏**：鼠标移到窗口顶部标题栏区域才显示，移开后自动隐藏，
-  不遮挡内容
-- **主题色统一**：托盘菜单与插件管理面板共享同一套调色板，文字 / 分隔线 /
-  悬停 / 强调色单一来源，强调色跟随系统主题色
-- **滚动条随主题**：预览窗口、托盘菜单、插件管理面板的滚动条滑块颜色随
-  亮 / 暗主题变化
-- **切换预览无闪烁**：内容淡入动画只在首次预览时触发，切换文件时保持全不透明度
-- **托盘菜单分组 + 图标**：主题模式、背景模式、语言、选项收进二级子菜单，
-  顶层保持简短，条目带 Fluent 图标；同时修复了菜单闪动、点击图标菜单消失、
-  二级菜单误关等问题
+- **Acrylic from the first frame, follows the wallpaper**: the original used DWM
+  Acrylic on Win11, but the never-activating preview window rendered a solid tint
+  until clicked. QuickLook-Next uses WCA acrylic, so the frosted look is there
+  immediately and follows wallpaper changes.
+- **Native Win11 rounded corners**: 8 px rounded corners on the glass, no square
+  frosted edges.
+- **Consistent Acrylic look**: preview window, tray menu and plugin manager all
+  use borderless non-layered WCA acrylic + DWM corners.
+- **Light / Dark / System themes**: switch from the tray menu, persisted instantly.
+- **Auto-hiding top bar**: the caption area only appears when the cursor reaches
+  the top of the window.
+- **Unified theme colors**: the tray menu and plugin manager share one palette
+  (text / separators / hover / accent); the accent follows the system accent color.
+- **Theme-aware scrollbars**: scrollbar thumbs follow the light / dark theme in
+  the preview window, tray menu and plugin manager.
+- **No flicker when switching previews**: the fade-in plays on the first preview
+  only; switching files keeps full opacity.
+- **Grouped tray menu with icons**: theme / backdrop / language / options live in
+  submenus with Fluent icons, keeping the top level short; also fixed menu
+  flicker, icon-click menu disappearance and submenu mis-closing.
 
-### 功能完善
+### Features
 
-- **Office 三件套自研渲染**：Excel / Word / PowerPoint 不再调用 Windows 系统预览
-  组件，改为自研解析渲染（MiniExcel / OOXML 解析 → WebView2），获得圆角、毛玻璃、
-  深浅色一致的观感，且内容固定浅色纸面、阅读舒适
-- **插件管理面板（原版没有）**：列出用户安装与内置插件，用户插件可直接卸载；
-  插件契约保持 `QuickLook.Common` / `QuickLook.Plugin.*`，老插件无需重新编译即可
-  安装加载
-- **内置语言切换**：托盘菜单「语言」子菜单支持跟随系统 + 30 种语言（常用语言
-  优先排序），显示名使用本地语言（中文显示为「简体中文」「繁体中文」），
-  选择后持久化
-- **自动更新**：检查更新时直接下载 Release 安装包并原地更新重启，不再只是打开网页
-- **文本预览可上下滚动**：修复分层窗口收不到滚轮消息的问题，txt / log / json /
-  代码等预览可正常滚动
-- **预览打开提速**：第二实例不再初始化 WPF，直接通过命名管道转发给常驻实例；
-  图片解码管线在启动后台预热，首次预览不再支付一次性初始化成本
+- **Self-rendered Office previews**: Excel / Word / PowerPoint no longer use the
+  Windows system preview component — they are parsed and rendered in-house
+  (MiniExcel / OOXML → styled HTML in WebView2), matching the app's rounded
+  corners, acrylic and themes, with a fixed light paper surface for readability.
+- **Plugin manager (new)**: lists user and built-in plugins, uninstalls user
+  plugins; the plugin contract stays `QuickLook.Common` / `QuickLook.Plugin.*`,
+  so existing plugins load without recompiling.
+- **Built-in language switching**: follow-system + 30 languages in the tray menu
+  (common languages first, names shown in their own language — Chinese displays
+  as 简体中文 / 繁体中文), persisted.
+- **Auto-update**: downloads the Release package, replaces files and restarts
+  in place.
+- **Scrollable text preview**: fixed layered-window wheel routing; txt / log /
+  json / code previews scroll normally.
+- **Faster previews**: a second instance forwards through a named pipe without
+  initializing WPF; the image decode pipeline is warmed in the background.
 
-### 性能与体积
+### Performance & size
 
-- **启动提速**：25 个插件程序集并行加载、语法高亮并行初始化，插件就绪时间从约
-  2.5s 降到约 0.4s
-- **按需加载**：罕见格式插件（3D、数据库、PE、邮件等）首次遇到才加载，常驻内存
-  与原生库占用更低（MediaInfo 约 8MB、ImageMagick 约 24MB 原生库不再预载）；
-  Markdown 预览按需加载 mermaid / MathJax；字体预览（FontViewer）同样按需加载，
-  FreeType / OpenFont 依赖不再常驻
-- **预览匹配缓存**：同一扩展名重复预览跳过全量插件扫描（结果与全量扫描一致），
-  插件 Init 后台并行化，程序集索引启动期后台预建
-- **画刷缓存**：托盘菜单 / 插件面板调色板画刷复用并冻结，减少反复分配
-- **发布包精简**：运行库统一收进 `lib\`，共享依赖去重，应用图标无损压缩
-  （app.ico 1457KB → 92KB，exe 约 1.6MB → 0.25MB，zip 约 60MB）
+- **Faster startup**: plugin assemblies load in parallel and syntax highlighting
+  initializes concurrently — plugin-ready time dropped from ~2.5 s to ~0.4 s.
+- **On-demand loading**: rare-format plugins (3D, databases, PE, e-mail, ...)
+  load only on first use, and the MediaInfo (~8 MB) and ImageMagick (~24 MB)
+  native libraries are no longer preloaded; Markdown loads mermaid / MathJax
+  only when needed.
+- **Leaner package**: runtimes live in `lib\`, shared dependencies are
+  deduplicated, the app icon is losslessly compressed (app.ico 1457 KB → 92 KB,
+  exe ~1.6 MB → 0.25 MB, ~60 MB zip).
 
-### 工程与架构
+### Engineering
 
-- **.NET 10 迁移**：目标框架 net10.0-windows，构建只需 .NET SDK
-- **纯 C# 空格键链路**：焦点判断 + Explorer / 桌面选区读取改为 P/Invoke + Shell COM，
-  不再依赖原生 C++ 工具链
-- **命名隔离**：管道 / 互斥体使用 `QuickLookNext.App.*`，与官方完整版互不干扰
-- **构建质量**：构建警告从 31 个清理到 1 个
-- **自动化测试**：19 种格式预览 + Shell 选区链路 + 托盘菜单/插件面板
-  （[test.ps1](test.ps1)，提交前必须全绿）；GitHub Actions 在每次推送自动构建并
-  运行冒烟测试
+- **.NET 10 migration**: targets `net10.0-windows`; only the .NET SDK is needed
+  to build.
+- **Pure C# space-key pipeline**: focus detection + Explorer / desktop selection
+  reading use P/Invoke + Shell COM, no native C++ toolchain.
+- **Name isolation**: `QuickLookNext.App.*` pipes/mutex — installs side-by-side
+  with the official build.
+- **Build quality**: build warnings cleaned up from 31 to 1.
+- **Automated tests**: 19 format previews + shell-selection + tray menu / plugin
+  panel ([test.ps1](test.ps1), must stay green); GitHub Actions builds and runs
+  the smoke test on every push.
 
-## 安装与使用
+## Install & usage
 
-1. 从 [Releases](https://github.com/Adstrax/QuickLook-Next/releases) 下载最新版，解压后运行
-   `QuickLook-Next.exe`
-2. 选中文件按 **空格** 预览，**Esc** 关闭；预览窗口支持置顶、跨预览拖拽内容
-3. 托盘图标右键可切换主题 / 背景 / 语言、管理插件、检查更新等
+1. Download the latest release from [Releases](https://github.com/Adstrax/QuickLook-Next/releases),
+   extract it and run `QuickLook-Next.exe`.
+2. Select a file and press **Space** to preview, **Esc** to close; the preview
+   supports always-on-top and drag-and-drop between previews.
+3. Right-click the tray icon to switch theme / backdrop / language, manage
+   plugins, check for updates, etc.
 
-> **系统要求**：需要 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
-> （Windows 10 / 11）。如果启动时提示缺少运行时，点击提示中的下载按钮安装后
-> 重新打开即可；未安装 .NET 10 时应用不会启动。
+> **Requirements**: [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+> on Windows 10 / 11. If the runtime is missing, the app shows a download prompt
+> — install it and reopen. The app will not start without .NET 10.
 
-## 构建
+## Building
 
-需要 .NET 10 SDK：
+Requires the .NET 10 SDK:
 
 ```powershell
 dotnet build QuickLookNext.slnx -c Release
 ```
 
-提交前运行冒烟测试：`.\test.ps1`（要求全部通过）。
+Run the smoke test before committing: `.\test.ps1` (must pass).
 
-生成用户友好的发布包（根目录只保留 `QuickLook-Next.exe` 和少量配置文件，
-其余运行库收进 `lib\` 子目录，插件在 `QuickLook.Plugin` 子目录，自带便携模式与
-首次使用说明）：
+Build a user-friendly release package (the root keeps only `QuickLook-Next.exe`
+and a few config files; runtimes live in `lib\`, plugins in `QuickLook.Plugin`,
+with portable mode and a first-run readme):
 
 ```powershell
 .\Scripts\pack-release.ps1 -MakeZip
 ```
 
-产物：`Build\QuickLook-Next-<版本号>.zip`，解压后结构如下，用户只需双击根目录的
-`QuickLook-Next.exe`：
+Output: `Build\QuickLook-Next-<version>.zip`:
 
 ```
 QuickLook-Next.exe
 QuickLook-Next.dll / .deps.json / .runtimeconfig.json
 Translations.config
-Readme.txt          # 首次使用说明（含 .NET 运行时要求，中文）
-lib\               # 第三方运行库
-runtimes\          # 原生运行库
-QuickLook.Plugin\  # 内置插件
+Readme.txt           # first-run note (incl. .NET runtime requirement, Chinese)
+lib\                 # third-party runtimes
+runtimes\            # native runtimes
+QuickLook.Plugin\    # built-in plugins
 ```
 
-## 支持的文件格式
+## Supported formats
 
-文件夹预览由主程序内置的 InfoPanel 提供，内置 25 个插件（含恢复的 11 个
-插件），覆盖日常与专业格式：
+Folder preview is provided by the built-in InfoPanel. 25 built-in plugins cover
+everyday and professional formats:
 
-| 插件 | 用途 |
+| Plugin | Purpose |
 |---|---|
-| ImageViewer | 图片（png/jpg/gif/webp/bmp/psd/raw/heic/svg/ico 等 100+ 格式） |
-| VideoViewer | 视频与音频（MediaInfo 嗅探，支持 mp4/mkv/avi/mov/webm/mp3/flac 等） |
-| TextViewer | 文本与代码（txt/log/ini/json/xml/rtf/csv 及数百种代码语言） |
-| MarkdownViewer | Markdown（md/mdx/mermaid/ipynb/adoc/rst 等） |
-| OfficeViewer | Office（docx/xlsx/pptx 自研渲染；doc/xls/ppt/odt/ods/odp/vsd/vsdx 系统兜底） |
-| HtmlViewer | HTML/MHT/URL（WebView2 渲染，也是 MD 插件的依赖） |
+| ImageViewer | Images (png/jpg/gif/webp/bmp/psd/raw/heic/svg/ico and 100+ more) |
+| VideoViewer | Video & audio (MediaInfo sniffing; mp4/mkv/avi/mov/webm/mp3/flac etc.) |
+| TextViewer | Text & code (txt/log/ini/json/xml/rtf/csv and hundreds of languages) |
+| MarkdownViewer | Markdown (md/mdx/mermaid/ipynb/adoc/rst etc.) |
+| OfficeViewer | Office (docx/xlsx/pptx self-rendered; doc/xls/ppt/odt/ods/odp/vsd/vsdx via system fallback) |
+| HtmlViewer | HTML/MHT/URL (WebView2; dependency of the Markdown plugin) |
 | PdfViewer | PDF |
-| ArchiveViewer | 压缩包与安装包（zip/rar/7z/tar/gz/bz2/xz/cbz/cbr/jar/apk/msi 等） |
-| CsvViewer | CSV/TSV/PSV 表格化视图 |
-| FontViewer | 字体（ttf/otf/woff/woff2/ttc/eot） |
-| MediaInfoViewer | 右键菜单查看媒体信息 |
-| CLSIDViewer | 系统 shell 特殊对象（我的电脑、回收站等） |
-| AppViewer | 应用安装包详情（apk/ipa/msi/dmg/deb/rpm 等） |
-| PluginInstaller | .qlplugin 插件安装 |
-| BinaryViewer | 二进制文件（bin/hex） |
-| CertViewer | 数字证书（cer/crt/pem/pfx/p12 等） |
-| ChmViewer | CHM 帮助文档 |
-| DbViewer | 数据库（SQLite 等） |
-| DumpViewer | 崩溃转储（dmp） |
-| ELFViewer | ELF 可执行文件（Linux 二进制） |
-| HelixViewer | 3D 模型（stl/obj/3ds/fbx/glb/gltf/dae 等） |
-| MailViewer | 邮件（eml/msg） |
-| PEViewer | PE 可执行文件（exe/dll/sys 等） |
-| PrefetchViewer | Windows 预读取文件（pf） |
-| ThumbnailViewer | 设计文件缩略图（cdr/fig/kra/pdn/sketch/xd 等） |
+| ArchiveViewer | Archives & installers (zip/rar/7z/tar/gz/bz2/xz/cbz/cbr/jar/apk/msi etc.) |
+| CsvViewer | CSV/TSV/PSV tabular view |
+| FontViewer | Fonts (ttf/otf/woff/woff2/ttc/eot) |
+| MediaInfoViewer | Media info via the context menu |
+| CLSIDViewer | Shell special objects (This PC, Recycle Bin, etc.) |
+| AppViewer | App package details (apk/ipa/msi/dmg/deb/rpm etc.) |
+| PluginInstaller | .qlplugin installation |
+| BinaryViewer | Binary files (bin/hex) |
+| CertViewer | Certificates (cer/crt/pem/pfx/p12 etc.) |
+| ChmViewer | CHM help documents |
+| DbViewer | Databases (SQLite etc.) |
+| DumpViewer | Crash dumps (dmp) |
+| ELFViewer | ELF executables (Linux binaries) |
+| HelixViewer | 3D models (stl/obj/3ds/fbx/glb/gltf/dae etc.) |
+| MailViewer | E-mail (eml/msg) |
+| PEViewer | PE executables (exe/dll/sys etc.) |
+| PrefetchViewer | Windows prefetch files (pf) |
+| ThumbnailViewer | Design-file thumbnails (cdr/fig/kra/pdn/sketch/xd etc.) |
 
-## 更新历史
+## Changelog
 
-详细更新记录见 [CHANGELOG.md](CHANGELOG.md) 与 GitHub [Releases](https://github.com/Adstrax/QuickLook-Next/releases)。
+See [CHANGELOG.md](CHANGELOG.md) and GitHub [Releases](https://github.com/Adstrax/QuickLook-Next/releases).
