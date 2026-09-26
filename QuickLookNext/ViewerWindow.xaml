@@ -73,20 +73,22 @@
                     </Style>
                 </Grid.Style>
                 <Grid.Resources>
-                    <Storyboard x:Key="ShowCaptionContainerStoryboard" Completed="AutoHideCaptionContainer">
+                    <!-- v5.4.0: both transitions are plain 50 ms fades. Hiding is no longer part of
+                         this storyboard (its Completed handler used to start the hide), because the
+                         poll re-showed the bar the moment the hide began - with the cursor parked on
+                         the bar that looped forever. Who hides it now: the poll, once the cursor has
+                         left the top zone (see ViewerWindow.StartTopBarPolling). -->
+                    <Storyboard x:Key="ShowCaptionContainerStoryboard">
                         <DoubleAnimation Storyboard.Target="{Binding Source={x:Reference windowCaptionContainer}}"
                                          Storyboard.TargetProperty="Opacity"
                                          To="1"
                                          Duration="0:0:0.05" />
                     </Storyboard>
                     <Storyboard x:Key="HideCaptionContainerStoryboard">
-                        <DoubleAnimationUsingKeyFrames Storyboard.Target="{Binding Source={x:Reference windowCaptionContainer}}" Storyboard.TargetProperty="Opacity">
-                            <DoubleAnimationUsingKeyFrames.KeyFrames>
-                                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="1" />
-                                <LinearDoubleKeyFrame KeyTime="0:0:1" Value="1" />
-                                <LinearDoubleKeyFrame KeyTime="0:0:1.05" Value="0" />
-                            </DoubleAnimationUsingKeyFrames.KeyFrames>
-                        </DoubleAnimationUsingKeyFrames>
+                        <DoubleAnimation Storyboard.Target="{Binding Source={x:Reference windowCaptionContainer}}"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0"
+                                         Duration="0:0:0.05" />
                     </Storyboard>
                 </Grid.Resources>
                 <!-- v5.3.0: the scrim is the bar's own floor. Plugins that switch the glass off

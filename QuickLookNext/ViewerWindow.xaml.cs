@@ -74,6 +74,13 @@ public partial class ViewerWindow : Window
     // draggable WindowChrome region, so WPF gets no MouseMove there and a
     // low-level hook turned out unreliable in this app).
     private DispatcherTimer _topBarPollTimer;
+
+    // v5.4.0: whether the bar is *meant* to be visible. The poll re-showed it as soon as the
+    // auto-hide began, so a cursor parked on the bar faded it out and back in forever; with the
+    // new scrim that loop became obvious. The intended state is tracked here instead, and the
+    // bar is hidden only once the cursor has left the top zone.
+    private bool _topBarShown;
+    private DispatcherTimer _topBarHideTimer;
     // v1.3.5: last WCA acrylic result, reported by DiagnoseBackdrop so the
     // smoke tests can assert the acrylic call really succeeded.
     private bool _lastAcrylicOk;
@@ -154,6 +161,7 @@ public partial class ViewerWindow : Window
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             UninstallMouseHook();
             StopTopBarPolling();
+            StopTopBarHideWatch();
         };
 
         buttonTop.Click += (_, _) =>
@@ -744,8 +752,9 @@ public partial class ViewerWindow : Window
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             return;
 
-        if (windowCaptionContainer.Opacity == 0 || windowCaptionContainer.Opacity == 1)
-            ShowCaptionBar();
+        // v5.4.0: goes through the same guard as the poll - the leg work (and the decision about
+        // when to hide again) lives in RevealTopBar / the hide watch.
+        RevealTopBar();
     }
 
     /// <summary>
@@ -755,6 +764,9 @@ public partial class ViewerWindow : Window
     /// </summary>
     private void ShowCaptionBar()
     {
+        _topBarShown = true;
+        StartTopBarHideWatch();
+
         if (!Helpers.Motion.IsEnabled)
         {
             windowCaptionContainer.Opacity = 1d;
@@ -766,6 +778,13 @@ public partial class ViewerWindow : Window
 
     private void HideCaptionBar()
     {
+        _topBarShown = false;
+        StopTopBarHideWatch();
+
+        // Test hook: with /test-preview-diag this line proves the bar was hidden *and* why it
+        // stopped being hidden while the cursor stayed on it.
+        WriteTopBarDiag("hide-begin-storyboard");
+
         if (!Helpers.Motion.IsEnabled)
         {
             windowCaptionContainer.Opacity = 0d;
@@ -773,6 +792,44 @@ public partial class ViewerWindow : Window
         }
 
         ((Storyboard)windowCaptionContainer.FindResource("HideCaptionContainerStoryboard")).Begin();
+    }
+
+    /// <summary>
+    /// v5.4.0: once the bar is up, this repeating tick decides when it goes away - and only when
+    /// the pointer is not resting on the bar (see <see cref="HideTopBarIfIdle"/>). The delay used
+    /// to live inside the hide storyboard, which could not be called off: the reveal poll fired
+    /// again while the fade was running, and the bar pulsed for as long as the cursor stayed on it.
+    /// </summary>
+    private void StartTopBarHideWatch()
+    {
+        if (_topBarHideTimer == null)
+        {
+            _topBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _topBarHideTimer.Tick += (_, _) => HideTopBarIfIdle();
+        }
+
+        _topBarHideTimer.Start();
+    }
+
+    private void StopTopBarHideWatch()
+    {
+        _topBarHideTimer?.Stop();
+    }
+
+    /// <summary>
+    /// v5.4.0: hides the bar, but only when that is what the user's cursor asks for - a bar the
+    /// plugin wants visible, or one the pointer is resting on, stays where it is.
+    /// </summary>
+    private void HideTopBarIfIdle()
+    {
+        var pointerInTopZone = GetCursorPos(out var pt) && IsPointInTopZone(pt.X, pt.Y);
+
+        // The rule lives in TopBarVisibility so it can be tested: a plugin that keeps the bar up,
+        // or a pointer that is still resting on it, means "leave it alone".
+        if (!Helpers.TopBarVisibility.ShouldHide(ContextObject.TitlebarAutoHide, _topBarShown, pointerInTopZone))
+            return;
+
+        HideCaptionBar();
     }
 
     /// <summary>
@@ -917,11 +974,19 @@ public partial class ViewerWindow : Window
             return;
         }
 
+        // v5.4.0: while the pointer stays on the bar there is nothing to do - re-beginning the
+        // fade every 100 ms is what made it blink.
+        if (_topBarShown)
+        {
+            WriteTopBarDiag("reveal-skip already-shown");
+            return;
+        }
+
         Dispatcher.BeginInvoke(() =>
         {
-            if (windowCaptionContainer.Opacity >= 1)
+            if (_topBarShown)
             {
-                WriteTopBarDiag("reveal-skip already-visible");
+                WriteTopBarDiag("reveal-skip already-shown");
                 return;
             }
 
@@ -1038,11 +1103,4 @@ public partial class ViewerWindow : Window
         public int Y;
     }
 
-    private void AutoHideCaptionContainer(object sender, EventArgs e)
-    {
-        if (!ContextObject.TitlebarAutoHide)
-            return;
-
-        HideCaptionBar();
-    }
 }

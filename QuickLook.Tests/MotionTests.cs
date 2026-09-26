@@ -48,4 +48,20 @@ internal class MotionTests
         Assert.True(!Motion.WindowTransitionsEnabled || Motion.IsEnabled,
             "window transitions can never be on while motion is off");
     }
+
+    /// <summary>
+    /// v5.4.0: the top bar may only be hidden once the pointer has left it - otherwise the reveal
+    /// poll and the hide fight each other and the bar pulses while the cursor rests on it.
+    /// </summary>
+    public void TheTopBarIsOnlyHiddenOnceThePointerHasLeftIt()
+    {
+        Assert.False(TopBarVisibility.ShouldHide(pluginAllowsAutoHide: true, barIsShown: true, pointerInTopZone: true),
+            "a pointer on the bar keeps it up");
+        Assert.True(TopBarVisibility.ShouldHide(true, true, pointerInTopZone: false),
+            "and leaving the bar lets it go");
+        Assert.False(TopBarVisibility.ShouldHide(pluginAllowsAutoHide: false, barIsShown: true, pointerInTopZone: false),
+            "a plugin that wants the bar visible keeps it visible");
+        Assert.False(TopBarVisibility.ShouldHide(true, barIsShown: false, pointerInTopZone: false),
+            "an already hidden bar is not hidden again");
+    }
 }
