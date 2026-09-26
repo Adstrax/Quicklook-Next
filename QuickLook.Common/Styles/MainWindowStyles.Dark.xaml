@@ -6,6 +6,13 @@
     <SolidColorBrush x:Key="CaptionTextHoverBorder" Color="#DDB9B9B9" />
     <SolidColorBrush x:Key="CaptionButtonIconForeground" Color="#E5EFEFEF" />
     <SolidColorBrush x:Key="CaptionButtonHoverBackground" Color="#22FFFFFF" />
+    <!-- v5.3.0: the caption scrim in dark colours (see the light dictionary for why). -->
+    <LinearGradientBrush x:Key="CaptionScrimBrush" StartPoint="0.5,0" EndPoint="0.5,1">
+        <GradientStop Offset="0" Color="#A6000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="CaptionTitleSecondaryBrush" Color="#A6EFEFEF" />
+    <SolidColorBrush x:Key="CaptionSeparatorBrush" Color="#26EFEFEF" />
     <SolidColorBrush x:Key="CaptionButtonPressBackground" Color="#44FFFFFF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverForeground" Color="#E5EFEFEF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverBackground" Color="#FFE81123" />

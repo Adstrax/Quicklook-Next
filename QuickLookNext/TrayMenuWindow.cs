@@ -339,7 +339,10 @@ internal sealed class TrayMenuWindow : Window
             CornerRadius = new CornerRadius(4),
             Background = Brushes.Transparent,
             IsEnabled = entry.IsEnabled,
-            Opacity = entry.IsEnabled ? 1d : 0.5d,
+            // v5.3.0: the version row at the top is a disabled entry too, but dimming it to half
+            // made it vanish on a bright wallpaper - it only needs the quieter colour it already
+            // has.
+            Opacity = entry.IsEnabled || entry.IsBold ? 1d : 0.5d,
             ToolTip = string.IsNullOrEmpty(entry.ToolTip) ? null : entry.ToolTip,
         };
 
@@ -397,6 +400,12 @@ internal sealed class TrayMenuWindow : Window
 
     private FrameworkElement BuildIcon(object icon, bool isEnabled)
     {
+        // v5.3.0: every icon goes through the same fixed 16px column. Before this, each glyph
+        // kept its own advance width, so the icon column (and with it the text) shifted a few
+        // pixels between menu sections - visible as a ragged left edge.
+        const double IconColumnWidth = 16d;
+        var iconMargin = new Thickness(14, 0, 10, 0);
+
         if (icon is string glyph && !string.IsNullOrWhiteSpace(glyph))
         {
             return new TextBlock
@@ -406,8 +415,11 @@ internal sealed class TrayMenuWindow : Window
                     ?? new FontFamily("Segoe Fluent Icons")),
                 FontSize = 14,
                 Foreground = isEnabled ? _textBrush : _disabledTextBrush,
+                Width = IconColumnWidth,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(12, 0, 0, 0),
+                Margin = iconMargin,
             };
         }
 
@@ -416,16 +428,18 @@ internal sealed class TrayMenuWindow : Window
             return new Image
             {
                 Source = image,
-                Width = 16,
+                Width = IconColumnWidth,
                 Height = 16,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(12, 0, 0, 0),
+                Margin = iconMargin,
             };
         }
 
         if (icon is FrameworkElement element)
         {
-            element.Margin = new Thickness(12, 0, 0, 0);
+            element.Width = IconColumnWidth;
+            element.HorizontalAlignment = HorizontalAlignment.Center;
+            element.Margin = iconMargin;
             element.VerticalAlignment = VerticalAlignment.Center;
             return element;
         }

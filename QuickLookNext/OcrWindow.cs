@@ -83,7 +83,9 @@ internal sealed class OcrWindow : Window
             TextWrapping = TextWrapping.NoWrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Background = ThemePalette.ButtonBg(_isDark),
+            // v5.3.0: the text area is the content of this panel - it gets the content plate
+            // so the recognized text never sits straight on the wallpaper.
+            Background = ThemePalette.ContentPlate(_isDark),
             Foreground = ThemePalette.Text(_isDark),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8, 6, 8, 6),
@@ -188,7 +190,7 @@ internal sealed class OcrWindow : Window
 
         return new Border
         {
-            Background = ThemePalette.Tint(_isDark),
+            Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
             BorderBrush = ThemePalette.Border(_isDark),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -370,6 +372,6 @@ internal sealed class OcrWindow : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = MenuSurface.Apply(this, _isDark);
+        _accentApplied = MenuSurface.Apply(this, _isDark, MenuSurface.SurfaceProminence.Panel);
     }
 }

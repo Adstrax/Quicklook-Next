@@ -210,6 +210,10 @@ public partial class ViewerWindow : INotifyPropertyChanged
                 break;
 
             case nameof(ContextObject.Title):
+                // v5.3.0: the caption renders the title itself (see UpdateCaptionTitle) so the
+                // "6000x4000:" prefix can be secondary while the file name stays primary.
+                UpdateCaptionTitle(ContextObject.Title);
+
                 Dispatcher?.Invoke(() =>
                 {
                     // We can not update the Title when ShowInTaskbar is false
@@ -271,6 +275,10 @@ public partial class ViewerWindow : INotifyPropertyChanged
 
         // Theme button: sun = switch to light, moon = switch to dark.
         buttonTheme.Content = isDark ? "\uE706" : "\uE708";
+
+        // v5.3.0: the caption title's secondary run holds a brush from the theme that was active
+        // when it was created - rebuild it against the theme that is active now.
+        UpdateCaptionTitle(ContextObject.Title);
 
         if (IsLoaded)
             ApplyWindowBackgroundEffects();

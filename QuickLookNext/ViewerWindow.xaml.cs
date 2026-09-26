@@ -25,6 +25,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -655,6 +656,35 @@ public partial class ViewerWindow : Window
         // new PreferredColorScheme / theme.
         if (IsVisible)
             ViewWindowManager.GetInstance().ReloadPreview();
+    }
+
+    /// <summary>
+    /// v5.3.0: the caption carries the plugin's title, which for an image is
+    /// "6000×4000: name.png". The size is context and the name is the subject, so the prefix is
+    /// drawn in the secondary colour - the line used to read as one flat string.
+    /// </summary>
+    private void UpdateCaptionTitle(string title)
+    {
+        if (titleAreaText is null)
+            return;
+
+        titleAreaText.Inlines.Clear();
+
+        if (string.IsNullOrEmpty(title))
+            return;
+
+        var separator = title.IndexOf(": ", StringComparison.Ordinal);
+        if (separator <= 0 || separator > 32)
+        {
+            titleAreaText.Inlines.Add(new Run(title));
+            return;
+        }
+
+        titleAreaText.Inlines.Add(new Run(title[..(separator + 1)])
+        {
+            Foreground = (Brush)FindResource("CaptionTitleSecondaryBrush"),
+        });
+        titleAreaText.Inlines.Add(new Run(" " + title[(separator + 2)..]));
     }
 
     private void ShowWindowCaptionContainer(object sender, MouseEventArgs e)

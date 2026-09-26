@@ -113,9 +113,16 @@
                 </DockPanel>
             </Border>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl x:Name="pluginList" />
-            </ScrollViewer>
+            <!-- v5.3.0: the list sits on a content plate of its own, so the rows (and their
+                 version numbers) keep their contrast whatever the wallpaper behind the
+                 translucent panel is doing. -->
+            <Border Background="{DynamicResource ContentPlateBrush}"
+                    CornerRadius="8"
+                    Padding="6,8,6,2">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="pluginList" />
+                </ScrollViewer>
+            </Border>
         </DockPanel>
     </Border>
 </Window>

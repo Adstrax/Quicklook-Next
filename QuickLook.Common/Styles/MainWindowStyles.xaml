@@ -11,6 +11,16 @@
     <SolidColorBrush x:Key="CaptionTextHoverBorder" Color="#FF3D3D3D" />
     <SolidColorBrush x:Key="CaptionButtonIconForeground" Color="#E50E0E0E" />
     <SolidColorBrush x:Key="CaptionButtonHoverBackground" Color="#44FFFFFF" />
+    <!-- v5.3.0: a soft scrim behind the caption bar. The bar has no backdrop of its own when a
+         plugin turns the glass off (the image viewer does), which left white-on-white icons over
+         bright pictures; this gradient gives them something to sit on without hiding the image. -->
+    <LinearGradientBrush x:Key="CaptionScrimBrush" StartPoint="0.5,0" EndPoint="0.5,1">
+        <GradientStop Offset="0" Color="#B3FFFFFF" />
+        <GradientStop Offset="1" Color="#00FFFFFF" />
+    </LinearGradientBrush>
+    <!-- Secondary half of the caption title (the "6000x4000:" in front of the file name). -->
+    <SolidColorBrush x:Key="CaptionTitleSecondaryBrush" Color="#A60E0E0E" />
+    <SolidColorBrush x:Key="CaptionSeparatorBrush" Color="#260E0E0E" />
     <SolidColorBrush x:Key="CaptionButtonPressBackground" Color="#88FFFFFF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverForeground" Color="#E5EFEFEF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverBackground" Color="#FFE81123" />
@@ -66,9 +76,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Button}">
-                    <Border Padding="{TemplateBinding Padding}"
-                            Background="{TemplateBinding Background}"
-                            BorderThickness="0">
+                        <Border Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                BorderThickness="0">
                         <ContentPresenter HorizontalAlignment="Center"
                                           VerticalAlignment="Center"
                                           TextBlock.FontFamily="{StaticResource SegoeFluent}" />

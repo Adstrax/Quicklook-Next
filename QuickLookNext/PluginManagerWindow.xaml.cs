@@ -16,6 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.Helpers;
+using QuickLook.Common.Controls;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -121,6 +122,49 @@ public partial class PluginManagerWindow : Window
             : string.Empty;
     }
 
+    /// <summary>
+    /// v5.3.0: the MDL2 glyph that stands for what the plugin previews. One glyph per family -
+    /// the rows used to be 25 identical puzzle pieces, which made the list impossible to scan.
+    /// </summary>
+    private static string GlyphFor(string pluginName)
+    {
+        var key = pluginName?.Replace("Viewer", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Trim() ?? string.Empty;
+
+        return key switch
+        {
+            "Image" or "Thumbnail" => FontSymbols.Photo,
+            "Video" => FontSymbols.Video,
+            "Text" => FontSymbols.Document,
+            "Markdown" => FontSymbols.PageSolid,
+            "Html" or "Chm" => FontSymbols.Globe,
+            "Mail" => FontSymbols.Mail,
+            "Font" => FontSymbols.Font,
+            "Csv" or "Db" => FontSymbols.Library,
+            "Archive" => FontSymbols.ZipFolder,
+            "Office" => FontSymbols.Slideshow,
+            "MediaInfo" => FontSymbols.Info,
+            "Cert" => FontSymbols.Certificate,
+            "App" => FontSymbols.AllApps,
+            "Binary" or "PE" or "ELF" or "Dump" or "Prefetch" => FontSymbols.Code,
+            "CLSID" => FontSymbols.Tag,
+            "Helix" => FontSymbols.Media,
+            _ => pluginName?.Contains("Plugin", StringComparison.OrdinalIgnoreCase) == true
+                || pluginName?.Contains("Installer", StringComparison.OrdinalIgnoreCase) == true
+                    ? FontSymbols.Download
+                    : FontSymbols.Puzzle,
+        };
+    }
+
+    /// <summary>
+    /// v5.3.0: a plugin built without an AssemblyVersion reports 0.0.0.0; the panel hides that
+    /// instead of printing something that reads like a bug.
+    /// </summary>
+    private static string ReadableVersion(string version)
+        => string.IsNullOrWhiteSpace(version) || version.StartsWith("0.0.0", StringComparison.Ordinal)
+            ? string.Empty
+            : version;
+
     private Border BuildRow(PluginEntry entry)
     {
         // v3.7.0: a tinted plugin glyph makes each row read as a card instead
@@ -135,7 +179,9 @@ public partial class PluginManagerWindow : Window
             Margin = new Thickness(0, 0, 10, 0),
             Child = new TextBlock
             {
-                Text = "\uEA86", // Segoe MDL2 Assets: Puzzle
+                // v5.3.0: every row used the same puzzle glyph, which made 25 rows of a list
+                // unreadable at a glance. Each family now shows what it previews.
+                Text = GlyphFor(entry.Name),
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
                 FontSize = 14,
                 Foreground = (Brush)Resources["SecondaryTextBrush"],
@@ -152,12 +198,17 @@ public partial class PluginManagerWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
 
+        var versionText = ReadableVersion(entry.Version);
+
         var version = new TextBlock
         {
-            Text = entry.Version,
+            // v5.3.0: "0.0.0.0" is what a plugin without an AssemblyVersion reports - showing
+            // it looks like a defect in the panel, so an unknown version shows nothing.
+            Text = versionText,
             Foreground = (Brush)Resources["SecondaryTextBrush"],
             Margin = new Thickness(8, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
+            Visibility = string.IsNullOrEmpty(versionText) ? Visibility.Collapsed : Visibility.Visible,
         };
 
         var namePanel = new StackPanel { Orientation = Orientation.Horizontal };
@@ -174,17 +225,18 @@ public partial class PluginManagerWindow : Window
             MaxWidth = 280,
         };
 
+        // v5.3.0: the header already counts the built-in plugins ("0 user, 25 built-in"), so
+        // repeating "Built-in" on every row was noise. Only the exceptions are marked.
         var badge = new Border
         {
             Background = (Brush)Resources["BadgeBrush"],
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(8, 2, 8, 2),
             VerticalAlignment = VerticalAlignment.Center,
+            Visibility = entry.IsUserPlugin ? Visibility.Visible : Visibility.Collapsed,
             Child = new TextBlock
             {
-                Text = entry.IsUserPlugin
-                    ? Tr("PM_UserPlugin", "User")
-                    : Tr("PM_BuiltIn", "Built-in"),
+                Text = Tr("PM_UserPlugin", "User"),
                 Foreground = (Brush)Resources["BadgeTextBrush"],
                 FontSize = 11,
             },
@@ -297,7 +349,11 @@ public partial class PluginManagerWindow : Window
         // v3.11.0: shared palette for both light and dark; the accent follows
         // the system accent (badge text / background come from the same
         // accent, so the panel matches the tray menu).
-        SetBrush("TintBrush", ThemePalette.Tint(_isDark));
+        // v5.3.0: the panel surface (firmer than the tray menu, and solid when the system has
+        // transparency effects switched off) - see MenuSurface.
+        SetBrush("TintBrush", Helpers.MenuSurface.SurfaceBrush(
+            _isDark, Helpers.MenuSurface.SurfaceProminence.Panel));
+        SetBrush("ContentPlateBrush", ThemePalette.ContentPlate(_isDark));
         SetBrush("PanelBorderBrush", ThemePalette.Border(_isDark));
         SetBrush("TextBrush", ThemePalette.Text(_isDark));
         SetBrush("SecondaryTextBrush", ThemePalette.SecondaryText(_isDark));
@@ -346,7 +402,8 @@ public partial class PluginManagerWindow : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark);
+        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark,
+            Helpers.MenuSurface.SurfaceProminence.Panel);
     }
 
     private Color GetTintColor()

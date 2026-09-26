@@ -17,8 +17,11 @@ internal static class ThemePalette
     // immutable, thread-safe and cheaper for WPF to use across renders.
     private static readonly Brush LightText = Create("#1A1A1A");
     private static readonly Brush DarkText = Create("#F5F5F5");
-    private static readonly Brush LightSecondaryText = Create("#7A7A7A");
-    private static readonly Brush DarkSecondaryText = Create("#9E9E9E");
+    // v5.3.0: the panels are translucent, so the secondary text has to carry itself over
+    // whatever wallpaper is behind it - the old #7A7A7A / #9E9E9E disappeared on the "wrong"
+    // background (a light wallpaper in dark mode made version numbers and hints unreadable).
+    private static readonly Brush LightSecondaryText = Create("#5C5C5C");
+    private static readonly Brush DarkSecondaryText = Create("#C8C8C8");
     private static readonly Brush LightHover = Create("#10000000");
     private static readonly Brush DarkHover = Create("#14FFFFFF");
     private static readonly Brush LightSeparator = Create("#10000000");
@@ -60,6 +63,13 @@ internal static class ThemePalette
     private static readonly Brush LightAccentFallback = Create("#005FB8");
     private static readonly Brush DarkAccentFallback = Create("#60CDFF");
 
+    // v5.3.0: the "content plate" - a rounded surface for text-heavy areas (list rows, the
+    // OCR text box, the download detail) so those read as a material of their own instead of
+    // floating on whatever the desktop shows through. Light theme gets a white card (the
+    // WinUI look over a wallpaper), dark theme a soft black one.
+    private static readonly Brush LightContentPlate = Create("#B8FFFFFF");
+    private static readonly Brush DarkContentPlate = Create("#47000000");
+
     internal static Brush Text(bool isDark) => isDark ? DarkText : LightText;
 
     internal static Brush SecondaryText(bool isDark) => isDark ? DarkSecondaryText : LightSecondaryText;
@@ -73,6 +83,19 @@ internal static class ThemePalette
     internal static Brush Tint(bool isDark) => isDark ? DarkTint : LightTint;
 
     internal static Brush ButtonBg(bool isDark) => isDark ? DarkButtonBg : LightButtonBg;
+
+    /// <summary>Rounded surface for text-heavy content areas (see the field remarks).</summary>
+    internal static Brush ContentPlate(bool isDark) => isDark ? DarkContentPlate : LightContentPlate;
+
+    /// <summary>
+    /// The tint at full opacity - the fallback surface when the system turns transparency
+    /// effects off and the acrylic can no longer blur anything (see MenuSurface).
+    /// </summary>
+    internal static Brush SolidTint(bool isDark)
+        => isDark ? DarkSolidTint : LightSolidTint;
+
+    private static readonly Brush LightSolidTint = CreateTint(LightTintColor, 0xFF);
+    private static readonly Brush DarkSolidTint = CreateTint(DarkTintColor, 0xFF);
 
     internal static Brush ButtonHover(bool isDark) => isDark ? DarkButtonHover : LightButtonHover;
 
@@ -127,9 +150,9 @@ internal static class ThemePalette
         return brush;
     }
 
-    private static Brush CreateTint(Color color)
+    private static Brush CreateTint(Color color, byte alpha = TintBrushAlpha)
     {
-        var brush = new SolidColorBrush(Color.FromArgb(TintBrushAlpha, color.R, color.G, color.B));
+        var brush = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
         brush.Freeze();
         return brush;
     }

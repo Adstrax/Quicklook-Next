@@ -260,7 +260,7 @@ internal sealed class DataCacheWindow : Window
 
         return new Border
         {
-            Background = ThemePalette.Tint(_isDark),
+            Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
             BorderBrush = ThemePalette.Border(_isDark),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -464,7 +464,7 @@ internal sealed class DataCacheWindow : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = MenuSurface.Apply(this, _isDark);
+        _accentApplied = MenuSurface.Apply(this, _isDark, MenuSurface.SurfaceProminence.Panel);
     }
 
     /// <summary>

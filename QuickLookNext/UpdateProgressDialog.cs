@@ -16,6 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.Helpers;
+using QuickLookNext.Helpers;
 using System;
 using System.Globalization;
 using System.IO;
@@ -68,7 +69,8 @@ internal sealed class UpdateProgressDialog : Window
         FontFamily = new FontFamily(TranslationHelper.Get("UI_FontFamily", failsafe: "Segoe UI"));
         FontSize = 13;
         Foreground = ThemePalette.Text(_isDark);
-        Background = ThemePalette.Tint(_isDark);
+        // v5.3.0: same firmer panel surface as the update prompt.
+        Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel);
 
         _headline = new TextBlock
         {
@@ -313,7 +315,7 @@ internal sealed class UpdateProgressDialog : Window
 
         return new Border
         {
-            Background = ThemePalette.Tint(_isDark),
+            Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
             BorderBrush = ThemePalette.Border(_isDark),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -356,7 +358,8 @@ internal sealed class UpdateProgressDialog : Window
     private void ApplyBackdrop()
     {
         WindowHelper.DisableDwmBlur(this);
-        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark);
+        _accentApplied = Helpers.MenuSurface.Apply(this, _isDark,
+            Helpers.MenuSurface.SurfaceProminence.Panel);
     }
 
     private Color GetTintColor()

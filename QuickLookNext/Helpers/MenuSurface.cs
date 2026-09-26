@@ -52,22 +52,71 @@ namespace QuickLookNext.Helpers;
 /// </summary>
 internal static class MenuSurface
 {
+    /// <summary>
+    /// v5.3.0: not every surface is a menu. The tray menu stays at the tuned 30% (see below),
+    /// while the panel windows - plugin manager, update prompts, data &amp; cache, OCR - are
+    /// read rather than scanned and get a firmer 45%, which is what makes their text survive a
+    /// bright wallpaper. Windows' own transient surfaces make the same distinction.
+    /// </summary>
+    internal enum SurfaceProminence
+    {
+        Menu,
+
+        Panel,
+    }
+
     /// <summary>Tint opacity handed to the accent policy.</summary>
     private const double TintOpacity = 0.3d;
+
+    private const double PanelTintOpacity = 0.45d;
+
+    private static double OpacityFor(SurfaceProminence prominence)
+        => prominence == SurfaceProminence.Panel ? PanelTintOpacity : TintOpacity;
 
     /// <summary>
     /// Applies the menu material to <paramref name="window"/> and reports whether the
     /// accent policy call succeeded. Call from OnSourceInitialized and again from
     /// OnContentRendered, like the surfaces did before.
     /// </summary>
-    internal static bool Apply(Window window, bool isDark)
+    internal static bool Apply(Window window, bool isDark,
+        SurfaceProminence prominence = SurfaceProminence.Menu)
     {
+        // v5.3.0: with transparency effects switched off, DWM stops blurring and an acrylic
+        // request would leave nothing but the tint - a 30-45% pane over the desktop, which is
+        // worse than what the blur was for. These surfaces become solid instead.
+        if (!CompositionIsAvailable())
+        {
+            WindowHelper.DisableDwmBlur(window); // restores the system rounded corners
+            window.Background = ThemePalette.SolidTint(isDark);
+            return false;
+        }
+
         // One definition for both layers: the accent tint and ThemePalette.Tint are the
         // same colour, only the alphas differ (see ThemePalette for the recipe).
         var tint = ThemePalette.TintColor(isDark);
 
         WindowHelper.DisableDwmBlur(window); // clears a previous material, restores corners
-        return WindowHelper.EnableAcrylicBlur(window, tint, isDark, TintOpacity);
+        return WindowHelper.EnableAcrylicBlur(window, tint, isDark, OpacityFor(prominence));
+    }
+
+    /// <summary>
+    /// The brush the panels paint their root border with. It is transparent while the acrylic
+    /// is doing the work, and the solid tint when it is not (see <see cref="Apply"/>).
+    /// </summary>
+    internal static Brush SurfaceBrush(bool isDark, SurfaceProminence prominence = SurfaceProminence.Menu)
+        => CompositionIsAvailable() ? ThemePalette.Tint(isDark) : ThemePalette.SolidTint(isDark);
+
+    private static bool CompositionIsAvailable()
+    {
+        try
+        {
+            // SystemParameters reports the user's "Transparency effects" setting on Windows 10/11.
+            return SystemParameters.IsGlassEnabled;
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     /// <summary>
@@ -75,5 +124,6 @@ internal static class MenuSurface
     /// v5.0.0 so the smoke test still fails if a surface ends up asking for no material
     /// at all.
     /// </summary>
-    internal static string Diagnose() => "material=acrylic";
+    internal static string Diagnose()
+        => CompositionIsAvailable() ? "material=acrylic" : "material=solid (transparency effects off)";
 }
