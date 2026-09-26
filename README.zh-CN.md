@@ -27,7 +27,7 @@ Acrylic 毛玻璃背景一打开即生效并跟随壁纸，窗口带 Win11 原�
 支持标准 Markdown、mermaid 图表与 MathJax 公式，代码高亮；内容可上下滚动，
 阅读体验流畅。
 
-![Markdown 预览](docs/screenshots/preview-markdown.png)
+![Markdown 预览](docs/screenshots/zh-CN/preview-markdown.png)
 
 ### Office 预览（自研渲染，截图以 Excel 为例）
 
@@ -48,13 +48,13 @@ WebView2 自研渲染；固定浅色纸面、阅读舒适，圆角与主题和�
 毛玻璃托盘菜单，主题 / 背景 / 语言等收进二级子菜单，条目带 Fluent 图标；
 点击选项不会误关菜单。
 
-![托盘菜单](docs/screenshots/tray-menu.png)
+![托盘菜单](docs/screenshots/zh-CN/tray-menu.png)
 
 ### 插件管理面板
 
 列出内置与用户插件，用户插件可直接卸载；老插件无需重新编译即可安装加载。
 
-![插件管理面板](docs/screenshots/plugin-manager.png)
+![插件管理面板](docs/screenshots/zh-CN/plugin-manager.png)
 
 ## 相比原版的主要改进
 

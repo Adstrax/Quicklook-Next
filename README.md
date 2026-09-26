@@ -29,7 +29,7 @@ native Win11 rounded corners.
 Standard Markdown, mermaid diagrams and MathJax formulas with syntax
 highlighting; content scrolls smoothly.
 
-![Markdown preview](docs/screenshots/preview-markdown.png)
+![Markdown preview](docs/screenshots/preview-markdown.jpg)
 
 ### Office preview (self-rendered; screenshot shows Excel)
 
@@ -50,14 +50,14 @@ Page-by-page PDF browsing with a clean left frame + right paper layout.
 Frosted tray menu with theme / backdrop / language in submenus and Fluent
 icons; clicking an option does not accidentally close the menu.
 
-![Tray menu](docs/screenshots/tray-menu.png)
+![Tray menu](docs/screenshots/tray-menu.jpg)
 
 ### Plugin manager
 
 Lists built-in and user plugins; user plugins can be uninstalled directly;
 existing plugins load without recompiling.
 
-![Plugin manager](docs/screenshots/plugin-manager.png)
+![Plugin manager](docs/screenshots/plugin-manager.jpg)
 
 ## Highlights vs. the original
 
