@@ -13,6 +13,7 @@
     </LinearGradientBrush>
     <SolidColorBrush x:Key="CaptionTitleSecondaryBrush" Color="#A6EFEFEF" />
     <SolidColorBrush x:Key="CaptionSeparatorBrush" Color="#26EFEFEF" />
+    <SolidColorBrush x:Key="CaptionAccentBrush" Color="#60CDFF" />
     <SolidColorBrush x:Key="CaptionButtonPressBackground" Color="#44FFFFFF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverForeground" Color="#E5EFEFEF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverBackground" Color="#FFE81123" />

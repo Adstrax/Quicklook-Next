@@ -35,6 +35,8 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="bd"
                                 Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
                                 CornerRadius="4"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center"
@@ -49,6 +51,12 @@
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.5" />
                             </Trigger>
+                            <!-- v5.3.0: the panel is reachable with Tab, so focus has to be visible. -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="bd"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource FocusRingBrush}" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -62,7 +70,8 @@
             Background="{DynamicResource TintBrush}"
             BorderBrush="{DynamicResource PanelBorderBrush}"
             BorderThickness="1"
-            CornerRadius="8">
+            CornerRadius="8"
+            KeyboardNavigation.TabNavigation="Cycle">
         <DockPanel Margin="14">
             <DockPanel x:Name="headerBar"
                        DockPanel.Dock="Top"
@@ -110,6 +119,39 @@
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource SecondaryTextBrush}" />
+                </DockPanel>
+            </Border>
+
+            <!-- v5.3.0: 25 plugins are past the point where scrolling is a search interface. -->
+            <Border DockPanel.Dock="Top"
+                    Background="{DynamicResource ButtonBgBrush}"
+                    CornerRadius="6"
+                    Padding="8,0,8,0"
+                    Margin="0,0,0,10">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left"
+                               Text="&#xE721;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}" />
+                    <Grid>
+                        <TextBox x:Name="searchBox"
+                                 Height="30"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 Foreground="{DynamicResource TextBrush}"
+                                 CaretBrush="{DynamicResource TextBrush}"
+                                 VerticalContentAlignment="Center"
+                                 TextChanged="SearchBox_TextChanged"
+                                 KeyDown="SearchBox_KeyDown" />
+                        <TextBlock x:Name="searchPlaceholder"
+                                   IsHitTestVisible="False"
+                                   VerticalAlignment="Center"
+                                   Margin="2,0,0,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                    </Grid>
                 </DockPanel>
             </Border>
 

@@ -282,7 +282,7 @@ internal sealed class UpdateDialog : Window
         content.Children.Add(body);
         content.Children.Add(footer);
 
-        return new Border
+        var panel = new Border
         {
             Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
             BorderBrush = ThemePalette.Border(_isDark),
@@ -291,6 +291,10 @@ internal sealed class UpdateDialog : Window
             Padding = new Thickness(20, 16, 20, 18),
             Child = content,
         };
+
+        // v5.3.0: Tab cycles through the prompt's own answers, not the whole app.
+        KeyboardNavigation.SetTabNavigation(panel, KeyboardNavigationMode.Cycle);
+        return panel;
     }
 
     private static void HeaderRow(DockPanel header, UIElement icon, UIElement title)
@@ -323,7 +327,7 @@ internal sealed class UpdateDialog : Window
                 : ThemePalette.ButtonBg(_isDark);
 
         var hover = primary
-            ? WithOpacity(ThemePalette.Accent(_isDark), 0.85)
+            ? PanelStyles.WithOpacity(ThemePalette.Accent(_isDark), 0.85)
             : ThemePalette.ButtonHover(_isDark);
 
         var button = new Button
@@ -335,9 +339,11 @@ internal sealed class UpdateDialog : Window
             Cursor = Cursors.Hand,
             MinWidth = subtle ? 0 : 88,
             Padding = subtle ? new Thickness(6, 4, 6, 4) : new Thickness(16, 7, 16, 7),
-            Template = BuildButtonTemplate(hover),
+            Template = PanelStyles.ButtonTemplate(hover),
         };
 
+        // v5.3.0: a name for screen readers (the buttons use a custom template).
+        System.Windows.Automation.AutomationProperties.SetName(button, label);
         return button;
     }
 
@@ -348,45 +354,6 @@ internal sealed class UpdateDialog : Window
         button.HorizontalAlignment = HorizontalAlignment.Left;
         button.VerticalAlignment = VerticalAlignment.Center;
         return button;
-    }
-
-    /// <summary>
-    /// Rounded, flat button - the stock WPF template paints a grey gradient that
-    /// does not belong on the acrylic panel.
-    /// </summary>
-    private static ControlTemplate BuildButtonTemplate(Brush hover)
-    {
-        var border = new FrameworkElementFactory(typeof(Border), "bd");
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
-
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(presenter);
-
-        var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
-
-        var hoverTrigger = new Trigger { Property = IsMouseOverProperty, Value = true };
-        hoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty, hover) { TargetName = "bd" });
-        template.Triggers.Add(hoverTrigger);
-
-        var pressedTrigger = new Trigger { Property = Button.IsPressedProperty, Value = true };
-        pressedTrigger.Setters.Add(new Setter(UIElement.OpacityProperty, 0.8) { TargetName = "bd" });
-        template.Triggers.Add(pressedTrigger);
-
-        return template;
-    }
-
-    private static Brush WithOpacity(Brush brush, double opacity)
-    {
-        if (brush is not SolidColorBrush solid)
-            return brush;
-
-        var faded = new SolidColorBrush(solid.Color) { Opacity = opacity };
-        faded.Freeze();
-        return faded;
     }
 
     /// <summary>White on a dark accent, near-black on a light one.</summary>

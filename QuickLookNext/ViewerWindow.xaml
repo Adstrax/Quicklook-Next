@@ -182,7 +182,7 @@
                                     <Trigger Property="Tag" Value="Top">
                                         <Setter Property="Content" Value="&#xE74A;" />
                                         <Setter Property="Foreground"
-                                                Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                Value="{DynamicResource CaptionAccentBrush}" />
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>
@@ -202,7 +202,7 @@
                                     <Trigger Property="Tag" Value="Pin">
                                         <Setter Property="Content" Value="&#xE840;" />
                                         <Setter Property="Foreground"
-                                                Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                Value="{DynamicResource CaptionAccentBrush}" />
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>

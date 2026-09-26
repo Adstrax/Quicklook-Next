@@ -17,6 +17,7 @@
 
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Controls;
+using QuickLookNext.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -52,7 +53,15 @@ public partial class PluginManagerWindow : Window
         btnRefresh.Content = Tr("PM_Refresh", "Refresh");
         btnClose.Content = Tr("PM_Close", "Close");
 
+        // v5.3.0: the panel opens with the cursor in the search box - with 25 plugins the filter
+        // is the first thing most people reach for.
+        var searchLabel = Tr("PM_Search", "Search plugins");
+        searchPlaceholder.Text = searchLabel;
+        System.Windows.Automation.AutomationProperties.SetName(searchBox, searchLabel);
+
         RefreshList();
+
+        Loaded += (_, _) => searchBox.Focus();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -107,8 +116,16 @@ public partial class PluginManagerWindow : Window
         _entries.Clear();
         _entries.AddRange(PluginManager.GetInstance().EnumerateInstalledPlugins());
 
+        // v5.3.0: 25 plugins are past the point where scrolling is a search interface.
+        var filter = searchBox?.Text?.Trim() ?? string.Empty;
+        var visible = string.IsNullOrEmpty(filter)
+            ? _entries
+            : _entries.Where(e =>
+                e.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                (e.Description?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+
         pluginList.Items.Clear();
-        foreach (var entry in _entries)
+        foreach (var entry in visible)
             pluginList.Items.Add(BuildRow(entry));
 
         var userCount = _entries.Count(e => e.IsUserPlugin);
@@ -117,9 +134,45 @@ public partial class PluginManagerWindow : Window
             Tr("PM_Header", "Installed Plugins ({0} user, {1} built-in)"),
             userCount, builtInCount);
 
+        if (!string.IsNullOrEmpty(filter))
+        {
+            statusText.Text = visible.Count == 0
+                ? string.Format(Tr("PM_NoMatch", "No plugin matches \u201c{0}\u201d."), filter)
+                : string.Format(Tr("PM_Matches", "{0} of {1} shown."), visible.Count, _entries.Count);
+            return;
+        }
+
         statusText.Text = userCount == 0
             ? Tr("PM_None", "No user-installed plugins yet. Preview a .qlplugin file to install one.")
             : string.Empty;
+    }
+
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (searchPlaceholder != null)
+            searchPlaceholder.Visibility = string.IsNullOrEmpty(searchBox.Text)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        RefreshList();
+    }
+
+    private void SearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape)
+            return;
+
+        // First Esc clears the filter, the next one closes the panel - the same rule the dialogs
+        // use for their own Esc handling.
+        if (!string.IsNullOrEmpty(searchBox.Text))
+        {
+            searchBox.Clear();
+            e.Handled = true;
+            return;
+        }
+
+        Close();
+        e.Handled = true;
     }
 
     /// <summary>
@@ -269,6 +322,9 @@ public partial class PluginManagerWindow : Window
                 Style = (Style)Resources["PanelButtonStyle"],
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            // v5.3.0: a screen reader should say which plugin the button removes.
+            System.Windows.Automation.AutomationProperties.SetName(
+                uninstall, $"{Tr("PM_Uninstall", "Uninstall")} {entry.Name}");
             uninstall.Click += (_, _) => Uninstall(entry, uninstall);
 
             Grid.SetColumn(uninstall, 4);
@@ -354,6 +410,7 @@ public partial class PluginManagerWindow : Window
         SetBrush("TintBrush", Helpers.MenuSurface.SurfaceBrush(
             _isDark, Helpers.MenuSurface.SurfaceProminence.Panel));
         SetBrush("ContentPlateBrush", ThemePalette.ContentPlate(_isDark));
+        SetBrush("FocusRingBrush", PanelStyles.FocusBrush());
         SetBrush("PanelBorderBrush", ThemePalette.Border(_isDark));
         SetBrush("TextBrush", ThemePalette.Text(_isDark));
         SetBrush("SecondaryTextBrush", ThemePalette.SecondaryText(_isDark));

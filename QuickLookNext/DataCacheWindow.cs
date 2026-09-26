@@ -258,7 +258,7 @@ internal sealed class DataCacheWindow : Window
         content.Children.Add(_status);
         content.Children.Add(footer);
 
-        return new Border
+        var panel = new Border
         {
             Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
             BorderBrush = ThemePalette.Border(_isDark),
@@ -267,6 +267,10 @@ internal sealed class DataCacheWindow : Window
             Padding = new Thickness(20, 16, 20, 18),
             Child = content,
         };
+
+        // v5.3.0: Tab stays inside the panel instead of walking into the rest of the app.
+        KeyboardNavigation.SetTabNavigation(panel, KeyboardNavigationMode.Cycle);
+        return panel;
     }
 
     private static FrameworkElement Row(string label, TextBlock value)
@@ -390,10 +394,10 @@ internal sealed class DataCacheWindow : Window
                 : ThemePalette.ButtonBg(_isDark);
 
         var hover = primary
-            ? WithOpacity(ThemePalette.Accent(_isDark), 0.85)
+            ? PanelStyles.WithOpacity(ThemePalette.Accent(_isDark), 0.85)
             : ThemePalette.ButtonHover(_isDark);
 
-        return new Button
+        var button = new Button
         {
             Content = label,
             Background = background,
@@ -402,43 +406,13 @@ internal sealed class DataCacheWindow : Window
             Cursor = Cursors.Hand,
             MinWidth = subtle ? 0 : 88,
             Padding = subtle ? new Thickness(6, 4, 6, 4) : new Thickness(16, 7, 16, 7),
-            Template = BuildButtonTemplate(hover),
+            Template = PanelStyles.ButtonTemplate(hover),
         };
-    }
 
-    /// <summary>
-    /// Rounded, flat button - the stock WPF template paints a grey gradient that does not belong
-    /// on the acrylic panel (same recipe as the update dialogs; they still carry their own copy
-    /// of this helper, worth consolidating the next time they are touched).
-    /// </summary>
-    private static ControlTemplate BuildButtonTemplate(Brush hover)
-    {
-        var border = new FrameworkElementFactory(typeof(Border), "bd");
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
-
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(presenter);
-
-        var hoverTrigger = new Trigger { Property = IsMouseOverProperty, Value = true };
-        hoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty, hover, "bd"));
-
-        var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
-        template.Triggers.Add(hoverTrigger);
-        return template;
-    }
-
-    private static Brush WithOpacity(Brush brush, double opacity)
-    {
-        if (brush is not SolidColorBrush solid)
-            return brush;
-
-        var copy = new SolidColorBrush(solid.Color) { Opacity = opacity };
-        copy.Freeze();
-        return copy;
+        // v5.3.0: a name for screen readers - the buttons are drawn by a custom template, so the
+        // content text alone is not the accessible name.
+        System.Windows.Automation.AutomationProperties.SetName(button, label);
+        return button;
     }
 
     private static Brush ContrastText(Brush background)

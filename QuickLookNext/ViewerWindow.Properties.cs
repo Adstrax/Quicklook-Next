@@ -147,7 +147,7 @@ public partial class ViewerWindow : INotifyPropertyChanged
                     // softly; preview switches stay at full opacity so they
                     // never flicker. Respects the ShowWindowTransition option.
                     if (_firstContentFadePending &&
-                        SettingHelper.Get("ShowWindowTransition", true, "QuickLookNext"))
+                        Helpers.Motion.WindowTransitionsEnabled)
                     {
                         _firstContentFadePending = false;
                         var fade = (Storyboard)FindResource("ContentFadeInStoryboard");

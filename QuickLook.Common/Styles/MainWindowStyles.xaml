@@ -21,6 +21,10 @@
     <!-- Secondary half of the caption title (the "6000x4000:" in front of the file name). -->
     <SolidColorBrush x:Key="CaptionTitleSecondaryBrush" Color="#A60E0E0E" />
     <SolidColorBrush x:Key="CaptionSeparatorBrush" Color="#260E0E0E" />
+    <!-- v5.3.0: the accent the caption uses for an active toggle / keyboard focus. A local
+         resource instead of the theme's own key so it exists even when the theme dictionary
+         has not been merged yet. -->
+    <SolidColorBrush x:Key="CaptionAccentBrush" Color="#005FB8" />
     <SolidColorBrush x:Key="CaptionButtonPressBackground" Color="#88FFFFFF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverForeground" Color="#E5EFEFEF" />
     <SolidColorBrush x:Key="CaptionCloseButtonHoverBackground" Color="#FFE81123" />

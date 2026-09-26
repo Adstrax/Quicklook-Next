@@ -301,9 +301,10 @@ internal sealed class UpdateProgressDialog : Window
             Padding = new Thickness(16, 7, 16, 7),
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 14, 0, 0),
-            Template = ButtonTemplate(ThemePalette.ButtonHover(_isDark)),
+            Template = PanelStyles.ButtonTemplate(ThemePalette.ButtonHover(_isDark)),
         };
         cancel.Click += (_, _) => Cancel();
+        System.Windows.Automation.AutomationProperties.SetName(cancel, cancel.Content as string);
 
         var content = new StackPanel();
         content.Children.Add(header);
@@ -313,7 +314,7 @@ internal sealed class UpdateProgressDialog : Window
         content.Children.Add(_status);
         content.Children.Add(cancel);
 
-        return new Border
+        var panel = new Border
         {
             Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
             BorderBrush = ThemePalette.Border(_isDark),
@@ -322,27 +323,8 @@ internal sealed class UpdateProgressDialog : Window
             Padding = new Thickness(20, 16, 20, 18),
             Child = content,
         };
-    }
-
-    private static ControlTemplate ButtonTemplate(Brush hover)
-    {
-        var border = new FrameworkElementFactory(typeof(Border), "bd");
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
-
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(presenter);
-
-        var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
-
-        var hoverTrigger = new Trigger { Property = IsMouseOverProperty, Value = true };
-        hoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty, hover) { TargetName = "bd" });
-        template.Triggers.Add(hoverTrigger);
-
-        return template;
+        KeyboardNavigation.SetTabNavigation(panel, KeyboardNavigationMode.Cycle);
+        return panel;
     }
 
     private void Cancel()

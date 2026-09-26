@@ -575,7 +575,8 @@ public partial class ViewerWindow
 
             if (!IsVisible)
             {
-                if (!SettingHelper.Get("ShowWindowTransition", true, "QuickLookNext"))
+                // v5.3.0: also honours the system's animation setting - see Helpers.Motion.
+                if (!Helpers.Motion.WindowTransitionsEnabled)
                     this.ShowWithoutTransition();
                 else
                     Show();

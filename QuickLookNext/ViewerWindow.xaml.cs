@@ -25,6 +25,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -220,6 +221,34 @@ public partial class ViewerWindow : Window
         buttonReload.ToolTip = TranslationHelper.Get("MW_Reload", failsafe: "Reload");
         buttonMore.ToolTip = TranslationHelper.Get("MW_More", failsafe: "More");
         buttonOcr.ToolTip = TranslationHelper.Get("MW_ExtractText", failsafe: "Extract text (OCR)");
+
+        // v5.3.0: the caption is icon-only; screen readers need a name for each button.
+        SetCaptionAutomationNames();
+    }
+
+    private void SetCaptionAutomationNames()
+    {
+        (Button Button, string Fallback)[] buttons =
+        [
+            (buttonTop, "Stay on Top"),
+            (buttonPin, "Prevent Closing"),
+            (buttonOpenWith, "Open With"),
+            (buttonOpen, "Open"),
+            (buttonShare, "Share"),
+            (buttonReload, "Reload"),
+            (buttonOcr, "Extract text (OCR)"),
+            (buttonMore, "More"),
+            (buttonTheme, "Toggle Light/Dark Theme"),
+            (buttonWindowStatus, "Maximize"),
+            (buttonCloseWindow, "Close"),
+        ];
+
+        foreach (var (button, fallback) in buttons)
+        {
+            var name = button.ToolTip as string;
+            System.Windows.Automation.AutomationProperties.SetName(
+                button, string.IsNullOrWhiteSpace(name) ? fallback : name);
+        }
     }
 
     /// <summary>
@@ -715,10 +744,35 @@ public partial class ViewerWindow : Window
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             return;
 
-        var show = (Storyboard)windowCaptionContainer.FindResource("ShowCaptionContainerStoryboard");
-
         if (windowCaptionContainer.Opacity == 0 || windowCaptionContainer.Opacity == 1)
-            show.Begin();
+            ShowCaptionBar();
+    }
+
+    /// <summary>
+    /// v5.3.0: the bar's fade is decoration, so it only runs when Windows is allowed to animate
+    /// (the accessibility "Animation effects" switch, reported by SystemParameters). With motion
+    /// off the bar appears and disappears instantly - see <see cref="Helpers.Motion"/>.
+    /// </summary>
+    private void ShowCaptionBar()
+    {
+        if (!Helpers.Motion.IsEnabled)
+        {
+            windowCaptionContainer.Opacity = 1d;
+            return;
+        }
+
+        ((Storyboard)windowCaptionContainer.FindResource("ShowCaptionContainerStoryboard")).Begin();
+    }
+
+    private void HideCaptionBar()
+    {
+        if (!Helpers.Motion.IsEnabled)
+        {
+            windowCaptionContainer.Opacity = 0d;
+            return;
+        }
+
+        ((Storyboard)windowCaptionContainer.FindResource("HideCaptionContainerStoryboard")).Begin();
     }
 
     /// <summary>
@@ -734,8 +788,7 @@ public partial class ViewerWindow : Window
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
         {
             StartTopBarPolling();
-            var hide = (Storyboard)windowCaptionContainer.FindResource("HideCaptionContainerStoryboard");
-            hide.Begin();
+            HideCaptionBar();
         }
         else
         {
@@ -873,8 +926,7 @@ public partial class ViewerWindow : Window
             }
 
             WriteTopBarDiag("reveal-begin-storyboard");
-            var show = (Storyboard)windowCaptionContainer.FindResource("ShowCaptionContainerStoryboard");
-            show.Begin();
+            ShowCaptionBar();
             WriteTopBarDiag($"geo h={windowCaptionContainer.Height} ah={windowCaptionContainer.ActualHeight} " +
                 $"w={windowCaptionContainer.ActualWidth} vis={windowCaptionContainer.IsVisible} " +
                 $"render={windowCaptionContainer.RenderSize} root={new WindowInteropHelper(this).Handle.ToInt64():X}");
@@ -991,8 +1043,6 @@ public partial class ViewerWindow : Window
         if (!ContextObject.TitlebarAutoHide)
             return;
 
-        var hide = (Storyboard)windowCaptionContainer.FindResource("HideCaptionContainerStoryboard");
-
-        hide.Begin();
+        HideCaptionBar();
     }
 }
