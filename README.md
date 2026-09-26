@@ -156,7 +156,7 @@ dotnet build QuickLookNext.slnx -c Release
 QuickLook-Next.exe
 QuickLook-Next.dll / .deps.json / .runtimeconfig.json
 Translations.config
-使用说明.txt        # 首次使用说明（含 .NET 运行时要求）
+Readme.txt          # 首次使用说明（含 .NET 运行时要求，中文）
 lib\               # 第三方运行库
 runtimes\          # 原生运行库
 QuickLook.Plugin\  # 内置插件

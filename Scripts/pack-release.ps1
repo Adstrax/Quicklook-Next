@@ -216,6 +216,7 @@ Set-Content -LiteralPath (Join-Path $package 'portable.lock') `
 # v3.20.0: 首次使用说明（尤其是 .NET 运行时依赖），随包一起分发
 # v3.43.0: 补上「更新怎么用 / 出问题看哪里 / 两个可选开关」，这些以前只在代码
 # 注释和提交信息里，用户看不到。
+# v5.4.1: 文件名改成 Readme.txt —— 包里其余文件都是拉丁名，只有它是中文名。
 $firstRunNote = @'
 QuickLook-Next 使用说明
 
@@ -256,7 +257,7 @@ QuickLook-Next 使用说明
   网页类预览（Markdown / HTML / Office）空闲多少秒后回收 Chromium 内存，
   默认 300，设为 0 表示一直保留。
 '@
-Set-Content -LiteralPath (Join-Path $package '使用说明.txt') `
+Set-Content -LiteralPath (Join-Path $package 'Readme.txt') `
     -Value $firstRunNote -Encoding UTF8
 
 # v3.32.0: 打包自检 + 体积报告。发布前先确认包里确实有启动必需的文件，
