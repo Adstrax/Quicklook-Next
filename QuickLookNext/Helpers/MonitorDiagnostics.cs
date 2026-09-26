@@ -26,7 +26,7 @@ using System.Windows.Forms;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v5.4.1: what the preview window would do on each screen the machine currently has.
+/// v5.5.0: what the preview window would do on each screen the machine currently has.
 ///
 /// <para>
 /// The mixed-DPI placement fix (upstream #827, and the "content laid out for the old scale" half of

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -114,7 +114,7 @@ public static class User32
     [DllImport("user32.dll")]
     public static extern nint MonitorFromWindow(nint hWnd, MonitorDefaults dwFlags);
 
-    /// <summary>v5.4.1: resolves the monitor that contains a point (the display diagnostic walks
+    /// <summary>v5.5.0: resolves the monitor that contains a point (the display diagnostic walks
     /// the screens it hears about from WinForms).</summary>
     [DllImport("user32.dll")]
     public static extern nint MonitorFromPoint(POINT pt, MonitorDefaults dwFlags);

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -236,7 +236,7 @@ public partial class App : Application
 
         // Hidden test hook (/test-plugin-manager): open the plugin management
         // panel once and dump the enumerated plugin list for the smoke test.
-        // v5.4.1: /test-monitor-refit writes what the preview sizing and placement would do on
+        // v5.5.0: /test-monitor-refit writes what the preview sizing and placement would do on
         // every screen this machine has - the mixed-DPI behaviour that a single-monitor machine
         // cannot demonstrate. See Helpers/MonitorDiagnostics.
         if (e.Args.Contains("/test-monitor-refit"))

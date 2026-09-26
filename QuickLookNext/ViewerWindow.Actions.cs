@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -247,7 +247,7 @@ public partial class ViewerWindow
         // |LB |     B     |RB |10%
         // |---|-----------|---|---
 
-        // v5.4.1: the layout rule moved to Helpers/WindowPlacement (pure, unit tested) - the
+        // v5.5.0: the layout rule moved to Helpers/WindowPlacement (pure, unit tested) - the
         // window keeps the DIP size and only takes the location from it.
         var scale = DisplayDeviceHelper.GetScaleFactorFromWindow(this);
         var location = WindowPlacement.PlaceNearExisting(

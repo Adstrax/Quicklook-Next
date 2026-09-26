@@ -22,7 +22,7 @@ using System.Windows;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v5.4.1: where the preview window goes when it is resized on the screen it already occupies.
+/// v5.5.0: where the preview window goes when it is resized on the screen it already occupies.
 ///
 /// <para>
 /// The rule is the "9/10 layout": the window's size grows or shrinks around its old centre, and
@@ -80,7 +80,7 @@ internal static class WindowPlacement
             newRect.Offset(0d,
                 Math.Max(0d, monitorPx.Top - newRect.Top) + Math.Min(0d, monitorPx.Bottom - newRect.Bottom));
 
-        // v5.4.1: the anchors above keep the *old* edge, which is wrong for a window that grew a
+        // v5.5.0: the anchors above keep the *old* edge, which is wrong for a window that grew a
         // lot - the right/bottom anchor then pushes it off the opposite side (measured: a window
         // clamped to the width of a 250% panel hung 72 px off the left edge). This is the same
         // "pull it back inside" the middle branch does, applied to every branch; it is a no-op

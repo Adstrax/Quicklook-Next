@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -69,7 +69,7 @@ public static class DisplayDeviceHelper
     }
 
     /// <summary>
-    /// v5.4.1: the DPI scale of a monitor handle. Split out of the window version so callers that
+    /// v5.5.0: the DPI scale of a monitor handle. Split out of the window version so callers that
     /// enumerate displays (the monitor diagnostic, for one) can ask about a screen without having
     /// a window on it.
     /// </summary>

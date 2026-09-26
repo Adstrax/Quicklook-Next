@@ -111,7 +111,7 @@ pwsh -NoProfile -Command {
 逐像素一致，说明这次改动在单屏场景下是**路径替换**而非行为改变。
 顺带把 png / pdf / md 各预览一遍：进程存活，窗口均居中落在 `monitorPx=(0,0,3072,1920)` 内。
 
-### 4.3 落位规则现在单独可测（v5.4.1）
+### 4.3 落位规则现在单独可测（v5.5.0）
 
 窗口"保持中心、再拉回屏内"的那套 9/10 规则从 `ViewerWindow` 抽到了
 `QuickLookNext/Helpers/WindowPlacement.cs`（纯函数），因此**不用第二块屏**也能测混合 DPI 的几何：

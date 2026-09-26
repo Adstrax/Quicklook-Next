@@ -2,7 +2,7 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
-## QuickLook-Next 5.4.1
+## QuickLook-Next 5.5.0
 
 ### 让"混合 DPI 落位"不再只能靠信任：规则可测 + 逐屏诊断
 

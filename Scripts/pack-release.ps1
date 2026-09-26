@@ -1,4 +1,4 @@
-﻿# 生成用户友好的发布包：Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
+# 生成用户友好的发布包：Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
 #
 # 目录结构（v3.2.0 起）：
 #   根目录：QuickLook-Next.exe（用户双击它）、QuickLook-Next.dll、
@@ -216,7 +216,7 @@ Set-Content -LiteralPath (Join-Path $package 'portable.lock') `
 # v3.20.0: 首次使用说明（尤其是 .NET 运行时依赖），随包一起分发
 # v3.43.0: 补上「更新怎么用 / 出问题看哪里 / 两个可选开关」，这些以前只在代码
 # 注释和提交信息里，用户看不到。
-# v5.4.1: 文件名改成 Readme.txt —— 包里其余文件都是拉丁名，只有它是中文名。
+# v5.5.0: 文件名改成 Readme.txt —— 包里其余文件都是拉丁名，只有它是中文名。
 $firstRunNote = @'
 QuickLook-Next 使用说明
 

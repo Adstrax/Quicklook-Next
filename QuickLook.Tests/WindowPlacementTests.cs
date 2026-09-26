@@ -23,7 +23,7 @@ using System.Windows;
 namespace QuickLook.Tests;
 
 /// <summary>
-/// v5.4.1: the "9/10 layout" that decides where a resized preview window lands. Upstream #827 was
+/// v5.5.0: the "9/10 layout" that decides where a resized preview window lands. Upstream #827 was
 /// a window that ended up wider than the screen it was placed on, so the invariant these tests
 /// defend is: <b>clamp the size to the screen first, then place it - and the window is inside.</b>
 ///
