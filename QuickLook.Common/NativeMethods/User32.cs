@@ -114,6 +114,11 @@ public static class User32
     [DllImport("user32.dll")]
     public static extern nint MonitorFromWindow(nint hWnd, MonitorDefaults dwFlags);
 
+    /// <summary>v5.4.1: resolves the monitor that contains a point (the display diagnostic walks
+    /// the screens it hears about from WinForms).</summary>
+    [DllImport("user32.dll")]
+    public static extern nint MonitorFromPoint(POINT pt, MonitorDefaults dwFlags);
+
     [DllImport("user32.dll")]
     public extern static bool GetMonitorInfo(nint hMonitor, ref MONITORINFOEX lpmi);
 

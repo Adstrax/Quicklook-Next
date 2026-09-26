@@ -53,14 +53,35 @@ public static class DisplayDeviceHelper
 
     public static ScaleFactor GetScaleFactorFromWindow(nint hwnd)
     {
+        nint hMonitor = IntPtr.Zero;
+
+        try
+        {
+            if (Environment.OSVersion.Version > new Version(6, 2)) // Windows 8.1 = 6.3.9200
+                hMonitor = MonitorFromWindow(hwnd, MonitorDefaults.TOPRIMARY);
+        }
+        catch (Exception e)
+        {
+            ProcessHelper.WriteLog(e.ToString());
+        }
+
+        return GetScaleFactorForMonitor(hMonitor);
+    }
+
+    /// <summary>
+    /// v5.4.1: the DPI scale of a monitor handle. Split out of the window version so callers that
+    /// enumerate displays (the monitor diagnostic, for one) can ask about a screen without having
+    /// a window on it.
+    /// </summary>
+    public static ScaleFactor GetScaleFactorForMonitor(nint hMonitor)
+    {
         var dpiX = DefaultDpi;
         var dpiY = DefaultDpi;
 
         try
         {
-            if (Environment.OSVersion.Version > new Version(6, 2)) // Windows 8.1 = 6.3.9200
+            if (Environment.OSVersion.Version > new Version(6, 2) && hMonitor != IntPtr.Zero)
             {
-                var hMonitor = MonitorFromWindow(hwnd, MonitorDefaults.TOPRIMARY);
                 GetDpiForMonitor(hMonitor, MonitorDpiType.EFFECTIVE_DPI, out dpiX, out dpiY);
             }
             else

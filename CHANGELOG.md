@@ -2,6 +2,39 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 5.4.1
+
+### 让"混合 DPI 落位"不再只能靠信任：规则可测 + 逐屏诊断
+
+5.0.10 / 5.2.0 修了上游 [#827](https://github.com/QL-Win/QuickLook/issues/827)（混合缩放时预览窗口
+横跨几块屏）与 [#1956](https://github.com/QL-Win/QuickLook/issues/1956)（改缩放后 WebView2 内容按旧
+缩放排版），但那台机器有两块屏，本机只有一块——当时的证据是"数学正确 + 单屏零回归"。这一版把它补上：
+
+- **落位规则抽成纯函数** `Helpers/WindowPlacement`（原 `ViewerWindow` 里的 9/10 规则：保持中心、
+  按旧边缘锚定、再拉回屏内），新增 4 条单元测试，直接用 issue 里那台机器（4K@250% + 1080p@100%）
+  的几何：左三分之一保留左边缘、右/下三分之一保留右/下边缘、中间推回屏内，以及
+  **"先夹取尺寸、再落位"的完整链路**——2600×1400 DIP 的窗口在 1080p 屏上被夹到 1920×1080，
+  落位结果 `(0,0)`、四边都在屏内。
+- **顺带修掉一个边界**：右/下锚点按"旧窗口的右/下边"定位，当窗口一次长大很多时会被顶出**对侧**边缘
+  （实测在 250% 屏上向左溢出 72 px）。现在落位结束前统一再拉回屏内一次；窗口放得下时偏移量为 0，
+  所以锚点行为不变。
+- **每块屏的实测开关** `/test-monitor-refit`：用生产代码里的同一个适配 / 夹取 / 落位函数逐屏算一遍，
+  写进 `<smokeDir>\monitor-refit.txt`（屏幕像素范围与工作区、缩放、DIP 尺寸、示例图片的适配结果、
+  超大窗口的夹取结果、以及落位后的坐标与 `inside=True/False`）。本机单屏输出：
+
+  ```
+  [0] \\.\DISPLAY1 primary=True
+      boundsPx=(0,0,3072,1920) workPx=(0,0,3072,1920) scale=2 workDip=1536x960
+      image 4289x631 @0.8 -> 1228.8x180.8 dip = 2458x362 px
+      window 2600x1400 dip -> clamped 1536x960 dip = 3072x1920 px
+      placement from (1843,960,768,384) -> (0,0) inside=True
+  ```
+
+  混合 DPI 机器上每块屏都会有一条记录，只需确认 `inside=True`。复核步骤写进了
+  `docs/research-mixed-dpi.md` §4.3–4.5。
+
+新增 4 条单元测试，测试套件 **94/94 通过**。
+
 ## QuickLook-Next 5.4.0
 
 ### 插件管理器：加了搜索框

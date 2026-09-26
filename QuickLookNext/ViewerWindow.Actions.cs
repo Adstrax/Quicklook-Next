@@ -247,46 +247,17 @@ public partial class ViewerWindow
         // |LB |     B     |RB |10%
         // |---|-----------|---|---
 
+        // v5.4.1: the layout rule moved to Helpers/WindowPlacement (pure, unit tested) - the
+        // window keeps the DIP size and only takes the location from it.
         var scale = DisplayDeviceHelper.GetScaleFactorFromWindow(this);
-
-        var limitPercentX = 0.1 * scale.Horizontal;
-        var limitPercentY = 0.1 * scale.Vertical;
-
-        // Use absolute pixels for calculation
-        var pxSize = new Size(scale.Horizontal * size.Width, scale.Vertical * size.Height);
-        var pxOldRect = this.GetWindowRectInPixel();
-
-        // Scale to new size, maintain centre
-        var pxNewRect = Rect.Inflate(pxOldRect,
-            (pxSize.Width - pxOldRect.Width) / 2,
-            (pxSize.Height - pxOldRect.Height) / 2);
-
-        var desktopRect = WindowHelper.GetDesktopRectFromWindowInPixel(this);
-
-        var leftLimit = desktopRect.Left + desktopRect.Width * limitPercentX;
-        var rightLimit = desktopRect.Right - desktopRect.Width * limitPercentX;
-        var topLimit = desktopRect.Top + desktopRect.Height * limitPercentY;
-        var bottomLimit = desktopRect.Bottom - desktopRect.Height * limitPercentY;
-
-        if (pxOldRect.Left < leftLimit && pxOldRect.Right < rightLimit) // L
-            pxNewRect.Location = new Point(Math.Max(pxOldRect.Left, desktopRect.Left), pxNewRect.Top);
-        else if (pxOldRect.Left > leftLimit && pxOldRect.Right > rightLimit) // R
-            pxNewRect.Location = new Point(Math.Min(pxOldRect.Right, desktopRect.Right) - pxNewRect.Width, pxNewRect.Top);
-        else // C, fix window boundary
-            pxNewRect.Offset(
-                Math.Max(0, desktopRect.Left - pxNewRect.Left) + Math.Min(0, desktopRect.Right - pxNewRect.Right), 0);
-
-        if (pxOldRect.Top < topLimit && pxOldRect.Bottom < bottomLimit) // T
-            pxNewRect.Location = new Point(pxNewRect.Left, Math.Max(pxOldRect.Top, desktopRect.Top));
-        else if (pxOldRect.Top > topLimit && pxOldRect.Bottom > bottomLimit) // B
-            pxNewRect.Location = new Point(pxNewRect.Left,
-                Math.Min(pxOldRect.Bottom, desktopRect.Bottom) - pxNewRect.Height);
-        else // C, fix window boundary
-            pxNewRect.Offset(0,
-                Math.Max(0, desktopRect.Top - pxNewRect.Top) + Math.Min(0, desktopRect.Bottom - pxNewRect.Bottom));
+        var location = WindowPlacement.PlaceNearExisting(
+            this.GetWindowRectInPixel(),
+            size,
+            scale,
+            WindowHelper.GetDesktopRectFromWindowInPixel(this));
 
         // Return absolute location and relative size
-        return new Rect(pxNewRect.Location, size);
+        return new Rect(location, size);
     }
 
     private Rect ResizeAndCentreNewWindow(Size size)

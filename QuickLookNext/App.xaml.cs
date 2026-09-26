@@ -236,6 +236,23 @@ public partial class App : Application
 
         // Hidden test hook (/test-plugin-manager): open the plugin management
         // panel once and dump the enumerated plugin list for the smoke test.
+        // v5.4.1: /test-monitor-refit writes what the preview sizing and placement would do on
+        // every screen this machine has - the mixed-DPI behaviour that a single-monitor machine
+        // cannot demonstrate. See Helpers/MonitorDiagnostics.
+        if (e.Args.Contains("/test-monitor-refit"))
+        {
+            try
+            {
+                Directory.CreateDirectory(SmokeDir);
+                File.WriteAllText(Path.Combine(SmokeDir, "monitor-refit.txt"),
+                    Helpers.MonitorDiagnostics.Report());
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog($"/test-monitor-refit failed: {ex}");
+            }
+        }
+
         if (e.Args.Contains("/test-plugin-manager"))
         {
             Dispatcher.BeginInvoke(new Action(() =>
