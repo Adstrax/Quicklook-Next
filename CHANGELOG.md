@@ -1,1700 +1,266 @@
 # QuickLook-Next Changelog
 
-> QuickLookNext Changelog starting from version `4.0.0`.
+> The English changelog.
+>
+> - **5.x** — this fork's current line — is described in full below.
+> - **4.x** notes are kept verbatim from upstream QuickLook, which this fork is based on.
+> - **3.x and earlier** get one line per release here (closely related releases share a line); their
+>   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
 ## QuickLook-Next 5.5.0
 
-### 让"混合 DPI 落位"不再只能靠信任：规则可测 + 逐屏诊断
+### Mixed-DPI placement is testable now, not just "trusted"
 
-5.0.10 / 5.2.0 修了上游 [#827](https://github.com/QL-Win/QuickLook/issues/827)（混合缩放时预览窗口
-横跨几块屏）与 [#1956](https://github.com/QL-Win/QuickLook/issues/1956)（改缩放后 WebView2 内容按旧
-缩放排版），但那台机器有两块屏，本机只有一块——当时的证据是"数学正确 + 单屏零回归"。这一版把它补上：
-
-- **落位规则抽成纯函数** `Helpers/WindowPlacement`（原 `ViewerWindow` 里的 9/10 规则：保持中心、
-  按旧边缘锚定、再拉回屏内），新增 4 条单元测试，直接用 issue 里那台机器（4K@250% + 1080p@100%）
-  的几何：左三分之一保留左边缘、右/下三分之一保留右/下边缘、中间推回屏内，以及
-  **"先夹取尺寸、再落位"的完整链路**——2600×1400 DIP 的窗口在 1080p 屏上被夹到 1920×1080，
-  落位结果 `(0,0)`、四边都在屏内。
-- **顺带修掉一个边界**：右/下锚点按"旧窗口的右/下边"定位，当窗口一次长大很多时会被顶出**对侧**边缘
-  （实测在 250% 屏上向左溢出 72 px）。现在落位结束前统一再拉回屏内一次；窗口放得下时偏移量为 0，
-  所以锚点行为不变。
-- **每块屏的实测开关** `/test-monitor-refit`：用生产代码里的同一个适配 / 夹取 / 落位函数逐屏算一遍，
-  写进 `<smokeDir>\monitor-refit.txt`（屏幕像素范围与工作区、缩放、DIP 尺寸、示例图片的适配结果、
-  超大窗口的夹取结果、以及落位后的坐标与 `inside=True/False`）。本机单屏输出：
-
-  ```
-  [0] \\.\DISPLAY1 primary=True
-      boundsPx=(0,0,3072,1920) workPx=(0,0,3072,1920) scale=2 workDip=1536x960
-      image 4289x631 @0.8 -> 1228.8x180.8 dip = 2458x362 px
-      window 2600x1400 dip -> clamped 1536x960 dip = 3072x1920 px
-      placement from (1843,960,768,384) -> (0,0) inside=True
-  ```
-
-  混合 DPI 机器上每块屏都会有一条记录，只需确认 `inside=True`。复核步骤写进了
-  `docs/research-mixed-dpi.md` §4.3–4.5。
-
-新增 4 条单元测试，测试套件 **94/94 通过**。
-
-### 发布包里的「使用说明.txt」改名成 `Readme.txt`
-
-包里其余文件都是拉丁名（`QuickLook-Next.exe`、`Translations.config`、`lib\`…），只有它是中文名，
-在解压目录里显得突兀，也不方便在命令行里敲。内容仍是中文的首次使用说明（第 1 节到"可选开关"）。
+- The 9/10 placement rule moved out of `ViewerWindow` into the pure helper
+  `QuickLookNext/Helpers/WindowPlacement`, so mixed-DPI geometry can be unit tested without a second
+  screen. Four new tests use the geometry from the #827 report (4K at 250% + 1080p at 100%),
+  including "clamp the size to the screen, then place it".
+- A real edge case came out of those tests: the right/bottom anchors position the window from the
+  *old* edge, so a window that grows a lot was pushed off the opposite side (measured: 72 px off the
+  left edge on a 250% panel). Placement now pulls the result back inside once more; it is a no-op
+  whenever the window fits.
+- New hidden switch `/test-monitor-refit`: runs the same sizing and placement functions once per
+  screen and writes `monitor-refit.txt` (pixel bounds and work area, scale, DIP size, a fitted
+  sample image, a clamped oversized window, and the resulting position with `inside=true/false`).
+- The package usage note is `Readme.txt` now (Latin name like every other file in the archive).
+- Unit tests 94/94; the single-screen baseline is unchanged (6000×4000 image still lands at
+  `2308×1540 @(382,190)`), so the refactor is behaviour-preserving.
 
 ## QuickLook-Next 5.4.0
 
-### 插件管理器：加了搜索框
+### Plugin manager: search box
 
-25 个插件已经超过"滚动就是搜索"的规模。搜索框在标题下面，**打开面板就把光标放进去**，
-输入即过滤（匹配名称与描述，不区分大小写），状态行会显示「已显示 3 / 25 个」，
-没有命中时显示「没有匹配“xxx”的插件」。**Esc** 先清空过滤，再按一次关闭面板；
-Tab 焦点在面板内循环。
+- Opens with the caret in the search box; typing filters name and description, the status line
+  reports "3 of 25 shown", and Esc clears the filter first and closes the panel second.
+- Tab cycles inside the panel, which is a visible keyboard focus ring now.
 
-### 无障碍：键盘焦点、减少动画、读屏名称
+### Fixed: the top bar blinked while the pointer rested on it
 
-- **键盘焦点可见**：面板按钮此前完全没有焦点状态（自定义模板把系统焦点框也吃掉了），
-  现在聚焦时显示主题色描边；编辑框、按钮、关闭按钮在面板内用 Tab 循环，不会跑到别的窗口。
-- **尊重"减少动画"**：顶栏的淡入淡出、预览首次内容的淡入、窗口出现过渡，现在都先看 Windows 的
-  "动画效果"设置（`SystemParameters.ClientAreaAnimation`），关掉就瞬间出现；应用自己的
-  `ShowWindowTransition` 依然有效（两者都要允许才会动画）。进度类的旋转指示不在此列——
-  那是信息，不是装饰。
-- **读屏名称**：预览窗口顶栏全是图标按钮，现在都带 `AutomationName`（取自各自的提示文案）；
-  面板按钮也因为用了自定义模板而补上了名称；插件管理器的"卸载"按钮会念出插件名。
+- The show animation used to start a "hide after 1 s" when it finished while a 100 ms poll re-showed
+  the bar, so a parked pointer made it pulse; measured with the diagnostic log: one show and zero
+  hides over 6 s, then one hide after the pointer left. The rule lives in `Helpers/TopBarVisibility`.
 
-### 顺带：面板按钮模板合并成一份
+### Accessibility
 
-更新提示、下载面板、数据与缓存、OCR 这四个面板各自带着一份"同一个按钮"的模板（20 行 × 4），
-这也是它们后来出现三种悬停样式、都没有焦点状态的原因。现在统一到 `Helpers/PanelStyles`
-（悬停 / 按下 / 焦点环 + 半透明辅助），改一处四个面板一起变。
+- Reduced motion is honoured (`SystemParameters.ClientAreaAnimation` gates the caption fade, the
+  content fade and the window show transition; the busy spinner is information and stays).
+- Icon-only caption buttons carry an `AutomationName` from their tooltip; panel buttons get one from
+  their label because a custom template hides the content text from assistive tech.
 
-新增 2 条单元测试（动画开关的组合逻辑与接线），测试套件 **89/89 通过**。
+### Housekeeping
 
-### 修复：光标停在顶栏时顶栏会不停闪烁
-
-顶栏的"显示"动画在结束时去启动"1 秒后隐藏"，而每 100ms 的轮询一看到光标还在顶栏区域就
-立刻重新显示——两者互掐，于是**只要光标停在顶栏上，它就会一直淡出淡入**。这个问题其实一直存在，
-只是这一版给顶栏加了遮罩之后才变得肉眼可见（遮罩让淡出淡入的深浅变化明显了）。
-
-现在规则收拢成一条：**顶栏由"光标是否还在顶栏区域"决定**——显示过一次之后，1 秒的循环检查
-发现光标仍在顶栏就什么都不做（不再重启动画），光标离开后才淡出。诊断日志可以证明：
-光标停 5 秒只有 1 次显示、0 次隐藏；移开后 1 秒内隐藏 1 次。
-
-这条判断抽成了 `Helpers/TopBarVisibility`（纯函数）+ 1 条单元测试，测试套件 **90/90 通过**。
+- The four hand-drawn panels (update prompt, download panel, data & cache, OCR) share one button
+  template in `Helpers/PanelStyles` instead of four copies with three different hover treatments.
+- Unit tests 90/90.
 
 ## QuickLook-Next 5.3.0
 
-### 界面可读性：浅色壁纸下不再"糊成一片"
+### Readability on any wallpaper
 
-材质没有推翻你们调好的那套：**托盘菜单仍是 30% 的 WCA 亚克力**。改的是"读文字的窗口"——
-插件管理器、更新提示、下载面板、数据与缓存、OCR 都换成 **45% 的面板档**，并新增一层
-**内容底板**（`ThemePalette.ContentPlate`，浅色主题是白色卡片、深色主题是柔黑），
-插件管理器的列表与 OCR 的文本框都落在它上面，文字不再直接压在壁纸的磨砂上。
+- The tray menu keeps its 30% WCA acrylic; the surfaces that are *read* (plugin manager, update
+  prompt, download panel, data & cache, OCR) use a 45% panel tint plus a content plate, and the
+  secondary text colour was raised because it used to assume a solid background.
+- When Windows' transparency effects are off these panels fall back to a solid surface instead of
+  becoming a 30-45% tint with no blur.
 
-次要文字也从固定灰（`#9E9E9E` / `#7A7A7A`）提到 `#C8C8C8` / `#5C5C5C`——它们过去假设了不透明底，
-在"亮壁纸 + 深色主题"下几乎不可见（插件管理器的版本号、更新提示的正文都是受害者）。
+### Preview caption bar
 
-顺带补上一个一直缺的回退：**系统关闭"透明效果"时，这些面板改为实心**。此前 DWM 不再模糊，
-面板只剩下 30–45% 的色调，比开着透明效果还糟；现在会退回主题本色（`MenuSurface.Apply` 里判断
-`SystemParameters.IsGlassEnabled`，诊断里也会报告 `material=solid`）。
+- A theme-aware gradient scrim behind the bar (the image viewer switches the glass off, so white
+  icons used to float on the picture), single-glyph toggles whose active state is the accent colour,
+  a hairline between file actions and window actions, and a title with a secondary prefix.
 
-### 预览窗口顶栏
+### Plugin manager and tray menu
 
-- 新增顶栏**渐变遮罩**（`CaptionScrimBrush`，随明暗主题）：图片预览本来就关闭了顶栏模糊与色层，
-  白色图标直接压在图上——截图里"打开方式 / 提取文字"两颗已经糊在亮色块里。
-- 左侧两颗按钮去掉"大图标 + 0.25 缩放小角标"的复合画法，改成**单字形 + 激活时用主题色**
-  （置顶：↑ 变主题色；防止关闭：实心图钉变主题色）。那套小角标在 100% 缩放下是糊的，
-  也是全应用唯一使用它的地方。
-- 顶栏**分组**：内容动作（分享 / 打开 / 打开方式 / 重载 / 提取文字 / 更多）与窗口动作
-  （主题 / 最大化 / 关闭）之间加一条 1px 分隔线。
-- 标题有了**层次**：「6000×4000:」用次要色、文件名用主色（由 `UpdateCaptionTitle` 生成两段 Run，
-  切换主题时重建）；按钮悬停从直角填充改为 4px 圆角，与面板的圆角语言一致。
-
-### 插件管理器
-
-- 每行**按格式给图标**（图片 / 视频 / 文档 / PDF / 字体 / 压缩包 / 表格 / 代码 / 证书 / 邮件…），
-  25 行不再是同一个拼图块。
-- 去掉每行的 "Built-in" 徽标（表头已经写着 "25 built-in"），只给用户插件标记 "User"。
-- `ChmViewer 0.0.0.0` 不再显示——没有版本号就不显示（那是插件没写 `AssemblyVersion` 导致的）。
-- 列表落在**内容底板**上，行内图标块更克制（此前是亮白方块 + 灰字形）。
-
-### 托盘菜单
-
-- 图标列改为**固定 16px 网格**：过去每个字形的宽度不同，两段菜单的左边缘差了几个像素
-  （截图里"主题模式"与"检查更新"能看出来）。
-- 顶部版本号不再被压到 50% 透明——浅色壁纸上它几乎看不见。
+- A glyph per plugin family instead of 25 identical puzzle pieces; the per-row "Built-in" badge is
+  gone (the header counts them); plugins without a version no longer print `0.0.0.0`; the list sits
+  on a content plate.
+- The tray menu icon column is a fixed 16 px grid, and the version at the top is no longer dimmed.
+- Unit tests 87/87.
 
 ## QuickLook-Next 5.2.0
 
-### 新增：省内存模式（托盘菜单 → 设置）
+### Low memory mode (tray menu → Options)
 
-闲时内存实测分解（本机：单屏 200%，什么都不预览，静置后取样）：
+- The two startup warm-ups (the off-screen preview window and the per-family preparation) are now a
+  switch. Measured idle memory: 64 MB with both off, 112-118 MB with the window only, 169-179 MB by
+  default; the warm-ups buy ~200 ms on the first preview and 100-200 ms per family.
+- `WarmUpPreviewFamilies` and `WarmUpFamilyCount` remain available for manual tuning, documented in
+  `OPTIONS.md` with the measurements.
 
-| 配置 | 私有内存 | 工作集 |
-|---|---|---|
-| 两处预热都关（省内存模式） | 64 MB | 130 MB |
-| 只预热"预览窗口" | 112–118 MB | 199 MB |
-| 再按使用习惯预热两个预览家族（默认） | 169–179 MB | 258–272 MB |
+### Fixed: the preview did not re-measure its content after the window changed screens
 
-两处预热都是拿内存换首屏速度：**窗口预热**买的是第一次预览省下约 200 ms，**家族预热**买的是
-每类文件首次预览快 100–200 ms（实测文本 289→96 ms、图片 170→100 ms）。以前这笔账是写死的，
-现在托盘菜单「设置」里多了**「省内存模式」**开关：打开后从**下次启动**起两处预热都不再执行，
-闲时内存回到 61–64 MB 基线，代价只是每类文件的第一次预览各慢一次。切换时会弹一条说明
-（因为它只影响启动阶段）。
+- The plugin's own "fit to the screen" question is asked again whenever the window lands on another
+  monitor or the resolution/scaling changes (`ContextObject.RefitToHostDesktop`), then clamped to
+  that screen; a size the user dragged wins, and fixed-size plugins are unaffected.
+- WebView2: a Chromium control keeps the scaling it was created with, so a scaling change now
+  discards parked controls and the visible panel rebuilds (upstream #1956).
 
-相关配置项一并写进了 `OPTIONS.md`：`LowMemoryMode`（新）、`WarmUpPreviewFamilies`、
-`WarmUpFamilyCount`，含上面这张实测表。
+### Fixed: circled numbers are no longer reported as wrong digits
 
-**顺带查清的另一件事**（这次**没有**改）：内存不但"起步高"，还会**随用过什么而上涨并保持**。
-实测（默认设置）闲时 185 MB，预览过一次 Markdown 后 249–262 MB 并一直不降；Chromium 进程在
-预览关闭后十几秒内就退出了（`msedgewebview2` 属于本应用 profile 的进程数 12 秒后为 0），所以留下的
-不是 Chromium，而是进程内的缓存：托管大对象堆（实测 LOH 34 MB）、WPF 的文字/字体缓存、以及各插件的
-原生库。省内存模式下同样的现象也在：闲时 66 MB → 用过 Markdown 183 MB → 再预览图片 238 MB。
-这部分是"用了就留着"的缓存而不是逐次泄漏（早前 20 次开关预览的曲线是 318→321→320→318 的平台期），
-要再降只能靠关闭预览后主动释放内容 + 触发 GC/回收，代价是下一次预览变慢——留给后续决定。
-
-### 修复：窗口换到另一块屏后，插件内容尺寸不重算（含上游 #1956「改缩放后 Markdown 渲染错」）
-
-两件同源的事：
-
-- **把预览窗口拖到另一块屏**（缩放相同、分辨率不同）时，以前只夹位置、不重算插件内容尺寸；
-- 上游 [#1956](https://github.com/QL-Win/QuickLook/issues/1956)：**改了系统缩放之后**再预览
-  Markdown，WebView2 内容按旧的缩放排版，显示区域比窗口小一圈。
-
-现在：
-
-1. **重算插件内容尺寸**：宿主记下插件最后一次 `SetPreferredSizeFit` 的参数，窗口每次落到另一块屏
-   （或系统分辨率/缩放变化）时按新屏幕把这个问题**重新问一遍**（`ContextObject.RefitToHostDesktop`），
-   再按该屏夹取；用户自己拖出来的尺寸仍然优先，固定尺寸的插件（例如信息面板）不受影响。
-   触发来源包括拖动的显示器变化、DPI 变化、以及系统显示设置变化。
-2. **让 WebView2 跟上新缩放**：应用把当前缩放发布到 `DisplayScale`，**WebView2 宿主池在缩放变化时
-   丢弃所有待复用控件**（Chromium 控件会一直记着创建时的缩放——这正是 #1956 的成因），
-   同时面板自己也会在 DPI 变化时按新缩放重建控件并重新加载原内容。
-
-**如实说明（限制）**：本机只有一块屏、也没有跨缩放显示器，上述多屏行为**无法在此复现**。
-能提供的证据是代码路径、可单测的部分（尺寸重算与缩放广播都已覆盖），以及 `/test-preview-diag`
-的落位记录（`dip/px/at/monitorPx/desktopDip`），便于在真机上核对。
-
-### 修复：带圈数字不再被读成错误数字
-
-实测（干净合成图 + 真实页面）：
-
-- 引擎**读不了**带圈符号：①-⑤ 与 ❶-❺ 都返回空；
-- 把单个符号抠出来、反色、放大到 220px 再单独识别，**依然是空**（所以"读回正确数字"不可行）；
-- 真实页面上那个填充圆点的 ① 曾被读成 `0`——这比空更糟，因为凭空多出一个原图没有的数字。
-
-既然读不回来，就不要输出错的：**孤立的、方框比例的单字符 `0/O/o`** 现在会被判定为"看不清的列表
-符号"并丢弃（真正的数字字形是竖长条，宽高比不在 0.75–1.35 之内，不受影响）。实测那张图过滤掉
-4 个符号、正文一字不少；英文图与中英混排图**零误伤**（`filtered=0`）。`/test-ocr` 的诊断输出里
-新增 `filtered=` 计数，可直接看到规则命中了几次。
-
-形近字（实测「亲戚」被读成「亲威」）属于**引擎模型本身的限制**：把同一页放大 2 倍重跑，该行反而
-变成了乱码，所以这里**不做**任何"字典纠正"——那只会把用户原文改成别的字。
-
-新增 9 条单元测试（省内存开关 3、插件尺寸重算 3、缩放广播 1、带圈符号判定 2），
-测试套件 **87/87 通过**。
+- The engine cannot read ①-⑤ or ❶-❺ at all (measured), but it used to report a filled ① as `0`; a
+  lone `0`/`O`/`o` in a disc-shaped box is now dropped as an unreadable list marker. `/test-ocr`
+  reports a `filtered=` count.
+- Unit tests 87/87.
 
 ## QuickLook-Next 5.1.0
 
-### OCR：混排图不再整行丢字（按行合并各语言引擎）
+### OCR: mixed-language images no longer lose whole lines
 
-5.0.11 让 OCR 自己挑语言引擎，但那是**整页二选一**：一页里同时有中文和英文时，总分高的那个引擎
-会赢下整页，另一种语言的行被整份丢掉。实测一张双语小图（英文标题 + 发票行 + 中文联系人行）：
+- Lines are merged per engine: candidates are grouped by vertical position and each group keeps the
+  text that scored best, so a bilingual page keeps both languages (measured: 2 lines/67 characters
+  before, 3 lines/89 characters after).
 
-| | 结果 |
-|---|---|
-| 修复前 | 只出来 2 行英文，共 67 字符，**中文那行整行消失**（中文引擎其实已经读到它了） |
-| 修复后 | 3 行都在，共 89 字符，中文行为「联系人：张三电话 13800001111」 |
+### OCR: small images are enlarged before recognition
 
-现在的规则是**按行归并**：各引擎给出的行按纵向位置归组（重叠超过较矮行高的一半算同一行），
-每一组取该组内得分最高的文本，再按位置从上到下输出。同一行被多个引擎读到只留一条，
-上下相邻的两行不会因为靠得近被并成一条。
+- A picture whose longest side is under 1000 px is enlarged 2× first (a 14 px Chinese line went from
+  `138 佣佣 1 1 1 1` to the correct `13800001111`); larger pictures are untouched and recognition
+  stays at ~1.1 s.
 
-### OCR：小图先放大再识别
+### Fixed
 
-引擎读小字很差，中文尤其明显：一张 560×150、14px 字的截图里，中文行被读成
-「联系人：张三电沽 138 佣佣 1 1 1 1」；把同一张图放大 2 倍再交给引擎，结果是完全正确的
-「联系人：张三电话 13800001111」（与原文 28px 渲染的结果一致）。
+- A preview request from Explorer could be dropped silently when it hit the gap between two pipe
+  connections; it retries four times (~3 s) before falling back to a message box.
+- The preview warm-up no longer writes its diagnostic file on every start (same always-true guard as
+  the update prompt below).
 
-因此**最长边小于 1000 像素的图片会先放大 2 倍再识别**（仍受原有的单边上限与 16 MP 总量限制）；
-更大的图片维持原样——反馈里那张 1264×1522 的页面本来就识别得很好，缩放只会白花时间。
-识别耗时没有可感知变化：小图 1.06 秒、那张中文页面 1.17 秒（均含应用启动）。
+### Improved
 
-### 修复：从资源管理器打开预览时，请求可能被无声丢掉
-
-管道服务一次只接受一个连接，两次连接之间有真实的空档。转发预览请求以前**只尝试一次**
-（超时 2 秒），撞上空档就没了：用户看到的是"双击了但什么都没发生"；而第二个实例随后会判定
-"已经在运行"，弹一个提示框，尽管路径完全有效（自动化里重复出现，约三次一次）。
-现在改为**重试 4 次、每次 600 毫秒**（总共约 3 秒），只有在运行中的实例真的卡住时才回落到提示框，
-并且会把"请求没能送达"写进日志。
-
-### 修复：生产路径里仍在写测试诊断文件
-
-预览预热每次启动都会往临时目录写 `warmup.txt`——判断条件是「有没有测试目录」，而那个值**恒为真**
-（和 5.0.11 修的更新弹窗是同一个坑）。现在只有带上 `/test-warmup` 才写（冒烟测试已同步加上该开关）。
-
-### 改进：日志不再无限增长，「数据与缓存」可一键清空日志
-
-- **轮转**：诊断日志超过 1 MB 时整份移到 `QuickLookNext.Exception.log.1`（同一时刻只留一份旧档），
-  所以日志里始终是「当前会话 + 上一次会话」。实测注入 1,064,420 字节后，下一次写日志把旧档整体搬走，
-  新日志只有 1,296 字节。
-- **清空日志**：「数据与缓存」面板新增按钮（日志属于数据，所以不跟着「清理缓存」一起删）。
-  文件被占用时提示"稍后再试"而不是报错；清理后面板数字会立即刷新。
-  新增文案已补齐 en / zh-CN / zh-TW 三套。
-- 顺带把日志路径改走 `SettingHelper.DataRoot`，测试可以真正把日志重定向到临时目录
-  （以前测试里的日志会写到真实数据目录）。
-
-新增 9 条单元测试（按行归并 4 条、小图放大 2 条、日志清空与轮转 3 条），测试套件 **78/78 通过**。
+- The diagnostic log rotates at 1 MB (one previous file is kept) and the data & cache panel can
+  clear it.
+- Unit tests 78/78.
 
 ## QuickLook-Next 5.0.11
 
-### 修复：中文图片被识别成乱码——OCR 现在自己挑对语言引擎
+### Fixed: Chinese images came out as gibberish — OCR picks the right engine now
 
-Windows 的 OCR 是**按语言包**工作的。之前固定用「用户首选语言」那一个引擎
-（`TryCreateFromUserProfileLanguages`），在中文系统 + 英文界面（或反过来）的机器上恰好是最不该用的那个：
-一张整页中文会被交给英文引擎。用反馈里的那张「不要去回应负能量」实测：
+- Every installed engine is tried and the answer whose characters belong to that language's script
+  wins (own script +10, foreign -1, digits and punctuation neutral), so a Chinese page is no longer
+  handed to the English engine (measured: 33 characters of nonsense before, 257 correct Han
+  characters after).
+- Chinese is no longer joined with a space per glyph, so copying gives "不要去回应负能量" instead
+  of "不 要 去 回 应".
 
-| 引擎 | 识别结果 | 本族字符 / 总字符 |
-|---|---|---|
-| en-US（修复前选中的） | `aaaaeæa / o / (fifi, / (Räih(+/Åäih,` | 20 / 27 |
-| zh-Hans-CN | 整篇中文，逐字正确 | 257 / 288 |
+### Fixed: the update prompt closed itself after a few seconds
 
-现在把**所有已安装的引擎都跑一遍**，用「识别出的字符是否属于该语言的文字系统」打分
-（本族文字 +10、异族文字 −1、数字与标点对谁都是中性），得分最高者胜出；分数相同时
-（例如整张图只有数字）仍然优先用户自己的语言；单个语言包出错只记日志，不影响其它引擎。
-英文图不受影响：同一套逻辑下这张英文测试图 en-US 得 1280、zh-Hans-CN 得 −126，各选各的。
+- The self-answering test hook decided "am I being tested?" from "does a test directory exist?",
+  and that value is always true, so the shipping prompt was closed by its own timer. The hook is
+  driven by its dedicated switch now, and the startup diagnostic reports whether it is armed.
 
-顺带修掉粘贴体验：引擎把中文按「一个字一个词」返回并用空格拼接，直接复制是「不 要 去 回 应」。
-现在按书写系统拼接——中日韩字符之间不留空格、全角标点紧跟文字，其它情况保留空格
-（「使用 Windows 10 的设置」）。同一张图的识别耗时约 **1.1–1.3 秒**（含应用启动）。
+### Improved
 
-已知的**引擎**限制，这次没动：带圈数字 ①② 会被读成 `0`，个别形近字会认错
-（实测「亲戚」读成「亲威」）。
-
-### 修复：更新提示窗口几秒后自己消失
-
-点「检查更新」弹出的更新窗口，约 2 秒后自己关掉——用户什么都没点，更新自然也没开始。
-
-原因是一个"给自动化测试用"的自答钩子判断条件写错了：它用 `App.SmokeDir` 是否为空来判断
-"我是不是正在被测试"，而这个属性**永远不为空**（会回落到 `%TEMP%\ql-smoke`），
-于是正式路径上的弹窗也被计时器按「忽略」自动关掉了。现在这个钩子只由 `/test-update-prompt`
-开关驱动，同类的下载进度面板钩子一并收口（它只是"尚未踩到"，同一个坑）。
-
-验证：新增 `/test-update-prompt-hold` —— 走**真实**路径但不自动关窗。实测弹窗 2 秒、8 秒后仍在；
-冒烟路径 `/test-update-prompt` 仍照常自答并写出诊断文件。启动诊断里也加了
-`update-prompt-hook=` / `update-progress-hook=` 两项，一眼能看出钩子有没有被误触发。
-
-### 改进：「提取文字」从「更多」二级菜单移到工具栏
-
-图片预览时工具栏上直接有扫描图标（在「更多」左侧），不再需要展开二级菜单才找得到；
-其它格式的预览不显示该按钮。更多菜单里的那一条已移除——同一个功能不留两个入口。
-
-新增 9 条单元测试（语言打分、脚本判定、中文/英文/混排拼接），测试套件 **69/69 通过**。
+- "Extract text" moved from the More menu onto the toolbar (image previews only).
+- Unit tests 69/69.
 
 ## QuickLook-Next 5.0.10
 
-### 修复：混合 DPI 多显示器下，预览窗口会横跨几块屏幕（上游 #827）
+### Fixed: the preview window spanned several monitors (upstream #827)
 
-在笔记本 4K 屏（250%）+ 外接 1080p 屏（100%）这类机器上，用外接屏预览**横向大图**时，
-预览窗口会横跨三块显示器；竖图和小图正常。同一张图用方向键切换过去又正常。
-
-原因是**算尺寸用的显示器**和**放窗口用的显示器**不是同一块：
-
-- 插件算尺寸走 `ContextObject.SetPreferredSizeFit()` → `WindowHelper.GetCurrentDesktopSize()` →
-  取的是**前台窗口**（资源管理器）所在那块屏；
-- 窗口定位走 `ResizeAndCentre*`，用的是**预览窗口自己**所在那块屏。
-
-在前台屏算出的尺寸一旦落到缩放更高的屏，换算成像素会被放大（250% 就是 2.5 倍），
-横图"宽度顶满"的形状最先生效 → 宽出屏幕。竖图由高度决定比例，还有 10% 边距兜着，所以看起来正常；
-而定位代码只夹**位置**、从不夹**尺寸**，于是就成了"三屏连成一片"。
-
-现在三处对齐到同一块屏：
-
-1. **每次预览开始时把目标屏交给插件**（`ContextObject.HostDesktopSize`），
-   `SetPreferredSizeFit()` 优先按它计算；取不到才回落到原来的当前桌面；
-2. **应用尺寸前按落点所在屏夹取**（插件写死的尺寸、后置的尺寸请求同样夹取），
-   窗口不可能大于它即将落上的那块屏；**用户自己拖出来的尺寸不夹**——那是用户的意图；
-3. **屏幕缩放变化后重新贴合**（`OnDpiChanged`）：跨屏移动时 Windows 保持物理尺寸，
-   DIP 尺寸会变，DPI 一变就按当前屏重新夹取。
-
-尺寸数学抽成了纯函数 `PreviewWindowSizing`：只缩不放；比例上限 >1 视作 1；
-比例为 0/负数/NaN 或桌面查询失败（0×0）时视作"整屏"，不会把预览压成 0 像素。
-
-**验证**：新增 12 条单元测试（含 #827 的两块极端屏与 4289×631 那种宽扁形状），
-测试套件 **60/60 通过**；本机单屏 6000×4000 图片的落位结果
-**2308×1540 @ (382,190)** 与修复前**逐像素一致**（说明单屏是路径替换而非行为改变）。
-本机只有一块屏，混合 DPI 的真实效果**无法在此复现**——完整分析、复现命令与这一限制
-见 [docs/research-mixed-dpi.md](docs/research-mixed-dpi.md)。
-
-新增隐藏开关 `/test-preview-diag` 的落位记录（`<smokeDir>\preview-rect.txt`：
-`dip` / `px` / `at` / `monitorPx` / `desktopDip`），双屏机器上可直接核验
-"窗口是否完整落在 `monitorPx` 之内"。
+- The size a plugin asked for was measured against the monitor of the foreground window while the
+  viewer placed the window on the monitor it was on, so a size measured on one screen was scaled
+  into pixels on another and overflowed.
+- The host now hands the plugin the target screen before `Prepare`, clamps every plugin-derived
+  size to the screen the window is about to be placed on (a size the user dragged is left alone),
+  and re-fits the window on a DPI change. The arithmetic lives in `PreviewWindowSizing`.
+- Unit tests 60/60; the single-screen result is unchanged (`2308×1540 @(382,190)` for a 6000×4000
+  image), and `/test-preview-diag` records every placement.
 
 ## QuickLook-Next 5.0.9
 
-### 修复：打不开的视频会让整个应用崩溃
+### Fixed: an unplayable video crashed the whole app
 
-预览一个"媒体播放器打不开"的视频（损坏文件、0 字节文件、缺少解码器的容器）时，**整个 QuickLook 会直接退出**，
-而不是提示"这个视频打不开"。
+- `MediaFailed` is raised on the player's own thread and touched the visual tree directly, so a
+  damaged file, a 0-byte file or a container without a decoder took the process down; all UI work
+  now runs on the window's dispatcher and the user gets "This video could not be played" (upstream
+  #1768).
 
-原因：`QuickLook.Plugin.VideoViewer.ViewerPanel.MediaFailed` 是 WPFMediaKit 在**自己的工作线程**上回调的，
-而它开头两行就直接改视觉树（清空缩略图）→ 非 UI 线程访问抛 `InvalidOperationException`，异常落在没有捕获的
-工作线程上 → 进程退出。日志里那两条 8 行堆栈（0 字节文件、截断文件）就是它，与上游
-[#1768](https://github.com/QL-Win/QuickLook/issues/1768) "Cannot open videos" 属同一类现象。
+### Video robustness sweep
 
-现在所有 UI 操作都在窗口 Dispatcher 上执行；用户看到的是一句提示（**"无法播放此视频。"** /
-This video could not be played），完整异常写进日志（不再把原始堆栈贴在面板上）。
-
-### 视频健壮性回归：22 个样本全绿
-
-新增一套可复跑的视频矩阵（用 ffmpeg 生成样本，脚本随仓库）：
-
-- **容器/编码**：MP4、MOV、MKV、AVI、WMV、WebM、TS、FLV、OGV；H.264、H.265（8-bit 与 10-bit）、AV1、
-  VP9+Opus、MPEG-2、WMV2+WMA、Theora+Vorbis
-- **变体**：4K、6 分钟长视频、竖屏 240×320、旋转元数据、可变帧率、无音轨、纯音频（MP3/M4A）、
-  中文+带空格路径、截断文件、0 字节文件
-
-结果：**22/22 全部正常出画面**（299–1422 ms，中位数约 350 ms），**0 崩溃、0 无响应**；两个故意损坏的
-文件优雅报错并写日志。换句话说，上游那几类"视频打不开"的报障（#1768/#1844/#1968）在我们这条
-LAVFilters 路径上没有复现——这正是这次回归的价值：要么抓到 bug（抓到了，见上），要么拿到实测证据。
-
-冒烟测试新增守卫：先把 `test.mp4` 截断成 `test-corrupt.mp4` 再预览，断言**进程存活**且**确实写了错误日志**
-（不需要 ffmpeg）。完整记录与复跑方式见 `docs/research-video-matrix.md`。
+- A 22-sample matrix (containers, codecs, 4K, long, portrait, rotated, VFR, no audio, audio-only,
+  non-ASCII paths, truncated, 0-byte) run end to end: 22/22 render, no crashes, the two deliberately
+  broken files fail gracefully and log. Tools ship with the repo (`Scripts/make-video-matrix.ps1`,
+  `Scripts/run-video-matrix.ps1`) and the record is in `docs/research-video-matrix.md`.
 
 ## QuickLook-Next 5.0.8
 
-### 图片提取文字（OCR，上游 #1608）
+### Text recognition for images (OCR, upstream #1608)
 
-图片预览的「更多」菜单新增**「提取文字（OCR）」**：用 Windows 自带的 OCR 引擎
-（`Windows.Media.Ocr`）识别当前图片里的文字，识别结果在一个可选中、可一键复制的面板里显示。
-
-- **按行保留**：引擎的 `OcrResult.Text` 会把多行用空格拼成一行，这里改为按行拼接（提取文字通常
-  是要粘贴到别处去的）
-- **零新增依赖**：应用本来就带 WinRT 投影（分享功能在用），OCR 引擎由系统提供。本机实测可用
-  `en-US` 与 `zh-Hans-CN`；系统没装语言包时，面板会提示去「设置 → 时间和语言 → 语言和区域」安装
-- **解码有界**：不超过引擎的单边上限（10000px）、总量 16 MP，超过则等比缩放后再识别；遵循 EXIF
-  方向，手机照片不会横着识别
-- **实现放在应用侧**：图片插件项目没有 WinRT 投影，把 OCR 放进去会把约 24 MB 的投影带进插件目录；
-  因此只在"当前预览由图片插件产出"时显示该菜单项
-- 隐藏钩子 `/test-ocr`（配合环境变量 `QL_TEST_OCR_FILE`）会把识别结果写进 `<smokeDir>\ocr.txt`，
-  便于回归
-
-实测：1200×460 的样图，应用内的 OCR 路径识别出 **90 个字符、三行完整正确**。
-
-新增 4 条单元测试覆盖解码尺寸（普通图不缩放、超长边按引擎上限、总量 16 MP 上限、方图保持比例），
-测试套件 48/48 通过。
+- "Extract text (OCR)" in the preview's More menu uses the OCR engine Windows already ships
+  (`Windows.Media.Ocr`) and shows the result in a selectable, one-click-copy panel.
+- Lines are preserved (the engine's `Text` joins everything with spaces), decoding is bounded
+  (10000 px per side, 16 MP total, EXIF orientation respected), and the feature lives in the app
+  because the image plugin does not carry the WinRT projection.
+- `/test-ocr` with `QL_TEST_OCR_FILE` writes the result to `<smokeDir>\ocr.txt`.
+- Unit tests 48/48.
 
 ## QuickLook-Next 5.0.7
 
-### 数据与缓存：看得见占用，一键清理可重建的缓存（上游 #1933）
+### Data & cache: see the footprint, clear the rebuildable caches (upstream #1933)
 
-托盘菜单新增**「数据与缓存…」**（在「打开数据文件夹」下面），面板显示三行数字：
-
-| 项 | 内容 |
-|---|---|
-| 缓存 | WebView2 的着色器/GPU/网页缓存（`GrShaderCache`、`ShaderCache`、`Default\Cache`、`GPUCache`…）、`BrowserMetrics`、更新残留（`%TEMP%\QuickLookNext.Update`、`QuickLookNext-update.cmd`） |
-| 设置与日志 | 配置、`plugin-usage.json`、`QuickLookNext.Exception.log`，以及 WebView2 profile 里**不是缓存**的部分（Cookies、Local Storage…） |
-| 合计 | 上面两项之和 |
-
-「清理缓存」只删除白名单里的可重建内容，**登录状态、设置、统计与日志一律保留**；正在被占用的文件
-（WebView2 还在跑）不会让清理失败，而是提示"部分文件正在使用，可稍后再清理"。面板还带
-「打开数据文件夹」。顺带：旋转 profile 后遗留的 `WebView2_Data_1` 之类目录，其缓存同样会被清掉，
-但目录本身与里面的数据不动。
-
-本机实测（本地产物）：缓存 11.7 MB + 设置与日志 991.9 KB = 合计 12.7 MB，与目录实测一致。
-
-新增单元测试 `CacheUsageTests`（5 条）：只删白名单、登录数据/设置/日志存活、遗留 profile 的缓存
-被清理但目录保留、文件占用时报告而不抛异常、目录不存在时无副作用。测试套件 44/44 通过。
-
-隐藏测试钩子：`/test-data-cache` 会打开面板、把数字写进 `<smokeDir>\data-cache.txt` 后自动关闭
-（供后续冒烟断言使用）。
+- The tray menu's "Data & cache…" shows the WebView2 caches, the leftover update files, settings,
+  logs and the WebView2 profile side by side with a total.
+- "Clear cache" deletes only the whitelist (shader/web caches, update leftovers); sign-in data,
+  settings, statistics and logs survive, files in use are reported instead of failing.
+- Unit tests 44/44.
 
 ## QuickLook-Next 5.0.6
 
-### 大图保护收尾：坐标空间按"解码尺寸"，不再按"原图尺寸"
+### Huge-image protection, part two: the coordinate space follows the decoded size
 
-5.0.5 加了 40 MP 解码上限，但 6400 万像素 JPEG 的峰值只从 1,705 MB 降到 1,425 MB。这次把剩下那块找出来了：
-缩略图会被**放大到"原图坐标系"**（用 `TransformedBitmap` 把只有窗口大小的缩略图放大到 8000×8000 的
-逻辑尺寸），WPF 会为这个巨大坐标面**实际分配内存**——实验里去掉这一步、其它不动，峰值直接从
-1,425 MB 掉到 911 MB（8 MP 上限时更是 1,038 → 437 MB），确认它就是大头。
-
-做法不是"取消坐标空间"（那样帧换入后不再适应窗口，实测会放大裁切），而是**让缩略图放大到渲染帧的解码
-尺寸**（同样受 40 MP 上限约束）：面板的适配/缩放空间随帧一起变小，两者几何一致，"适应窗口"照旧正确
-（已截图验证：整张 6400 万像素图完整适配显示）。
-
-同一张 6400 万像素 JPEG 的三个版本对比：
-
-| 版本 | 私有内存峰值 | 稳定值 |
-|---|---|---|
-| 5.0.4 之前（无护栏） | 1,705 MB | 1,424 MB |
-| 5.0.5（仅解码上限） | 1,425 MB | 1,146 MB |
-| **5.0.6（+ 坐标空间按解码尺寸）** | **1,156 MB** | — |
-
-另外：缩放百分比徽标现在按"解码尺寸 / 真实尺寸"折算（`ZoomDisplayFactor`）——在被限流的大图上显示
-100% 时，含义仍然是"相对原图的 1:1"，不会因为内部降采样而虚报。
-
-普通图片路径完全不变（解码尺寸 = 原图尺寸，测试：峰值 245 MB 与之前一致）。
+- Zoom, the badge and the "100%" reset are computed in the space the image was actually decoded in,
+  not the original pixel size (peak private bytes for a 64 MP image: 1705 → 1156 MB).
 
 ## QuickLook-Next 5.0.5
 
-### 大图预览保护（上游 #1054）
+### Reverted: the preview window no longer remembers its size across runs
 
-实测：**6400 万像素**（8000×8000）的图片，首帧只要 287ms（速度没问题），但**私有内存峰值 1.2–1.7 GB**
-（普通图片 243 MB），关闭预览后还留下约 200 MB。原因在解码路径：图片插件在缩略图之后会**按原始分辨率再
-解码一遍**（`NativeProvider.GetRenderedFrame` 用 `fullSize`，ImageMagick 那条路径同样），一亿像素
-以上的扫描件/全景图在 8 GB 机器上就是上游 [#1054](https://github.com/QL-Win/QuickLook/issues/1054)
-那种崩溃。
+- Remembering it forced one aspect ratio onto every later file and produced letterboxing or empty
+  space; the size is back to "remembered for this session only".
 
-现在：
+### Huge-image protection (upstream #1054)
 
-- 解码加**像素上限**（默认 40 MP，插件配置项 `MaxDecodePixels`，`0` = 不限制/旧行为）：超过上限的图片
-  按比例缩放后再解码，**宽高比与窗口尺寸不变**，只有极限放大的锐度受影响
-- 标题里明确标注（真实像素尺寸照常显示，后面追加"已按 40 MP 上限缩放预览"），避免用户以为图片就是这样
-- WIC 路径（常规图片）与 ImageMagick 路径（TIFF/PSD/DICOM/RAW 等）都加了这道护栏
-- 关闭被限制的大图预览时主动回收一次（只针对该情况，普通图片关闭不受影响）
+- Decoding is capped at 40 MP by default (configurable per plugin as `MaxDecodePixels`), which takes
+  the private-bytes peak for a 64 MP image from 1.2-1.7 GB down to about 1.2 GB.
 
-同一张 6400 万像素 JPEG 的 A/B（同一台机器，改 `MaxDecodePixels` 复测）：
+## QuickLook-Next 5.0.4
 
-| 解码上限 | 私有内存峰值 | 稳定值 |
-|---|---|---|
-| 关闭（5.0.5 之前的行为） | 1,705 MB | 1,424 MB |
-| **40 MP（新默认）** | **1,425 MB** | **1,146 MB** |
-| 8 MP（强压，仅用于定位问题） | 1,038 MB | — |
+### Preview window remembered its size (withdrawn)
 
-**这道护栏是部分的，实话说清楚**：把上限压到 8 MP 仍有 ~1 GB 峰值，说明**另有一块与解码大小无关的
-开销**——缩略图在 `NativeProvider.GetThumbnail` 里被缩放到"原图坐标系"（8000×8000 的
-`TransformedBitmap`），加上 WPF 在这个巨大坐标系里的渲染面。要彻底解决，需要改成"让缩略图留在自己的
-像素坐标系、只在用户真正放大时按需解码"，那会动到面板的缩放/平移数学，作为下一步单独做。
-
-### 预览窗口尺寸回到"只在本次运行内记住"（撤回 5.0.4 的持久化）
-
-5.0.4 让预览窗口记住用户拖出来的尺寸（跨重启）。发布后收到反馈：**改过尺寸之后会出现很大的黑边和空白**
-——因为窗口被钉死成某个宽高比，之后每个文件都被塞进这个比例（横视频的记忆值遇到竖图、偏大的窗口遇到
-小图，就会出现信箱黑边或四周空白）。该版本当天已撤回（Release 删除，最新版回到 5.0.3）。
-
-这一版把"记住尺寸"整条链路去掉，**恢复上游的既有设计**：尺寸由内容决定，用户调整只在本次运行内
-有效（切换预览时保留，关闭/重启后重置；上游 `#169` 的作者明确写过 "This is intended"，
-`#821`/`#492`/`#1196` 都是以"No plan to support"关闭的同类请求）。
-
-保留 5.0.4 里与"记住尺寸"无关的两处真修复：
-
-- **插件请求的尺寸不再被误记成用户尺寸**：PDF 插件测量页面后会请求按页面尺寸调整窗口，以前这次
-  调整会被当成"用户拖出来的尺寸"，导致之后所有预览都按那份文档的尺寸打开
-- **固定尺寸预览的门控**：音频面板、信息面板（`CanResize = false`）不再被会话内的自定义尺寸带偏
-- 预览窗口「更多」菜单里的**「重置窗口大小」**保留：清掉本次运行记住的尺寸，回到当前插件建议的尺寸
-
-## QuickLook-Next 5.0.4（已撤回）
-
-> 该版本的发布包已删除（原因见 5.0.5）。其中的尺寸持久化不会再发布。
-
-### 预览窗口记住你调整过的大小（视频预览也适用）
-
-反馈："预览（视频）时窗口能否记住上一次大小，或者自定义窗口大小。"
-
-问题出在两点：
-
-- **拖出来的尺寸只存在内存里**：同一次运行内的后续预览会沿用，但关掉应用（或重启）就忘了，
-  下一次视频预览又回到"按视频分辨率算出来"的尺寸
-- **插件自己请求的尺寸会被误当成"用户尺寸"**：PDF 插件测量页面后会要求调整窗口，那次
-  调整没有标记为程序行为，于是被记成用户拖出来的尺寸，之后所有预览都按那份文档的尺寸打开
-
-现在：
-
-- 用户拖出来的尺寸会写进设置（`PreviewWindowSize`，形如 `1280x720`），下次启动继续沿用；
-  即使用户只预览过视频，也会记住
-- 插件请求的调整不再污染这个值（PDF 那种"按页面尺寸调整"之后，其它预览不会跟着变）
-- 音频面板、信息面板这类固定尺寸的预览（`CanResize = false`）不受记住的尺寸影响
-- 预览窗口的「更多」菜单新增**「重置窗口大小」**：清掉记住的值，回到当前插件建议的尺寸
-- 拖动时不会每帧写配置：停止调整 600ms 后才落盘，预览关闭时若有未落盘的改动会立即写入
-
-顺带补了单元测试（`WindowSizeSettingTests`）覆盖尺寸字符串的解析与边界（空值、缺一半、
-超小/超大、本地化小数点一律拒绝）。
+- This release remembered the preview window size across runs (including video previews). It was
+  withdrawn because it made every later preview inherit that size and aspect ratio.
 
 ## QuickLook-Next 5.0.3
 
-### 界面材质：菜单类界面的不透明度定在 30%
+### Menu surfaces settled at 30% opacity
 
-5.0.2 把四个菜单类界面（托盘菜单、插件管理窗口、更新提示、下载进度面板）改回 WCA
-acrylic 时，用的是 5.0.0 之前的配方（accent 30% + 画刷 55%/72%，合成约 70%/80%），
-观感偏"实"。这一版把两层 tint 的不透明度重新定为 **30%**（accent 30% + 画刷 0%），
-也就是 5.0.0 那版的合成不透明度，但材质仍是 WCA acrylic、底色仍是原来的暖中性色
-（深 `#20242A` / 浅 `#F8F6F4`）。
-
-调参依据（菜单固定在同一个位置，菜单外壁纸 L≈117、深色窗口 L≈33，量的是面板压在亮壁纸
-上的表面亮度）：
-
-| 合成不透明度 | 亮处 | 暗处 |
-|---|---|---|
-| 10% | 113 | 33 |
-| 20% | 104 | 33 |
-| **30%（本版）** | **96** | **33** |
-| 40% | 87 | 33 |
-| 60% | 70 | 33 |
-| 90% | ~52（暗面板） | ~33 |
-
-低百分比在深色背景上几乎看不出材质（tint 是深色，叠在深色背景上等于没叠），100% 附近
-又会把壁纸压掉；30% 是"壁纸仍可辨、面板还是一层表面"的折中点。
-
-两条试过并否决的路线（都留了记录，避免以后重复踩）：
-
-- **把 tint 换成冷蓝青**（照 TranslucentTB 的菜单配色反推 `#0C2A3A` + 90%）：效果很像，
-  但那是它的自家品牌色，不是本应用的中性材质，已回退
-- **改用 DWM 的系统桌面丙烯酸**（`DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW`，
-  文档里"瞬态窗口用的材质，也叫 Background Acrylic"）：在我们这类 WPF 窗口上只会渲染
-  成回退纯色（托盘菜单非激活/强制前台、插件管理窗口都测过）。真正的系统材质由
-  合成器/XAML 栈渲染（`DesktopAcrylicController` + composition target），纯 WPF 窗口
-  没有这层，所以这四个界面继续用 WCA acrylic
+- The accent tint went to 30% with no extra brush coverage. Measured surface luminance over a bright
+  wallpaper: 10% → 113, 20% → 104, 30% → 96, 40% → 87, 60% → 70, 90% → ~52; 30% keeps the wallpaper
+  readable while the menu still reads as a surface.
 
 ## QuickLook-Next 5.0.2
 
-### 界面材质：菜单类界面回到原来的 WCA acrylic
+### Menu surfaces back to WCA acrylic
 
-5.0.0 把托盘菜单、插件管理窗口、更新提示和下载进度面板换成了 Windows 11 的 host
-backdrop（`ACCENT_ENABLE_HOSTBACKDROP`），并把两层 tint 一起压低（accent 12% + 画刷
-约 20%，合成不透明度只剩约 30%）。实际观感是菜单几乎全透明——壁纸直接透进来，不再像
-一层材质。
-
-这一版把这四个界面**改回 5.0.0 之前的配方**：
-
-- 材质回到 WCA acrylic（`ACCENT_ENABLE_ACRYLICBLURBEHIND`）
-- tint 恢复成原来的两层：accent 30% + 画刷 55%（深色 `#8C20242A`）／72%（浅色
-  `#B8F8F6F4`），深色下合成约 70% 不透明度
-- `WindowHelper.EnableHostBackdropBlur` 随之删除（不再有调用者）
-- 预览窗口始终未变，继续使用它原来的 WCA acrylic
-
-5.0.1 的更新界面文案与体积显示修复保持不动。
+- The Windows 11 host backdrop of 5.0.0/5.0.1 read as a fully transparent pane on screen, so the
+  menu-like surfaces (tray menu, plugin manager, update prompts) went back to
+  `ACCENT_ENABLE_ACRYLICBLURBEHIND` with the app's own tint.
 
 ## QuickLook-Next 5.0.1
 
-### 更新界面：文案跟随界面语言，体积数字不再是一长串小数
+### Update dialog follows the UI language, sizes are formatted
 
-- 更新提示 / 下载进度的文案（5.0.0 新增）当时只写进了 zh-CN / zh-TW，英文系统上
-  回退链（当前语言 → 父语言 → en → 中文 failsafe）直接落到中文兜底，于是英文界面
-  弹出了中文的「软件更新」对话框。现在 en / zh-CN / zh-TW 都补齐，其余语言按回退链
-  走英文
-- 冒烟测试新增两道防线：静态检查「代码里用到的 `Update_*` 键在 en / zh-CN / zh-TW
-  都存在」，以及运行时断言「英文界面下更新对话框与下载进度面板不出现中文」
-- 下载进度里的体积从 `60.12675467123377 MB` 改成 `64.0 MB`（不足 1MB 时显示 KB，
-  让下载刚开始的几秒也能看到变化）
-
-> 这一版没有动界面材质：v5.0.0 的 host backdrop 配方（accent 12% + 画刷约 22%）
-> 保持原样。
+- The new `Update_*` strings were only added to zh-CN/zh-TW, so English UIs fell back to the Chinese
+  failsafe; the whole dialog is translated now.
+- Download sizes are formatted ("12.3 MB") instead of printing the raw double
+  ("60.12675467123377 MB"), and small values stay in KB so the first moments of a download still
+  show movement.
 
 ## QuickLook-Next 5.0.0
 
-### 界面材质：菜单类界面改用 Windows 11 的 host backdrop
+### Menu surfaces moved to the Windows 11 host backdrop
 
-托盘菜单以前看起来和 Win11 右键菜单不一样，原因是材质不同：
+- The tray menu, plugin manager and update dialogs switched to `ACCENT_ENABLE_HOSTBACKDROP` with a
+  lighter tint (later reverted in 5.0.2/5.0.3), and the acrylic material was reworked around it.
 
-- 我们用的是 **WCA acrylic**（`ACCENT_ENABLE_ACRYLICBLURBEHIND`）+ 自己叠的 tint，
-  而且叠了两层（accent 约 30% + 画刷约 55%），所以壁纸几乎透不出来、发白发平；
-- Win11 的右键菜单用的是系统材质，模糊更柔、壁纸颜色明显透出来。
-
-这次改用 `ACCENT_ENABLE_HOSTBACKDROP`（accent state 5）——TranslucentTB 在
-`Common/undoc/user32.hpp` 里的注释是"allows desktop apps to use
-Compositor.CreateHostBackdropBrush"，也就是 Win11 菜单所用的那层。关键是：**它在
-不抢焦点的窗口上也能渲染**（DWM 的 SystembackdropType 在非激活窗口上会变成纯色，
-这也是预览窗口当年只能用 WCA 的原因）。同时把 tint 降下来（accent 12% + 画刷约
-20%），壁纸才真正透得出来。
-
-- 生效范围：**托盘菜单、插件管理窗口、更新提示、下载进度面板**
-- **预览窗口保持不变**（继续用 WCA acrylic，它是唯一在非聚焦下验证过可用的方案）
-- 不支持 host backdrop 的系统（Win10、Win11 21H2 及更早）自动回退到原来的 WCA
-  acrylic；回退路径只是 tint 更淡，依然是同一套配方
-- 冒烟测试新增断言：各菜单界面必须报告实际使用的材质（`material=host-backdrop`
-  或 `material=acrylic`），避免以后静默退化成"没有材质"
-
-实验依据：并排渲染四个候选（WCA / DWM backdrop 3 / DWM backdrop 6 / DWM + 原生窗框
-激活与否）后，只有状态 5 + 降 tint 的观感与真实菜单一致；四个候选的截图与真实菜单
-对照在开发记录里（`Build/probe-v8-small.png`、`Build/win11-menu-2-small.png`）。
-
-## QuickLook-Next 3.43.0
-
-### 更新体验（下载进度）
-
-- 以前点「立即更新」只有一条通知，之后 62MB 的下载过程没有任何提示，下载完应用突然
-  退出重启 —— 慢网下很容易以为卡死。现在下载期间显示与更新提示同一套材质（非分层
-  WCA Acrylic）的进度面板：版本号、进度条、百分比与「已下载 / 总体积」、
-  「下载完成后会自动安装并重启」，完成后切成「下载完成，正在安装并重启…」
-- 面板上可以**取消**（按钮或 Esc）：取消即中止下载、保留当前版本、不做任何替换，
-  并提示「已取消更新，仍在使用当前版本。」（取消不再被当成失败）
-- 进度上报做了节流（约 10 次/秒），62MB 的下载不会用调度器操作淹没 UI 线程
-- 长度未知时（服务端不报 Content-Length）自动降级为「正在下载… + 已下载体积」
-
-### 文档（使用说明.txt）
-
-- 随包分发的使用说明从 4 条扩到完整说明：更新怎么用（自动检查 / 立即更新 /
-  忽略更新 / 更新失败看 `%TEMP%\QuickLookNext-update.log`）、数据与日志位置
-  （`UserData\QuickLookNext.config`、`QuickLookNext.Exception.log`、
-  `plugin-usage.json`），以及三个可选开关（`WarmUpPreviewFamilies`、
-  `WarmUpFamilyCount`、`WebView2IdleTimeoutSeconds`）的写法与代价
-
-## QuickLook-Next 3.42.1
-
-### 测试（性能与内存基线）
-
-- 冒烟测试新增第 6 步：启动后立刻测量**第一次预览**的耗时（图片 / 文本 / Markdown），
-  写入 `ql-smoke\baseline.txt`，超过 1000ms 判失败（正常 100–350ms，WMI 那次回归是
-  1.2–1.8s）；`Scripts\measure-preview.ps1` 增加 `-Memory` 开关
-- 程序行为无变化，仅核查记录：WebView2 空闲回收正常（关闭预览后 Chromium 很快退出），
-  使用后常驻内存不是泄漏（第三次 Office 起持平，GC 正常）
-
-## QuickLook-Next 3.42.0
-
-### 优化（每类格式的第一次预览）
-
-实测（应用已预热、含请求转发进程）：同一进程里**第二次**预览总是快得多——
-文本 289→96ms、CSV 205→124ms、图片 170→100ms、视频 595→413ms。差的这部分是每类
-格式的**一次性初始化**（插件面板的 XAML/JIT、原生库、WebView2 环境），每个用户
-都要在第一次预览该类文件时付一次。
-
-- 新增**预览预热**：启动后台（空闲优先级、逐个进行）准备这个用户最常用的两种
-  格式，让"第一次预览"直接拿到"第二次"的速度。选择依据是本机插件使用统计
-  （`plugin-usage.json`），新装用户则按常见格式顺序（文本、图片…）补足
-- 预热会等面板的**异步加载真正结束**再收尾（否则等于白预热），全程在后台，
-  不占用启动时间，也不会弹出任何窗口（用一次性 ContextObject，不与预览窗口关联）
-- 实测（同一预览顺序、开关各跑两遍取中位数）：文本 **285→193ms**、图片
-  **221→124ms**；未预热的格式不受影响
-- 内存代价实测（托盘进程空闲）：只预热文本 +17MB、加图片再 +6MB（合计 ~+23MB
-  private / +36MB 工作集）；WebView2 类格式（Markdown/HTML/Office）会多留一个
-  Chromium 环境，再 +15~25MB，所以默认只预热两种、且按使用习惯选择，可用
-  `WarmUpPreviewFamilies=false` 完全关闭、`WarmUpFamilyCount` 调整数量
-- 视频不做预热：它的第一次开销里有一部分是"开始播放"，而窗体和缩略图在
-  **~220ms** 就已经出现（播放就绪 ~642ms），做这件事只能靠复用 DirectShow
-  管线，风险与收益不成比例
-
-### 说明（视频预览的剩余开销）
-
-视频稳定状态约 413ms（其中 ~85ms 是请求转发进程），剩下的是每个文件构建
-DirectShow/LAV 管线的时间。要再快只能自己托管滤镜图（保持管线存活、只换文件），
-改动面和风险都很大；换 Media Foundation 在早前的版本里试过，更慢也更吃内存。
-
-## QuickLook-Next 3.41.0
-
-### 修复（自动更新一直"下载完却更新不了"）
-
-- 真正的原因在更新脚本：它用 `xcopy /EXCLUDE:"<文件>"` 排除 `UserData`，而
-  **xcopy 读不了带引号的排除文件**（"Can't read file"）→ 备份被判失败 → 更新中止
-  → 刚下载的安装包被丢弃、应用又启动回旧版本。这就是"点了几次更新都没成功、
-  版本号一直是旧版"的原因
-- 改成 `robocopy /XD`（能正确处理带空格/引号的路径），并用 robocopy 的退出码
-  （< 8 为成功）判断成败
-- 更新脚本不再"先删自己再清理临时目录"：批处理删除自身后会停止执行，导致
-  `%TEMP%\QuickLookNext.Update` 里的安装包（每个 ~64 MB）从没被清掉；现在先在
-  C# 侧清空工作目录，脚本最后才删除自己
-- 更新失败不再无声无息：下次启动会读更新脚本留下的日志，弹通知说明失败原因，
-  并可直接点开下载页面
-
-### 优化（第一次预览特别慢）
-
-- 根源是 WMI：预览窗口第一次显示时会查询
-  `SELECT * FROM Win32_VideoController`（加载 System.Management + 等 WMI 服务），
-  实测 **1978 ms**，把窗口的首次渲染整个卡住——所以"第一次预览，图片和 Markdown
-  都特别慢"。改成直接读显示适配器的注册表键（同一个 `DriverDesc` 列表），
-  只需几毫秒，并移除了 System.Management 依赖
-- 预览窗口改为在键盘钩子/托盘/管道开始受理请求之前就创建并预热，不再让
-  "刚登录就来的一次预览"排在窗口构建后面等
-- 实测（应用启动后 1.5 s 内预览）：图片 **~1230 ms → ~230 ms**，
-  Markdown **~306 ms → ~140 ms**；冷启动后第一次预览也不再抖动
-
-### 界面（更新提示框）
-
-- 「立即更新 / 忽略更新」对话框不再用系统默认窗口：改成与托盘菜单同一套材质
-  （非分层 WCA Acrylic、同样的 tint/描边/圆角/配色），无边框、可拖动
-- 版式重排：标题行（图标 + 「软件更新」+ 关闭按钮）、版本信息（发现新版本 /
-  当前版本）、说明文字、底部左侧「查看更新内容」链接与右侧两个按钮
-- 主按钮使用系统强调色（按明暗自动选择文字颜色），次要按钮使用统一的浅底样式
-
-## QuickLook-Next 3.40.0
-
-### 修复（WebView2 profile 不再越积越多）
-
-- 以前的处理方式：控制器初始化失败就换一个 profile 目录（`WebView2_Data_1`、
-  `_2`…），每失败一次多一个目录，而每个目录都是十几到上百 MB 的缓存，于是
-  数据目录越用越臃肿
-- 现在先**原地修复**当前 profile：绝大多数失败只是上次进程被强杀后 Chromium
-  残留的锁标记（`lockfile` / `SingletonLock` / `SingletonSocket` / `*.lock`），
-  只要没有浏览器进程占用该目录，就删掉这些标记继续用同一个 profile
-- 修复无效时**原地重建**当前 profile（同一个目录，清空内容），因为 profile 只是
-  缓存，Chromium 下次启动会重新生成——仍然不会多出目录
-- 退出时主动关闭 WebView2（`ProcessExit` → 释放控制器并等 Chromium 退出），
-  从源头减少残留锁标记
-- 只有「目录被别的进程占住、连清空都做不到」时才换目录（第三次重试），轮换后
-  遗留的目录会在启动时于后台清理；正在使用的那个 profile 永远不会被删除
-- 新增 6 个单元测试：修复不误删 profile 内容、健康 profile 不被改动、原地重建
-  只清内容不删目录、遗留目录被清理、正在使用的 profile 不被删除
-
-## QuickLook-Next 3.39.0
-
-### 优化（WebView2 控制器池化扩展到全部网页类预览）
-
-- html / Markdown / CHM / Mail / SVG / drawio / Graphviz / PlantUML / Excalidraw
-  现在共用同一个 WebView2 控制器池（此前只有 Office 预览受益），连续预览时
-  不用再反复创建 Chromium
-- 实测 5 个网页类文件连续预览：422/187/325/165/**158ms**，Chromium 进程数稳定，
-  内存稳定在 155→180MB
-- 托盘菜单自定义标题里多余的 `&` 访问键标记不再显示
-
-## QuickLook-Next 3.38.0
-
-### 优化（数据库预览先出窗口）
-
-- SQLite 预览改为窗口立即显示、表枚举与查询放到后台线程，正文先给占位再填充
-- 实测 542ms（甚至更久）→ **82/90ms**，首次 381ms
-
-## QuickLook-Next 3.37.0
-
-### 优化（字体预览改用原生渲染）
-
-- TTF/OTF 预览不再走 WebView2，改用 WPF 原生绘制字符表与样例文本
-- 实测 465–1603ms → **266ms（首次）/ 109ms / 134ms**
-- WOFF / WOFF2 仍由 WebView2 渲染（原生渲染不支持这两种压缩字体）
-
-## QuickLook-Next 3.36.0
-
-### 修复（WebView2 初始化失败）
-
-- 控制器创建失败时改为 **3 次重试**（300/800ms 退避），每次重试前回收本应用的
-  Chromium 进程组；连续失败则把 WebView2 profile 轮换到新目录（`WebView2_Data_1`
-  …），彻底失败时显示明确提示而不是空白预览
-- 字体预览在页面加载失败时立即返回，不再白等 1.5 秒的字体超时
-- 实测：profile 处于“脏”状态（反复强制结束进程所致）时，字体预览从 **1603ms
-  降到 648ms**，随后 html 143ms / 字体 419ms / Markdown 201ms；干净 profile 下
-  字体约 400–530ms
-
-## QuickLook-Next 3.35.0
-
-> 更新体验与数据位置：修复「更新迟迟不触发」，新增「立即更新 / 忽略更新」选择，
-> 数据改为跟随软件目录。
-
-### 更新
-
-- 自动检查从「30 天一次」改为「1 天一次」。此前每次成功检查都会写时间戳，安装完
-  一个版本后要再等 30 天才会再次提示——这就是「软件好像无法更新」的原因
-- 新增选择对话框「立即更新 / 忽略更新」：
-  - 托盘菜单的手动「检查更新…」直接弹出该对话框（以前是直接开始下载）
-  - 后台发现新版本仍然只弹通知，点击通知后弹出同一个对话框
-  - 「忽略更新」记住该版本（`QuickLookNext.config` 的 `IgnoredUpdateVersion`），
-    后台检查不再打扰；下次手动检查更新会重置该记录并再次询问
-- 下载/校验/回滚流程保持不变（来源域名白名单、体积上限、SHA-256 记录、备份回滚、
-  便携版兼容的包布局）
-
-### 数据位置
-
-- 设置、日志、用户插件与缓存改为跟随软件目录（`<程序目录>\UserData`），不再写入
-  `%APPDATA%\pooi.moe\QuickLookNext`；只有程序目录不可写（例如装在 Program Files）
-  时才回退到 `%APPDATA%`
-- 首次运行会把 `%APPDATA%` 中的配置、插件使用统计与用户插件一次性复制到新位置，
-  不会出现「设置被重置」
-- 附带好处：自动更新只替换程序文件、保留 `UserData`，所以设置与用户插件在更新后
-  依然保留
-
-构建 0 warning / 0 error；单元测试 28/28；真实场景冒烟测试全部通过。
-
-## QuickLook-Next 3.34.0
-
-> 性能版本：Office 文档预览的 WebView2 控制器改为复用，稳定态延迟降到 1/4。
-
-### 速度（WebView2 控制器复用）
-
-- 新增 `QuickLook.Shared.WebView2ControlPool`：把已经初始化好的 WebView2 控件
-  （含 Chromium 控制器）放进池里复用，避免每个 Office 文档都重新创建一个控制器
-  （实测每次约 300–400 ms）
-- Office 面板（doc / docx / xls / xlsx / ppt / pptx / odt / ods / odp …）改用该池：
-  实测同一会话内 xlsx **478 ms → 120 ms → 92 ms**，docx / pptx 稳定在 100–130 ms，
-  且日志零新增
-- 池与既有的闲置回收协同：进入池的控件会取消「活跃」登记，因此
-  `WebView2IdleTimeoutSeconds`（默认 5 分钟）到点仍然会关掉 Chromium 进程组，
-  空闲内存表现不变；回收前会先清空池，避免发出「浏览器已被杀」的坏控件
-- 控件的停放/取出都在 UI 线程完成，并按启动参数分桶（例如暗色主题下 PlantUML 用的
-  `--enable-features=WebContentsForceDark` 不会串到别的预览）
-
-### 说明（同类优化为何暂缓）
-
-- `WebpagePanel` 家族（Markdown / HTML / CHM / Mail / Font / SVG / draw.io /
-  Graphviz / PlantUML / Excalidraw）暂时**没有**启用该池：这些面板会在同一个控件上
-  挂自己的 `NavigationStarting` / `WebResourceRequested` 处理器，并且 FontViewer 依赖
-  「`CoreWebView2 != null` 说明页面还是我的」这一前提（复用后会 `Reload` 到上一个
-  页面，字体页面永远不加载，`WaitForFontSent` 白等 1.5 s 超时）。试验数据：ttf
-  从 465 ms 退化到 1.6 s，md 也从 ~110 ms 退化到 ~180 ms。要拿下这部分，需要先做
-  「控件始终停在一个可见 HWND 的宿主窗口里」+「面板级状态所有权」两件事，属于下一轮
-
-构建 0 warning / 0 error；单元测试全部通过；真实场景冒烟测试全部通过。
-
-## QuickLook-Next 3.33.0
-
-> 性能版本：把「选中文件后预览多快出现」这条最常用路径的等待时间砍掉一半以上。
-
-### 速度（选中跟随改为事件驱动）
-
-- `FocusMonitor` 原来每 **500 ms** 轮询一次资源管理器的当前选中项，意味着用方向键
-  换文件时，平均要多等 250 ms（最坏 500 ms）预览才开始切换；而一次稳定的预览本身
-  只有 80–160 ms，也就是说等待主要花在轮询上
-- 现在改为监听资源管理器的选择变更事件（`EVENT_OBJECT_SELECTION*`，25 ms 去抖合并
-  连续移动），并保留 1.5 s 的慢速兜底轮询（桌面、第三方文件管理器等不发事件的场景）
-- 实测同一条链路（资源管理器改选中 → 预览内容就绪）：改前等价延迟 250–750 ms，
-  改后中位数 **275 ms**、最快 118 ms（其中已包含预览本身的 80–160 ms）；
-  换文件的体感延迟大约减半，同时轮询带来的后台唤醒也少了很多
-
-构建 0 warning / 0 error；单元测试全部通过；真实场景冒烟测试全部通过。
-
-## QuickLook-Next 3.32.1
-
-> 打包兼容性修复，功能与 3.32.0 完全一致。
-
-### 修复
-
-- 发布包根目录保留一份 `QuickLook.Common.dll`。3.31.0 的更新器（现网在用）安装前
-  会校验解压目录**根下**存在 `QuickLook-Next.exe` 与 `QuickLook.Common.dll`，
-  而 3.32.0 起恢复的官方 `lib\` 布局会让它误判并拒绝自动更新（表现为「自动更新
-  失败，点击打开下载页面」）。补回这一份 100KB 的副本后，3.31.0 可以直接自动
-  升级到本版；对运行时没有影响（程序集解析 lib\ 与根目录都能找到）
-
-## QuickLook-Next 3.32.0
-
-> 这一版继续处理 3.30.0 复核出的问题：交付体积、插件架构、内存可观测性与 CI，
-> 并修掉了验证过程中暴露的三个真实缺陷。
-
-### 交付体积（未压缩 177.9MB → 157.9MB，压缩包 70.7MB → 61.4MB）
-
-- 发布流程改用仓库里的 `Scripts\pack-release.ps1`：根目录只留程序入口与清单，其余
-  托管库进 `lib\`，共享依赖去重（本次移除 61 个完全一致的重复文件），剔除
-  pdb / xml / 插件 deps.json，去掉 VideoViewer 根目录重复的 MediaInfo.dll（-8.1MB）
-  与非目标架构的 WebView2Loader（win-x86 / win-arm64）
-- 打包脚本新增自检与体积报告：缺少入口文件直接报错，并打印包体积与体积前十
-- 说明：23.7MB 的 `Microsoft.Windows.SDK.NET.dll` 是 Windows 分享面板
-  （ShareHelper 的 DataTransferManager interop）必需的 WinRT 投影，无法裁剪；
-  体积再往下压需要把大插件改成按需下载，属于下一阶段的功能改造
-
-### 插件架构（依赖治理）
-
-- 新增 `QuickLook.Shared`（WebView2 宿主：WebpagePanel / Helper / WebView2Lifecycle），
-  Html / Markdown / Office / CHM / Mail / Font / SVG 七个插件不再依赖 HtmlViewer
-  插件本身，插件只依赖 QuickLook.Common 与这个共享库
-- 插件加载按程序集简单名去重：增量构建不清理旧产物时残留的重复副本不再引发
-  “Assembly with same name is already loaded”（此前每次启动都会写一条错误日志）；
-  用户插件仍优先于同名内置插件
-- PDFViewer / ThumbnailViewer 对 ImageViewer 的依赖已确认为「复用 XAML 里的
-  ImagePanel」，在 csproj 中显式注明；新增单元测试守护分层规则（禁止插件引用宿主
-  工程，插件之间的引用必须在允许清单内）
-
-### 可观测性（内存）
-
-- 新增隐藏开关 `/test-memory`：把 private / working set / 托管堆 / LOH / GC 次数 /
-  程序集数 / WebView2 进程数写入 `ql-smoke\memory.txt`（启动时、每次预览开关、
-  每 10 秒一次）
-- 实测（预览 pdf / mp4 / xlsx / png）：启动仅 23MB private，插件初始化后 213MB，
-  而托管堆全程只有 10–20MB —— 常驻占用几乎全在原生侧（WIC / LAV / pdfium /
-  Chromium），这也是「强制 GC 对常驻内存几乎无效」的原因；后续优化应针对原生
-  资源的释放而不是托管堆
-
-### 修复（本轮验证过程中暴露）
-
-- WebView2 原生加载器：`QuickLook.Shared` 输出到应用根目录，而
-  `flatten-native.ps1` 的落点是按插件目录计算的，导致根目录缺少
-  `WebView2Loader.dll`，Office / Markdown 预览报 `0x8007007E`；现在按架构显式拷到
-  根目录
-- OfficePanel / WebpagePanel 的 CoreWebView2 初始化：初始化失败或跨线程访问时不再
-  抛未处理异常，而是记录日志并安全跳过
-- `test.ps1`：清理旧实例用错了进程名（`QuickLookNext` → `QuickLook-Next`），托盘里
-  只要有残留实例，整轮测试就会假失败；含中文的 PowerShell 脚本补上 UTF-8 BOM，
-  在默认的 Windows PowerShell 5.1 下也能运行
-- CI 的 actions 版本更新：`checkout@v7` / `setup-dotnet@v6` / `upload-artifact@v7` /
-  `download-artifact@v8`，消除 Node 20 弃用告警
-
-构建 0 warning / 0 error；单元测试全部通过；真实场景冒烟测试（构建 / 托盘菜单与
-亚克力 / 15 种格式真实预览 / Explorer 选区链路）全部通过。
-
-### 已知问题（下一步）
-
-- WebView2 的控件自动初始化偶发失败（`0x8007139F`，Chromium 在控制器刚被销毁后的
-  瞬时状态错误），表现为该次 Office / Markdown 预览内容为空，日志会记录
-  `CoreWebView2 init failed`。已做的是「不再变成未处理异常 + 主动导航前重试一次」，
-  彻底解决需要串行化 WebView2 环境创建或销毁后重建控制器
-- 交付体积再往下压（目标 120MB 以内）需要把大插件改为按需下载：Magick.NET 22.8MB、
-  LAV 20.4MB、assimp 7.5MB 等解码器占了包体的一半以上；Windows 分享面板的
-  WinRT 投影（23.7MB）只能通过去掉分享按钮来省
-
-## QuickLook-Next 3.31.0
-
-> 这一版不引入新功能，集中处理 v3.30.0 复核出来的可靠性、安全与工程问题；
-> 4.0 的薄壳原型不在本次范围内。
-
-### 工程（回归测试与 CI）
-
-- 新增 QuickLook.Tests：不依赖任何 NuGet 包的回归测试宿主，覆盖命令行解析、
-  扩展名过滤、设置读写与更新地址白名单（26 个用例），`dotnet run` 即可执行
-- CI 构建范围从 main/lite 扩展到所有分支（此前工作分支完全不触发），并在 build
-  任务里新增单元测试步骤；GUI 冒烟测试仍只在发布线上运行
-- 新增 .editorconfig 格式基线；移除 Updater 中已不可达的 release notes 代码
-
-### 可靠性（插件匹配）
-
-- 首次预览冷门格式时，按需加载内置插件程序集的工作从 UI 线程移到线程池
-  （PluginManager.FindMatchAsync）；常见格式的匹配路径行为完全不变，被新请求
-  取代的旧请求会安全丢弃
-- 插件匹配加锁并使用列表快照，避免后台按需加载与匹配并发时读到半更新的列表
-
-### 插件契约
-
-- ContextObject 新增 ApplyPreferredSizeNow() / ResizeRequested：插件请求宿主按
-  内容尺寸调整窗口终于有了公开 API，PDFViewer 不再用反射调用 ViewerWindow 的
-  私有方法
-- IViewer 补全生命周期文档：Init 每类型一次且运行在常驻实例上，Prepare / View /
-  Cleanup 每次预览使用新实例，View 必须在后台完成工作后置 IsBusy = false
-
-### 设置存储
-
-- 设置读取改为内存缓存（每个文件每秒最多一次 stat 校验），键盘钩子与顶栏轮询
-  这类热路径不再执行 XPath 查询
-- 落盘改为「临时文件 + 原子替换」，崩溃或并发读取不会再看到半截配置；读取遇到
-  IO 故障时降级为空配置而不是向上抛异常
-
-### 自动更新
-
-- 不再使用 UseDefaultCredentials 与伪装 curl 的 UA，避免向更新源泄露当前
-  Windows 凭据
-- 只接受 https + GitHub 域名（github.com / *.githubusercontent.com 等）的下载
-  地址，并增加 400MB 体积上限
-- 更新脚本改为「先备份、失败回滚、记录 update.log（含包 SHA-256）」，并保留
-  portable.lock 与 UserData 目录
-- 「上次检查时间」改为 API 调用成功后才写入（此前离线一次会导致 30 天不再检查
-  更新）；后台检查失败不再弹错误提示
-
-构建 0 warning / 0 error，QuickLook.Tests 26/26 通过。
-
-## QuickLook-Next 3.30.0
-
-### 内存（纯文本预览惰性加载）
-
-- TextViewer 的几百套语法高亮定义（亮 / 暗两套，常驻约 50MB）不再于启动时
-  编译预载，改为首次预览文本 / 代码文件时在后台编译，完成后原地补上高亮；
-  只预览 PDF / 图片的会话闲时私有内存实测由约 183MB 降至约 142MB
-- 语法库编译线程安全且幂等：并发预览只编译一次，失败可自动重试；首次
-  文本预览立即显示纯文本（不阻塞 UI），约 1 秒内自动上色
-
-冒烟测试全部通过（构建 / 托盘菜单 / 19+ 格式预览 / Shell 集成）。
-
-## QuickLook-Next 3.29.0
-
-### 内存（PDF 为主的日常使用更省）
-
-- Markdown / Office 预览改为按需加载：启动进程不再常驻这两个插件及其依赖
-  （mermaid / MathJax 资源、MiniExcel / OOXML 解析链、WebView2 依赖），
-  首次预览对应文件时才加载；常驻私有内存实测降低约 25MB
-- WebView2 闲置回收：最后一个 Web 类预览（Markdown / Office / HTML / SVG /
-  CHM / 字体预览等）关闭后闲置 5 分钟，自动关闭残留控件并回收本应用的
-  Chromium 进程；可用 QuickLookNext.config 的 WebView2IdleTimeoutSeconds
-  调整（单位秒，0 表示关闭自动回收）
-- 图片解码缓存收紧：最坏占用量由约 192MB 降至约 96MB，遏制越用越涨
-
-### 修复
-
-- 修复 Markdown 按需化后 .md / .rst / .adoc / .ipynb 等扩展名被 TextViewer
-  内容嗅探抢占、Markdown 预览退回纯文本的问题；高优先级按需插件现在仍能
-  正确接管这些格式
-
-冒烟测试全部通过（构建 / 托盘菜单 / 19+ 格式预览 / Shell 集成）。
-
-## QuickLook-Next 3.28.0
-
-### 工程（插件常驻策略数据化）
-
-- 新增本地插件使用统计：每次预览记录由哪个插件处理，保存在本机设置目录
-  （plugin-usage.json，约 1KB），用于后续按真实使用数据调整「常驻 / 按需」
-  插件名单；数据不上传，内存占用仅几 KB，写盘去抖且不阻塞预览
-- 统计可通过 `DisablePluginUsageTracking` 设置关闭
-
-## QuickLook-Next 3.27.0
-
-### 健壮性
-
-- 异常报告防递归：若异常报告窗口自身渲染失败，不再反复重试刷爆日志
-  （此前极端情况下会在数秒内写入上 MB 日志）
-- 冒烟测试 Shell 集成步骤健壮化：Explorer 选区探针自动重试；在无可用
-  Explorer 文件窗口的环境中明确跳过而非误报失败
-
-## QuickLook-Next 3.26.0
-
-### 体验（Office 预览不再闪白）
-
-- Office（Excel / Word / PowerPoint）加载中的面板背景改为跟随应用主题
-  （暗色为深色、亮色为浅灰）：切换 / 打开时不再先闪一大块白色，白色纸面
-  与内容一起出现；内容仍固定浅色纸面，阅读体验不变
-
-## QuickLook-Next 3.25.0
-
-### 修复
-
-- 撤回 3.24.0 的「Office / Markdown 加载期间保留转圈」改动：转圈会让人感觉
-  打开反而更慢。现在 Office / Markdown 的解析仍在后台进行（窗口不卡顿），
-  但不再显示转圈，内容就绪后直接出现
-- 保留 3.24.0 的其余改进：Markdown / Mermaid 后台解析、mermaid / MathJax
-  资源启动后台预载、spinner 层不拦截输入（对 PDF 加载转圈仍然生效）
-
-## QuickLook-Next 3.24.0
-
-### 体验（预览更顺滑）
-
-- Markdown / Mermaid 预览改为后台解析：打开大文档或 mermaid 图表时窗口不再
-  卡顿，渲染完成自动显示；mermaid / MathJax 资源改在启动后台预载，首次
-  Markdown 预览不再等待一次性资源加载
-- 异步加载期间的转圈不再挡交互：spinner 层 `IsHitTestVisible=False`，
-  加载过程中滚动 / 关闭 / 切换照常可用
-- Office（Excel / Word / PowerPoint）与 Markdown 加载期间保留转圈直到内容
-  真正渲染完成，不再出现「白一下再出内容」的闪烁
-
-## QuickLook-Next 3.23.0
-
-### 体验（预览不卡顿）
-
-- PDF 预览改为后台解析：打开大 PDF 时窗口立即可交互（滚动 / 关闭 / 切换不再
-  被解析卡住），文档解析完成后自动应用
-- Office 自研渲染（Excel / Word / PowerPoint）改为后台解析：OOXML 解析不再
-  阻塞 UI 线程，WebView2 内容就绪后自动显示
-- PDF / Office 解析失败不再崩溃：显示错误信息页；密码保护的 PDF 仍走密码流程
-
-### 性能
-
-- 各插件 `CanHandle` 不再做 `path.ToLower()` 字符串分配，统一改用
-  `OrdinalIgnoreCase` 比较
-- PDFViewer 代码缩进整理
-
-## QuickLook-Next 3.22.0
-
-### 性能
-
-- 预览匹配缓存：同一扩展名重复预览跳过全量插件 `CanHandle` 扫描，
-  匹配结果与全量扫描完全一致（高优先级插件对内容敏感的匹配仍优先）
-- 插件 Init 后台并行化：启动阶段插件初始化总耗时由「各 Init 之和」降为
-  「最大值」，启动早期首次预览不再容易撞上未初始化完成的插件
-- 程序集解析提速：启动时后台预建程序集索引，`AssemblyResolve` 热路径
-  改为零额外分配的简单名切片
-
-### 内存
-
-- FontViewer 按需加载：字体预览插件及其依赖（FreeType / OpenFont）不再
-  常驻启动进程，首次预览字体格式时才载入
-- 调色板画刷缓存并冻结：托盘菜单 / 插件管理面板构建不再反复创建未冻结画刷，
-  减少分配与 GC 压力
-
-### 体验
-
-- 「打开方式」按钮提示延迟计算：Shell 关联查询不再阻塞预览 spinner / 首帧，
-  按钮点击时仍自行解析关联，行为不变
-
-## QuickLook-Next 3.21.0
-
-### 更美观
-
-- 语言菜单显示名修正：中文改为「简体中文」「繁体中文」（不再显示
-  「中文（中国）」「中文（台湾）」）
-
-### 工程
-
-- README 图文并茂重写：加入图片 / Markdown / Excel / Word / PowerPoint 预览、
-  托盘菜单、插件管理面板的真实截图，功能描述更直观
-- README 支持多语言：新增英文版 [README.en.md](README.en.md)，顶部语言切换
-- 新增 [Scripts/capture-screenshots.ps1](Scripts/capture-screenshots.ps1)
-  截图捕获脚本，方便后续更新 README 截图
-
-## QuickLook-Next 3.20.0
-
-### 更美观
-
-- 语言菜单排序：常用语言（中文简/繁、English、日、韩、法、德、西、葡、俄、
-  阿、印地、越、土、印尼、荷、意、波、乌、泰）固定在前，其余按显示名排序
-- 滚动条滑块随主题变化：浅色主题深色滑块、深色主题浅色滑块，预览窗口 /
-  托盘菜单 / 插件面板统一
-
-### 工程
-
-- .NET 10 保持框架依赖（不集成运行时）：README 增加系统要求与下载链接，
-  发布包内新增「使用说明.txt」说明运行时依赖；未安装时系统会提示下载
-
-## QuickLook-Next 3.19.0
-
-### 修复（托盘菜单二级菜单）
-
-- 修复二级菜单打开后点击父菜单其他区域导致整个菜单关闭：子菜单现在知道
-  自己的父菜单，点击父菜单 / 子菜单区域都不再被外部点击钩子误判
-  （通过 WindowFromPoint 精确判断点击是否落在任一相关菜单窗口上）
-- 修复二级菜单同样存在“先显示背景再出现选项”的闪动（ShowSubmenuAt 的
-  MoveWindow 不再强制重绘）
-
-## QuickLook-Next 3.18.0
-
-### 修复（托盘菜单）
-
-- 修复菜单“先显示背景再出现选项”的闪动：窗口首帧直接带面板底色，去掉首帧后
-  重复应用毛玻璃的二次触发，显示后的 MoveWindow 不再强制重绘
-- 修复点击托盘图标菜单消失/闪烁：点击任务栏 / 托盘区域不再被当作“外部点击”，
-  左键与右键都改为开关菜单（已打开则关闭，未打开则弹出），行为可预测
-
-## QuickLook-Next 3.17.0
-
-### Office 预览调整
-
-- 移除 Excel / Word 预览的左侧框架（没有缩略图时框架无意义），内容区铺满
-  窗口
-- Office 内容区暂时固定为浅色纸面渲染（白色背景 + 深色文字），不再跟随
-  应用深浅色主题，避免深色模式下文字难读
-
-## QuickLook-Next 3.16.0
-
-### 更美观（Office 预览布局）
-
-- Excel / Word / PowerPoint 预览统一改为类似 PDF 的结构：左侧 170px 框架区
-  （透明，透出毛玻璃背景，显示文件名 / 类型 / 大小），右侧文档区为不模糊的
-  纯色表面（浅色白 / 深色 #1E1E1E），阅读更舒适
-
-## QuickLook-Next 3.15.0
-
-### 新功能（第三阶段：PowerPoint 自研渲染）
-
-- pptx / pptm 预览改为自研渲染：手写 OOXML 解析，按 EMU 坐标定位每一页的
-  文本框 / 形状 / 图片，支持加粗、斜体、下划线、字号、颜色、对齐与幻灯片
-  背景，渲染成纵向排列的可滚动幻灯片页，与 Excel / Word 预览同一套圆角 /
-  毛玻璃 / 深浅色观感
-- 至此 Office 三件套（xlsx、docx、pptx）全部自研渲染；其余旧格式
-  （.doc/.xls/.ppt/.odt/.vsd 等）继续由系统预览组件兜底
-
-### 工程
-
-- 冒烟测试新增 test.pptx（两页定位文本框）覆盖自研 PPT 预览
-
-## QuickLook-Next 3.14.0
-
-### 新功能（第二阶段：Word 自研渲染）
-
-- docx / docm 预览改为自研渲染：手写 OOXML 解析（标题、加粗/斜体/下划线/
-  删除线/颜色/字号/高亮、对齐、项目符号与编号列表、表格含合并单元格、
-  内嵌图片）→ 样式化 HTML → WebView2 显示，与 Excel 预览同一套圆角 /
-  毛玻璃 / 深浅色观感
-- 其余 Office 格式（.doc/.ppt/.pptx/.odt 等）继续由系统预览组件兜底
-
-### 工程
-
-- 冒烟测试新增 test.docx（标题/格式/列表/表格）覆盖自研 Word 预览
-
-## QuickLook-Next 3.13.0
-
-### 修复（Excel 预览）
-
-- 表格滚动条改为细窄样式（8px、圆角滑块、透明轨道），并随深浅色主题与
-  毛玻璃背景适配，不再显示又粗又不搭调的默认滚动条
-
-## QuickLook-Next 3.12.0
-
-### 新功能（第一阶段：Excel 自研渲染）
-
-- xlsx / xlsm 预览不再调用 Windows 系统预览组件，改为自研渲染：MiniExcel
-  读取单元格，WebView2 渲染成样式化 HTML 表格，自动获得圆角 / 毛玻璃 /
-  深浅色主题，与图片、文本等预览观感一致
-- 其余 Office 格式（.doc/.docx/.ppt/.pptx/.odt 等）暂保持系统预览组件兜底，
-  后续阶段再逐步自研 Word / PPT 渲染
-
-### 工程
-
-- 冒烟测试新增 test.xlsx（最小合法 OOXML 工作簿）覆盖自研表格预览
-
-## QuickLook-Next 3.11.0
-
-### 更美观
-
-- 主题色统一：新增共享调色板 ThemePalette，托盘菜单与插件管理面板的
-  文字 / 分隔线 / 悬停 / 强调色改为单一来源，两个界面不再各自硬编码、
-  不会漂移；强调色优先跟随系统主题色（WPF-UI 资源），徽标与选中态随之统一
-
-### 修复
-
-- 修复切换预览文件时的轻微闪烁：内容淡入动画只用于首次预览，切换预览
-  保持全不透明度（3.9.0 的淡入在每次切换都会触发，导致内容先变暗再恢复）
-
-## QuickLook-Next 3.10.0
-
-### 更快
-
-- 罕见格式按扩展名预判：首次预览 .db / .exe / .stl 等文件时只加载对应插件
-  （如 DbViewer / PEViewer / HelixViewer），不再一次性加载全部 15 个懒插件
-
-### 更轻
-
-- 应用图标无损压缩：app.ico 的 BMP 帧重编码为 PNG（1457KB -> 92KB，9 帧
-  像素完全一致），exe 体积约 1.6MB -> 0.25MB
-- 发布包移除 ChmViewer 的 x86 / arm64 运行库（x64 包用不到）
-
-### 更美观
-
-- 托盘菜单子菜单补图标：主题选项（系统/亮色/暗色）与语言「跟随系统」
-
-### 工程
-
-- 新增 GitHub Actions CI：push / PR 自动构建并跑完整冒烟测试
-  （CI 无 DWM 时跳过 Acrylic 断言），旧 AppVeyor 配置已由工作流替代
-
-## QuickLook-Next 3.9.0
-
-### 更美观
-
-- 预览内容就绪时加入轻微淡入动画（120ms），预览切换不再生硬；跟随
-  ShowWindowTransition 选项，可在设置中关闭
-
-## QuickLook-Next 3.8.0
-
-### 更美观
-
-- 文件夹 / 文件信息面板（InfoPanel）排版升级：图标放进圆角柔和底色容器，
-  修改时间与大小两行元数据加上 MDL2 小图标，字号与间距更克制
-
-### 工程
-
-- 冒烟测试新增文件夹预览覆盖（InfoPanel 渲染路径），并优化测试输出
-
-## QuickLook-Next 3.7.0
-
-### 更美观
-
-- 插件管理面板：每行插件加上带底色的拼图图标，行呈现为卡片式布局
-
-### 工程
-
-- 冒烟测试补强：新增罕见格式覆盖（test-pe.exe 走 PEViewer、test.bin 走
-  BinaryViewer）与 mermaid / 数学公式 Markdown 覆盖，按需加载与 WebView2
-  懒加载路径今后有回归会立刻被测试拦下（此前这类问题曾漏过一轮）
-
-## QuickLook-Next 3.6.0
-
-### 更快 / 更轻（Markdown 预览）
-
-- Markdown 预览不再无条件加载 mermaid（2.9MB）与 MathJax（2.1MB）：
-  只有文档里检测到 mermaid 代码块或数学公式时才按需注入对应脚本。
-  普通 Markdown 预览跳过约 5MB 的 JavaScript 解析，WebView2 页面加载与
-  内存占用都更低；带图表 / 公式的文档渲染功能保持不变
-
-## QuickLook-Next 3.5.0
-
-### 更轻（内存 / 体积）
-
-- 罕见格式插件按需加载：启动只载入常用插件（文本/图片/Markdown/视频/PDF/
-  压缩包/字体/HTML/CSV/Office），3D、数据库、PE、邮件、CHM 等 15 个罕见
-  插件在首次预览对应格式时才加载，常驻进程不再预载这些程序集和原生库
-- 发布包清理：移除 IntelliSense 的 *.xml 文档（约 4MB）、插件目录下的
-  *.deps.json、macOS 原生库（*.dylib），并移除 VideoViewer 根目录冗余的
-  MediaInfo.dll 副本（zip 61MB -> 60.4MB）
-
-### 修复
-
-- 修复打包脚本可能误删根目录 QuickLook-Next.deps.json（apphost 必需文件）的
-  问题，只清理插件目录下的 deps.json
-
-## QuickLook-Next 3.4.0
-
-### 更轻（内存）
-
-- MediaInfo 原生库改为按需加载：VideoViewer 不再在启动时把 MediaInfo.dll
-  （约 8MB）载入常驻进程，只有实际预览媒体文件时才加载
-- 移除启动时的 ImageMagick 原生库预热（约 24MB）：png / jpg / gif 等常见
-  格式仍走 WPF/WIC 快速解码，Magick.Native 在首次预览非常见格式时才按需加载
-
-## QuickLook-Next 3.3.0
-
-### 更快
-
-- 插件初始化改为按需懒加载：预览只等待插件程序集发现，不再等待全部插件的
-  Init 完成；命中的插件立即初始化，无关插件的初始化在后台继续，启动后立刻
-  空格预览不再被其他插件拖慢
-- 程序集解析增加 lib 索引缓存：发布包布局下解析缺失程序集时不再每次全目录
-  扫描，冷启动更快
-
-### 更轻
-
-- 发布包共享依赖去重：WebView2、UtfUnknown、SharpZipLib、PureSharpCompress
-  等跨插件重复的共享 DLL 统一收进 lib\ 一份（字节级校验，带独立原生库的
-  MediaInfo / SQLite / freetype 等保持原位），一次移除 44 个重复文件
-
-### 更美观
-
-- 托盘菜单各项添加 Fluent 图标（主题、语言、背景、选项、检查更新、获取插件、
-  插件管理、数据目录、重启、退出）
-
-## QuickLook-Next 3.2.1
-
-- 修复 3.2.0 发布包中设置/托盘菜单显示原始键（如 `icon_CheckUpdate`、
-  `icon-Restart`）的问题：`QuickLook.Common.dll` 移入 `lib\` 后，翻译文件
-  定位改为基于程序根目录（`AppContext.BaseDirectory`），不再依赖
-  `QuickLook.Common.dll` 所在目录
-- 同步修复便携模式的便携标记（`portable.lock`）检测：同样改为基于程序根目录，
-  保证发布包解压后数据目录跟随程序目录
-
-## QuickLook-Next 3.2.0
-
-### 性能
-
-- 插件加载提速：25 个插件程序集的发现与实例化从串行改为并行，启动时的
-  插件就绪时间从约 2.5s 降到约 0.4s（-84%）
-- TextViewer 语法高亮提速：248 个 XSHD 语法文件改为并行解析 + 分层编译，
-  高亮初始化从约 1.1s 降到约 0.3s
-- 空格键热路径改用单调时钟（`Environment.TickCount64`），并清理了 PE 解析中
-  一次性的跳字节缓冲分配
-
-### 发布包
-
-- 发布包目录整理：根目录不再与十几个 dll / config 混杂，第三方运行库统一收进
-  `lib\` 子目录，用户只需双击根目录的 `QuickLook-Next.exe`
-- 移除 .NET Framework 时代的 `QuickLook-Next.dll.config` 与调试符号
-
-### 工程
-
-- 构建警告从 31 个清理到 1 个：移除失效的 ruleset 引用，改用 .NET 10 的
-  `X509CertificateLoader` / 强类型公钥 API，修复 PE 读取的 CA2022 等
-
-## QuickLook-Next 3.1.0
-
-- 恢复全部被精简掉的预览插件：BinaryViewer（bin/hex）、CertViewer（证书）、
-  ChmViewer（CHM）、DbViewer（数据库）、DumpViewer（dmp）、ELFViewer（ELF）、
-  HelixViewer（3D 模型）、MailViewer（eml/msg）、PEViewer（PE）、
-  PrefetchViewer（pf）、ThumbnailViewer（设计文件缩略图），内置插件由 14 个
-  恢复为 25 个，预览覆盖与完整版一致
-
-## QuickLook-Next 3.0.5
-
-- 移除 ImageViewer 内嵌 Excalidraw 模板中的演示 Firebase API Key
-  （Excalidraw 官方公开 demo 密钥，静态渲染用不到），消除 GitHub Secret
-  Scanning 告警
-
-## QuickLook-Next 3.0.4
-
-- 新增自动更新：「检查更新」发现新版本后不再只是打开 GitHub 页面，而是直接下载
-  Release 的 zip 安装包、替换程序文件并自动重启；目录不可写或没有安装包时回退为
-  打开下载页面。后台静默检查仍只提示，点击通知再触发自动更新
-
-## QuickLook-Next 3.0.3
-
-- 修复子菜单快速点击被吞的问题：子菜单刚弹出时立刻点击某项（如「语言 -> 跟随
-  系统」）会被父菜单的鼠标钩子误判为“点击外部”而抢先关闭，导致点击无反应；
-  现在父菜单把已打开子菜单的区域视为内部，快速点击也能正常生效
-
-## QuickLook-Next 3.0.2
-
-- 修复更新检查指向原项目的问题：「检查更新」现在查询本仓库
-  （Adstrax/QuickLook-Next）的 Releases，提示新版本与下载链接均指向本项目的
-  Release，不再误报原版 QuickLook 的版本
-
-## QuickLook-Next 3.0.1
-
-- 修复预览窗口可能被其他窗口挡住：1.2.36 的离屏预热让窗口在首次预览前就已
-  “可见”，而 BringToFront 只在 `!IsVisible` 时执行，导致预热后预览打开不置前；
-  现在每次打开 / 切换预览都会把窗口提到最前（仍不抢焦点，顶部置顶开关行为不变）
-
-## QuickLook-Next 3.0.0
-
-- 恢复老插件兼容：插件契约（`QuickLook.Common` 接口与程序集、`QuickLook.Plugin.*`
-  前缀、元数据文件名、注册表关联）全部改回旧名，老插件无需重新编译即可安装与加载
-- 应用本体保持 QuickLook-Next 命名（`QuickLook-Next.exe`、命名空间 `QuickLookNext.*`、
-  管道 / 互斥体 `QuickLookNext.App.*`、设置域 `QuickLookNext`）
-
-## QuickLook-Next 2.0.0
-
-- 全面改名定型：可执行文件改为 `QuickLook-Next.exe`，程序集与 C# 命名空间改为
-  `QuickLookNext.*`，命名管道 / 互斥体改为 `QuickLookNext.App.*`，插件前缀改为
-  `QuickLookNext.Plugin.*`，与上游 QuickLook 彻底隔离
-- 设置域名同步改为 `QuickLookNext`：原主题 / 语言 / 背景等设置与用户插件目录不再
-  沿用，需要重新设置；第三方 `QuickLook.Plugin.*` 插件需按 `QuickLookNext.Plugin.*`
-  适配
-
-## QuickLook-Next 1.5.0
-
-- 新增语言切换：托盘菜单「语言」子菜单，支持跟随系统 + 全部支持语言（约 25 种，
-  按母语名称显示），选择持久化到 Language 设置，菜单/窗口下次打开生效
-- 长菜单（语言列表）改用 ScrollViewer 限高滚动，避免超出屏幕
-
-## QuickLook-Next 1.3.12
-
-- 插件管理面板背景改为与托盘菜单一致：无边框非分层窗口 + WCA Acrylic 毛玻璃 +
-  DWM 8px 圆角（毛玻璃一起圆角），跟随亮/暗主题；面板头部可拖动，右上角加关闭按钮
-
-## QuickLook-Next 1.3.11
-
-- 新增插件管理面板（托盘菜单「管理插件...」）：枚举用户安装与内置插件，显示
-  名称/版本/说明/来源；用户插件可直接卸载（立即从匹配列表移除，文件被占用时
-  标记为待删除、下次启动清理），内置插件仅展示
-- 面板支持刷新与打开用户插件文件夹；新增 /test-plugin-manager 测试钩子
-
-## QuickLook-Next 1.3.10
-
-- 修复托盘菜单外圈第二层背景：1.3.9 保留原生窗口框后 DWM 会画一层很大的原生
-  投影；改为 `WindowStyle=None` 的无边框非分层窗口，DWM 圆角（含毛玻璃）不变，
-  原生大投影消失，菜单恢复单层观感
-
-## QuickLook-Next 1.3.9
-
-- 托盘菜单（含二级子菜单）改为非分层 WCA Acrylic + WindowChrome：DWM 圆角直接
-  作用到整窗（毛玻璃一起圆角），不再有方形毛玻璃边角；原生窗口框同时恢复
-  Win11 投影，去掉 WPF 自绘阴影的裁切问题
-- 修复「Find new & Plugins...」无法打开网站：.NET Core 下 URL 必须走
-  `UseShellExecute=true` 才会调用默认浏览器；「检查更新」的 Store/Releases
-  链接同步修复
-
-## QuickLook-Next 1.3.8
-
-- 修复托盘菜单外圈直角边框：托盘菜单与二级子菜单都是分层窗口，WCA Acrylic 的
-  模糊区域是整窗矩形，圆角面板外的四个角会残留方形毛玻璃边框；改用预览窗口同款
-  `SetWindowRgn` 8px 圆角裁剪，让窗口本身（含毛玻璃）与圆角面板完全一致
-
-## QuickLook-Next 1.3.7
-
-- 托盘右键菜单精简：主题模式（跟随系统/亮色/暗色）、背景模式（7 种）、选项
-  （开机自启/失去焦点时关闭/顶栏默认隐藏）收进二级子菜单，分组行显示当前选择；
-  顶层保留版本、检查更新、获取插件、打开数据文件夹、重启、退出，菜单长度约减半。
-  子菜单沿用同款 Acrylic 自绘菜单与勾选态，点击外部/Esc 联动关闭
-
-## QuickLook-Next 1.3.6
-
-- 托盘菜单新增「主题模式」：跟随系统 / 亮色 / 暗色三选一，当前预览立即切换并
-  持久化（LastTheme），下次打开沿用；顶栏亮/暗切换按钮逻辑复用同一入口
-- 顶部状态栏默认隐藏：之前只要鼠标在预览窗口内移动，顶栏就会弹出遮挡内容；
-  现在默认只有把鼠标移到窗口顶部标题栏区域才显示，移开后约 1 秒自动隐藏。
-  托盘菜单新增「顶部状态栏默认隐藏」开关（默认开启），取消勾选立即恢复旧行为，
-  无需重启；顶栏显示区域判断改用固定高度，不再受隐藏态布局影响
-
-## QuickLook-Next 1.3.5
-
-基于 1.3.2 的「一打开即 Acrylic + 跟随壁纸」效果重构，修复分层窗口的两个遗留
-缺陷，放弃 1.3.3/1.3.4 的激活抢焦点与 Mica 方案。
-
-- 文本预览恢复上下滚动：分层窗口收不到系统转发给光标下窗口的滚轮消息
-  （`WM_MOUSEWHEEL` 只发给焦点窗口，转发链路跳过分层窗口）。Acrylic 改在普通
-  窗口上直接走 WCA（`SetWindowCompositionAttribute`）渲染，滚轮恢复原生路由，
-  txt/log/json/代码等文本类预览可正常滚动
-- 恢复 Win11 原生圆角：WCA 毛玻璃模糊区域固定为整窗矩形（`SetWindowRgn` 只能
-  裁剪内容、裁不掉模糊区域，1.3.2 因此仍有方形毛玻璃边角）。普通窗口下 DWM
-  `WindowCornerPreference` 重新生效，毛玻璃与内容一起圆角，最大化/全屏自动直角
-- WCA 毛玻璃不依赖激活状态，一打开即显示、跟随壁纸变化，且不再抢占焦点
-- 保留分层 + 滚轮钩子的兜底路径（`ShouldUseLayeredAcrylic` 开关），便于回归
-
-## QuickLook-Next 1.3.2
-
-- 修复分层窗口边缘黑线：1px 的窗口边框（深色 BorderBrush）与 WindowChrome
-  的 1px 玻璃框在分层窗口上没有 DWM 玻璃填充，会渲染成黑色描边；分层模式下
-  现在移除窗口边框并把 WindowChrome 玻璃厚度归零
-- 预览窗口恢复 Win11 圆角：分层窗口不受 DWM 圆角偏好控制，改用
-  `SetWindowRgn` 把窗口本身（含 WCA 毛玻璃）裁成 8px 圆角，随窗口尺寸/状态
-  同步；最大化与全屏时自动恢复直角
-
-## QuickLook-Next 1.3.1
-
-- 预览窗口一打开就显示 Acrylic 背景：Win11 的 DWM `SystembackdropType.Acrylic`
-  只在窗口激活时渲染毛玻璃，而预览窗口从不激活（`ShowActivated=false`），所以
-  之前文本类预览打开是纯色、点击后才出现毛玻璃。现在当背景设置为 Acrylic 系
-  （Acrylic/Acrylic10/Acrylic11）时，预览窗口改为分层窗口并走托盘菜单同款的
-  WCA（SetWindowCompositionAttribute）方案——毛玻璃不依赖激活状态，一打开即
-  显示；Mica/Tabbed 等其他背景仍使用普通窗口（硬件加速渲染不受影响）
-- 分层窗口的取舍：窗口失去 DWM 原生投影与 Win11 圆角（分层窗口的限制），文字、
-  视频（D3DImage）与 WebView2 内容渲染经实测正常；如需恢复原生观感，可将
-  WindowBackdrop 设为 Mica/Tabbed，或回退到 1.3.0 文件夹
-
-## QuickLook-Next 1.3.0
-
-大版本更新：预览调用链路与构建体积全面优化，并恢复预览窗口的 DWM Acrylic
-背景（与 v1.2.38 一致，不再使用未激活即失效的 WCA 实验方案）。
-
-- 预览调用大提速：第二实例不再初始化 WPF（此前每次空格预览都要付约 400ms 的
-  PresentationFramework/XAML 加载成本），改为入口处先检查互斥体、直接通过命名
-  管道把请求转发给常驻实例，转发失败才走完整启动。实测第二实例进程开销从约
-  404ms 降到约 75ms
-- 恢复预览窗口 Acrylic 背景：改用 DWM `SystembackdropType.Acrylic`（Win11
-  原生方案），文本类预览点击/激活后即显示毛玻璃，不再出现「背景直接透出桌面、
-  无任何模糊」的问题；托盘菜单仍使用已验证的 WCA 方案，不受影响
-- 显示器色彩配置改为按显示器缓存（30s TTL）：该 WCS 查询原本每次预览都在 UI
-  线程执行，但默认配置下只有 ImageMagick 色彩管理（UseColorProfile）才会用到
-  结果，缓存后预览不再重复支付这段开销
-- VideoViewer 匹配时跳过对明确由其他插件处理的扩展名（txt/md/json/zip/pdf/字体/
-  图片/Office 等）的 MediaInfo 原生嗅探，非媒体文件预览不再在 UI 线程白白打开
-  一次原生库；.ts/.rm/.asf 等非常规媒体扩展仍走嗅探，不受影响
-- 构建体积 -8MB：VideoViewer 显式从 `runtimes\win-x64\native` 加载 MediaInfo，
-  flatten-native 在插件根目录复制的 `MediaInfo.dll` 是冗余副本，构建后自动删除
-
-基准（bench.ps1，稳态即第二轮）：png 88ms / txt 78ms / md 70ms / json 124ms /
-zip 59ms / pdf 118ms（优化前首轮 399–591ms；固定调用开销约 -330ms）
-
-## QuickLook-Next 1.2.38
-
-- 首次图片预览提速：启动后后台预热图片解码管线（WPF/WIC + ImageMagick
-  原生库），首次预览不再支付一次性解码器初始化（灰色背景闪现明显缩短）；
-  实测首次 png 预览从约 1260ms 降到约 476ms
-
-## QuickLook-Next 1.2.37
-
-- 设置界面（托盘菜单 / More 菜单）适配 Win11 圆角与毛玻璃：
-  - 改用 `SetWindowCompositionAttribute`（TranslucentTB 同款 API），对
-    无边框弹出窗口稳定生效；不再用 DWM `SystembackdropType`（该方案在
-    无边框窗口上会静默失效、渲染成一片死色）
-  - 窗口改为分层窗口，圆角、1px 边框、投影由 WPF 绘制（圆角 8px、
-    深色 55% 半透明叠加 / 亮色浅色叠加、投影 24px 模糊）
-  - 亮色 / 暗色主题适配：叠加色与文字颜色随主题切换（暗色深蓝灰、亮色
-    浅色），两种模式都有毛玻璃效果
-- 冒烟测试断言改为验证 Acrylic API 调用成功（WCA 回读不可靠）
-- 修复设置界面"两层"观感：WCA 毛玻璃会模糊整个窗口矩形，之前内容四周
-  的透明边距会形成外层直角毛玻璃框；圆角面板改为铺满整个窗口（与 E-Tab
-  一致），投影调小避免边缘裁切（12px 模糊、4px 深度）
-
-## QuickLook-Next 1.2.36
-
-- 预览窗口首次展示提速：窗口在启动空闲时离屏预热一次（不激活、不显示在
-  屏幕上），HWND 创建、布局、DWM Mica/Acrylic 背景初始化全部提前到后台
-  空闲期完成；首次按空格不再等待约 200ms（2.9MB JSON 首次预览
-  912ms → 649ms）
-- 修复预热导致的定位回归：预热尺寸不再被误存为自定义窗口尺寸；首次真实
-  预览强制按"新窗口"居中定位，窗口位置与尺寸和 1.2.35 完全一致
-  （1536x960 工作区下实测正居中）
-- 修复第二次按空格有时无反应：预热窗口使预览窗口"始终可见"，而空格切换
-  原先用窗口可见性判断"是否正在预览"，导致预览关闭后同一文件无法重新
-  打开（换文件才恢复）。改为用内部预览状态判断，并在窗口关闭时重置状态；
-  实测 打开→关闭→重开→切换 序列全部正常
-- 修复视频预览有时无法正常播放：打开视频时先显示系统缩略图（v1.2.15
-  特性），若视频就绪较快而缩略图提取较慢，迟到的缩略图会盖住正在播放的
-  视频且不再隐藏（视频其实在播，看起来却像卡住）。现在媒体就绪（或失败）
-  后，迟到的缩略图不再显示，播放表面/错误提示优先
-
-## QuickLook-Next 1.2.35
-
-- 预览延迟优化（大文件 / JSON 场景提速明显）：
-  - PDFViewer 只对无扩展名文件做魔数检测，其他文件按扩展名匹配，每次预览
-    不再为无关格式白开一次文件（慢盘/网络盘受益明显）
-  - `.json` 的 Lottie 检测从"整文件读取 + 解析"改为只读前 256KB，大 JSON
-    （如 package-lock.json）预览不再卡顿（4.3MB JSON 从约 1.8 秒降到约 0.9 秒）
-  - 文本编码检测改为对文件头 256KB 采样（chardet 类算法在大输入上极慢）
-  - 超过 0.5MB 的文本跳过格式检测器扫描（该大小下高亮本已禁用，扫描结果
-    用不上）
-  - 语法高亮定义加载从"首次文本预览的 UI 线程"挪到后台插件加载阶段，
-    首次文本预览再省约 500ms
-- 冒烟测试与 `bench.ps1` 新增 test.json 覆盖
-
-## QuickLook-Next 1.2.34
-
-- 启动再提速：移除已废弃的 TrayIconWindow 预热窗口（原生托盘右键菜单早在
-  v1.2.8 已停用，该窗口只剩开销）；启动（UI + 插件就绪）从约 0.35 秒进一步
-  降到约 0.08 秒（热缓存下稳定 ~75 ms）
-- `test.ps1` / `build.ps1` 改为一次并行构建整个解决方案（原来 16 个项目
-  逐个编译），冒烟测试总耗时显著下降
-- 移除 NuGet 包复制进输出的 win-x86 / win-arm64 运行时副本
-  （WebView2Loader 等，新增共享清理目标），发布体积再减约 1 MB（170.5 MB）
-
-## QuickLook-Next 1.2.33
-
-- 启动提速：MessageBox 的 Harmony 补丁（.NET 10 下耗时约 1.2 秒）从启动
-  同步执行改为延迟 3 秒后台执行；启动（UI + 插件就绪）从约 1.64 秒降到约
-  0.35 秒（快约 78%）。补丁未完成时消息框使用默认样式，功能不受影响
-- 新增隐藏 `/test-startup` 诊断钩子，记录各启动阶段耗时；
-  `bench.ps1` 现在同时输出启动耗时与预览延迟
-
-## QuickLook-Next 1.2.32
-
-- PDF 预览瘦身：PDFium 由带 JavaScript 引擎的 V8 版换成普通版
-  （`bblanchon.PDFium.Win32` 153.0），`pdfium.dll` 从 28.9 MB 降至 6.9 MB；
-  预览渲染不受影响（预览不需要 PDF 的 JS 交互能力）
-- 冒烟测试新增 PDF 预览覆盖（14 页示例文档），PDFViewer 变更后全绿
-- 修复 SQLite 高危漏洞警告：`Microsoft.Data.Sqlite` 升到 10.0.11，
-  消除 NU1903（GHSA-2m69-gcr7-jv3q）
-- 新增 `bench.ps1` 预览延迟基准（基于内置 `/test-timing` 钩子）；
-  首次基线（含进程启动与管道开销）：png 0.73s / txt 1.02s / md 0.40s /
-  zip 0.43s / ttf 0.69s / pdf 0.45s
-
-## QuickLook-Next 1.2.31
-
-- Release 体积瘦身（仅保留 64 位）：移除视频插件的 LAVFilters-x86（约 24 MB）
-  与 MediaInfo win-x86（约 7 MB）、图片插件的 exiv2-ql-32、字体插件的
-  freetype win-x86 等全部 32 位运行时副本，发布目录从约 227 MB 降至约 194 MB
-  （-15%）。本版本仅面向 64 位 Windows（Win11）
-- 图片 exiv2 元数据读取精简为纯 64 位路径，删除 x86 分支代码
-- 修复插件加载失败警告框在无窗口启动（开机自启/托盘模式）时因 Owner 未显示
-  而崩溃的问题：现在只在存在可见窗口时弹窗，否则仅写日志
-
-## QuickLook-Next 1.2.30
-
-- Image previews no longer show the top-right action icons (copy / metadata /
-  background) or the image-info tag that appeared on hover; the image area is
-  now completely clean
-
-## QuickLook-Next 1.2.16
-
-- Fix the broken startup shortcut: `Assembly.Location` resolves to QuickLook-Next.dll
-  under the .NET apphost, so the auto-start shortcut (and the shell
-  context-menu command / restart) pointed at the DLL - Windows then tried to
-  "open" the DLL after every restart. The executable path is now resolved
-  explicitly, so auto-start launches QuickLook-Next.exe properly
-
-## QuickLook-Next 1.2.15
-
-- Video previews show the file's thumbnail while the media opens, so the start
-  of a video no longer shows a blank/gray loading surface or the busy spinner
-- The busy spinner is disabled for video previews (the thumbnail covers the
-  opening moment; the panel keeps its black background as a fallback)
-- The video renderer surface stays hidden while DirectShow builds the playback
-  graph ("播放区建立" phase) and is only revealed once the media is open, so
-  the renderer's blank gray surface can never be seen; the thumbnail covers
-  the short reveal moment as well
-- Video files set HasVideo immediately, so the audio cover panel (music note +
-  tags) no longer flashes as a gray area before the video actually opens
-
-## QuickLook-Next 1.2.14
-
-- Image previews now decode their first frame before the content is swapped
-  in, so switching images never flashes a blank gray panel - the previous
-  image stays on screen until the new one is ready (with a 3 s fallback)
-- The old preview's resources are disposed only after the new content takes
-  over, instead of being torn down mid-switch
-- Fix the gray loading area that flashed while switching images: the content
-  container was hidden during loading (IsBusy), leaving the bare backdrop
-  visible; the previous preview now stays fully rendered until the new one is
-  ready, and the window only resizes once the new frame is decoded
-- Replace the separate-thread busy overlay with an in-process spinner so the
-  loading indicator can no longer paint over the preview
-- Video previews no longer show the gray backdrop while the media opens: the
-  video panel now has a black background (standard player look)
-- Image switches no longer flash the spinner or the zoom-percentage badge; the
-  spinner only shows for the initial load, and the zoom badge only appears on
-  manual zooming
-- Tray menu: new "Backdrop Mode" section to switch between Auto / None /
-  Mica / Acrylic / Acrylic 10 / Acrylic 11 / Tabbed; applies to the open
-  preview immediately and persists
-
-## QuickLook-Next 1.2.13
-
-- Performance: cache the downscaled image decode per file, so re-previewing or
-  switching back to an image no longer re-decodes the whole file (spinner goes
-  from ~200 ms to near-instant for large photos)
-- Performance: defer EXIF metadata reading until after the image is displayed,
-  so the busy spinner no longer waits for the exiv2 metadata scan
-- Performance: cache MediaInfo results per file and skip the native sniff for
-  unambiguous media extensions, speeding up video/audio matching on switches
-- Performance: populate the audio info panel (tags/cover art) only after the
-  media has opened, so embedded covers no longer delay the first frame
-- Switching previews keeps the previous content on screen until the new one is
-  ready, so switches no longer flash an empty gray window
-- Re-fit the image to the window once layout settles after loading, preventing
-  intermittent unfitted images with blank space around them
-- Softer, smaller busy spinner (drop shadow, no box) that reads cleanly over
-  content
-- Performance: keep the startup optimizations from the 1.2.9 line (background
-  plugin loading, lazy GPU blacklist, deferred preview window creation,
-  throttled post-close GC)
-- Add a hidden `/test-timing` startup switch that records content-ready
-  timestamps for automated preview-latency benches
-
-## QuickLook-Next 1.2.10
-
-- Switch tray menu, "More" menu and the preview window default backdrop from Mica to Acrylic - the same frosted-glass effect as the startup notification popup
-- Smoke test now asserts the menu's DWM backdrop is Acrylic (`systembackdrop=3`)
-
-## QuickLook-Next 1.2.9
-
-- Unify the tray menu and the preview window's "More" menu into one Mica-backed menu with a Win11-style translucent panel, rounded corners and icons
-- Add automated smoke checks: DWM readback proves Mica is applied to the tray menu, and the "More" menu opens through the same unified path
-
-## QuickLook-Next 1.2.8
-
-- Replace the system tray context menu (native Win32 popup) with a self-drawn Mica-backed WPF menu; it follows the app's light/dark theme and never steals focus from a live preview
-- Tray menu now dismisses on outside clicks and Escape, and clamps to the monitor's working area
 
 ## 4.6.0
 
@@ -1995,3 +561,199 @@ zip 59ms / pdf 118ms（优化前首轮 399–591ms；固定调用开销约 -330m
 - Add lyric (.lrc) support for audio files [#1506](https://github.com/QL-Win/QuickLook/issues/1506) for VideoViewer
 - Add support for .mid audio format [#931](https://github.com/QL-Win/QuickLook/issues/931) for VideoViewer
 - Fix time label overflow in long videos for VideoViewer
+
+## 3.x and earlier
+
+One line per release, newest first. These notes come from the same period as the Chinese archive
+([CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)), which holds the full text.
+
+### 3.43.0
+
+- Download progress in the updater (percentage, size, cancel), and the package gained a
+  `Readme.txt` first-run note covering updates, logs and the optional switches.
+
+### 3.42.1
+
+- Performance and memory baselines recorded for the tray process.
+
+### 3.42.0
+
+- Preview warm-up: the formats this user actually opens are prepared in the background right after
+  startup, so a first preview feels like the second one (text 289 → 96 ms, image 170 → 100 ms).
+
+### 3.41.0
+
+- Fixed auto-update getting stuck at "downloaded but will not update".
+- First preview after login made much faster (the window and the tray icon are built before the
+  keyboard hook starts), and the update prompt got the app's own material instead of a stock window.
+
+### 3.40.0
+
+- WebView2 profiles stopped piling up: a stale lock is repaired first, the profile is rebuilt in
+  place only if that fails, and the maintenance sweep removes abandoned folders.
+
+### 3.39.0
+
+- The warm WebView2 controller pool was extended to every web-based preview, and the preview window
+  gained a caption that behaves like the rest of the app.
+
+### 3.38.0
+
+- Database previews show the window first and fill the grid afterwards.
+
+### 3.37.0
+
+- Font preview switched to native rendering.
+
+### 3.36.0
+
+- WebView2 initialisation failures recover instead of leaving a blank panel.
+
+### 3.35.0
+
+- The update prompt asks "update now / skip this version" instead of downloading on the click, and
+  the data location moved to a single folder.
+
+### 3.34.0
+
+- WebView2 controllers are pooled and reused (~300-400 ms saved per web preview).
+
+### 3.33.0
+
+- Following the Explorer selection became event driven instead of a 500 ms poll.
+
+### 3.32.1
+
+- Packaging fix: a copy of `QuickLook.Common.dll` stays in the package root so the 3.31.0 updater
+  accepts the new `lib\` layout; behaviour identical to 3.32.0.
+
+### 3.32.0
+
+- Delivery size cut (157.9 MB unpacked, 61.4 MB zipped) with plugin dependency governance, the memory
+  diagnostics hook, and fixes found during that verification.
+
+### 3.31.0
+
+- Regression tests and CI, a more reliable plugin match, a cleaned-up plugin contract, a faster
+  settings store and update handling.
+
+### 3.30.0
+
+- Plain-text preview loads lazily, cutting idle memory by about 40 MB.
+
+### 3.29.0
+
+- Day-to-day use (mostly PDFs) uses less memory; assorted fixes.
+
+### 3.28.0
+
+- Plugin residency is driven by the recorded usage statistics.
+
+### 3.27.0
+
+- Robustness fixes.
+
+### 3.26.0
+
+- Office previews no longer flash white.
+
+### 3.25.0
+
+- Reverted 3.24.0's "keep the spinner while Office/Markdown parses" (it made opening feel slower);
+  parsing stays in the background and the content appears without a spinner.
+
+### 3.24.0
+
+- Smoother previews: Markdown/Mermaid parse in the background and the spinner layer no longer blocks
+  input.
+
+### 3.23.0
+
+- Previews stop stuttering (performance work).
+
+### 3.22.0
+
+- Performance and memory work, plus general polish.
+
+### 3.21.0 / 3.20.0
+
+- Visual polish and engineering hygiene (three plus two layout/theme items).
+
+### 3.19.0 / 3.18.0
+
+- Tray menu submenus fixed (they no longer swallow quick clicks).
+
+### 3.17.0 / 3.16.0
+
+- Office preview layout and behaviour reworked.
+
+### 3.15.0 / 3.14.0 / 3.12.0
+
+- The self-rendered Office line, stage by stage: PowerPoint, then Word, then Excel.
+
+### 3.13.0
+
+- Excel preview fixes.
+
+### 3.11.0 / 3.10.0 / 3.9.0 / 3.8.0 / 3.7.0
+
+- A run of visual and performance releases: lighter UI assets, faster startup, and the Fluent-style
+  surfaces.
+
+### 3.6.0
+
+- Faster, lighter Markdown preview.
+
+### 3.5.0 / 3.4.0 / 3.3.0
+
+- Memory and package-size reductions, faster cold start, more polish.
+
+### 3.2.1
+
+- Fixes settings and tray menu labels that showed raw keys (translation lookup moved to the program
+  root, including the `portable.lock` check).
+
+### 3.2.0 / 3.1.0
+
+- Performance work and the packaging layout, plus restoring the full set of built-in plugins.
+
+### 3.0.5
+
+- Removed a demo Firebase API key from the embedded Excalidraw template (a GitHub secret-scanning
+  warning; static rendering never used it).
+
+### 3.0.4
+
+- "Check for updates" downloads the release zip and restarts the app instead of just opening the
+  release page (falling back to the page when the folder is not writable).
+
+### 3.0.3
+
+- Submenu clicks right after opening are no longer swallowed by the parent menu.
+
+### 3.0.2
+
+- The update check queries this fork's releases instead of upstream QuickLook's.
+
+### 3.0.1
+
+- The preview window is raised on every open/switch again (the off-screen warm-up made
+  `IsVisible` true, which skipped `BringToFront`).
+
+### 3.0.0
+
+- Restored old-plugin compatibility: the plugin contract (`QuickLook.Common`, the
+  `QuickLook.Plugin.*` prefix, metadata files and registry associations) went back to the old names,
+  so plugins load without recompiling, while the app itself keeps the QuickLook-Next naming.
+
+### 2.0.0
+
+- The rename was completed: `QuickLook-Next.exe`, `QuickLookNext.*` namespaces, `QuickLookNext.App.*`
+  pipes/mutexes and the `QuickLookNext.Plugin.*` plugin prefix, isolated from upstream. Settings
+  moved to the `QuickLookNext` domain, so themes, language and the user plugin folder start fresh.
+
+### 1.x (1.2.8 - 1.5.0)
+
+- The fork's first line, based on QuickLook Lite 1.2.29: plugin compatibility, the off-screen preview
+  warm-up, the tray menu, translation work and the first packaging scripts. 25 releases in this
+  range; the detailed notes are in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
