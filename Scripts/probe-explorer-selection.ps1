@@ -1,23 +1,26 @@
-# 可行性验证探针：能否用 IFolderView::SelectItem 程序化改变 Explorer 的选区？
+# Feasibility probe: can IFolderView::SelectItem change Explorer's selection programmatically?
 #
-# 用途：为"预览时用 ←/→ 切换同目录上/下一个文件"验证核心未知项——应用能不能把
-# Explorer 的选区移到指定项（能改选区就等于能驱动预览切换，因为应用已经在跟
-# Explorer 的选区事件）。
+# Purpose: verify the core unknown for "switch to the previous/next file in the folder with ←/→ while
+# previewing" — can the app move Explorer's selection to a given item? (Being able to change the selection
+# is as good as driving the preview switch, because the app already follows Explorer's selection events.)
 #
-# 验证内容：
-#   1) IShellView -> IFolderView 的 QueryInterface 是否可用；
-#   2) 能否按视图顺序（Explorer 当前排序）枚举项目；
-#   3) 三种改选区路径：不激活 / SVUIA_ACTIVATE_NOFOCUS / IShellView::SelectItem(pidl)；
-#   4) 越界（最后一项之后）的行为 —— Shell 不回绕，需要应用自己处理。
+# What it verifies:
+#   1) whether the IShellView -> IFolderView QueryInterface is available;
+#   2) whether items can be enumerated in view order (Explorer's current sort);
+#   3) three ways of changing the selection: no activation / SVUIA_ACTIVATE_NOFOCUS /
+#      IShellView::SelectItem(pidl);
+#   4) what happens out of bounds (past the last item) — the Shell does not wrap around, so the app has
+#      to handle it.
 #
-# 之所以针对"已打开的文件窗口"验证：本环境下用 explorer.exe 打开新窗口后，
-# Shell.Application 枚举不到它（Win11 标签页 / 权限限制），而"改选区"这条能力
-# 只需要一个真实存在的文件夹窗口即可验证。脚本会挑第一个文件窗口。
+# Why an already-open folder window: in this environment, a window newly opened via explorer.exe cannot be
+# enumerated through Shell.Application (Windows 11 tabs / permission limits), and "change the selection"
+# only needs one real folder window to verify. The script picks the first folder window.
 #
-# 安全性：**只读 + 短暂改动 + 立即还原**。执行前记录原来的选中项，
-# 结束后按原选中项选回去（原本没有选中项时清空选区），并恢复视图激活状态。
+# Safety: **read-only + a brief change + immediate restore**. The original selection is recorded before
+# the run, the original selection is restored afterwards (an empty selection stays empty), and the view's
+# activation state is restored too.
 #
-# 用法：pwsh -NoProfile -File .\Scripts\probe-explorer-selection.ps1
+# Usage: pwsh -NoProfile -File .\Scripts\probe-explorer-selection.ps1
 
 $ErrorActionPreference = 'Stop'
 
@@ -37,7 +40,7 @@ public class SelectionSetProbe
     private const uint SVSI_DESELECTOTHERS = 0x4;
     private const uint SVSI_ENSUREVISIBLE = 0x8;
     private const uint SVSI_FOCUSED = 0x10;
-    // SVUIA_*: 视图的"UI 激活"状态。ACTIVATE_NOFOCUS 表示激活但不抢键盘焦点。
+    // SVUIA_*: the view's "UI activation" state. ACTIVATE_NOFOCUS means activate without taking keyboard focus.
     private const uint SVUIA_DEACTIVATE = 0x0;
     private const uint SVUIA_ACTIVATE_NOFOCUS = 0x1;
 
@@ -122,7 +125,7 @@ public class SelectionSetProbe
         finally { CoTaskMemFree(namePtr); }
     }
 
-    /// <summary>对给定的 shell 窗口对象执行验证。</summary>
+    /// <summary>Runs the verification against the given shell window object.</summary>
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int DragQueryFile(IntPtr h, uint i, StringBuilder b, int c);
 
@@ -130,8 +133,9 @@ public class SelectionSetProbe
     private static extern void ReleaseStgMedium(ref STGMEDIUM m);
 
     /// <summary>
-    /// 应用同款读法：从视图的"选中项"数据对象里取第一个文件路径。比
-    /// GetSelectionMarkedItem 可靠（后者只在带"标记"的选择上有值）。
+    /// Reads the selection the same way the app does: take the first file path from the view's
+    /// "selection" data object. More reliable than GetSelectionMarkedItem (which only has a value when the
+    /// selection carries a "mark").
     /// </summary>
     private static string ReadSelection(IShellView view)
     {
@@ -167,29 +171,29 @@ public class SelectionSetProbe
     public static string Run(object disp, string label)
     {
         var log = new StringBuilder();
-        log.AppendLine("目标窗口: " + label);
+        log.AppendLine("target window: " + label);
 
         var sp = (IServiceProvider)disp;
         var iid = IID_IShellBrowser;
         IntPtr sbPtr;
         if (sp.QueryService(ref iid, ref iid, out sbPtr) != 0 || sbPtr == IntPtr.Zero)
-            return "FAIL: QueryService(IShellBrowser) 失败";
+            return "FAIL: QueryService(IShellBrowser) failed";
 
         var browser = (IShellBrowser)Marshal.GetObjectForIUnknown(sbPtr);
         IntPtr psvPtr;
         if (browser.QueryActiveShellView(out psvPtr) != 0 || psvPtr == IntPtr.Zero)
-            return "FAIL: QueryActiveShellView 失败";
+            return "FAIL: QueryActiveShellView failed";
 
         var view = (IShellView)Marshal.GetObjectForIUnknown(psvPtr);
         var fv = view as IFolderView;
         if (fv == null)
-            return "FAIL: IShellView -> IFolderView 的 QueryInterface 失败（改选区这条路走不通）";
-        log.AppendLine("PASS: IShellView -> IFolderView 可用");
+            return "FAIL: the IShellView -> IFolderView QueryInterface failed (changing the selection is a dead end)";
+        log.AppendLine("PASS: IShellView -> IFolderView available");
 
         int count;
         if (fv.ItemCount(SVGIO_ALLVIEW, out count) != 0)
-            return log.AppendLine("FAIL: ItemCount 失败").ToString();
-        log.AppendLine("PASS: ItemCount = " + count + "（能看到视图里的项目数）");
+            return log.AppendLine("FAIL: ItemCount failed").ToString();
+        log.AppendLine("PASS: ItemCount = " + count + " (the number of items in the view is visible)");
 
         var names = new List<string>();
         for (var i = 0; i < count && i < 8; i++)
@@ -197,55 +201,55 @@ public class SelectionSetProbe
             IntPtr pidl;
             names.Add(fv.Item(i, out pidl) == 0 && pidl != IntPtr.Zero ? NameOf(pidl) : "<err>");
         }
-        log.AppendLine("视图顺序（前 8 项）: " + string.Join(" | ", names));
+        log.AppendLine("view order (first 8): " + string.Join(" | ", names));
 
         int originalMarked;
         fv.GetSelectionMarkedItem(out originalMarked);
         int originalFocused;
         fv.GetFocusedItem(out originalFocused);
         var before = ReadSelection(view);
-        log.AppendLine("原状态: 选中项=" + (before.Length == 0 ? "(无)" : System.IO.Path.GetFileName(before)) +
-                       "，标记索引=" + originalMarked + "，焦点索引=" + originalFocused);
+        log.AppendLine("initial state: selection=" + (before.Length == 0 ? "(none)" : System.IO.Path.GetFileName(before)) +
+                       ", marked index=" + originalMarked + ", focused index=" + originalFocused);
 
         if (count < 2)
-            return log.AppendLine("SKIP: 该项目数不足以做相邻项测试").ToString();
+            return log.AppendLine("SKIP: too few items to test adjacent navigation").ToString();
 
         var target = 1;
         var targetName = NameOf(ItemOf(fv, target));
-        log.AppendLine("目标: 第 " + target + " 项 = " + targetName);
+        log.AppendLine("target: item " + target + " = " + targetName);
 
-        // ① 不激活视图，直接改选区
+        // (1) change the selection without activating the view
         var hr = fv.SelectItem(target, SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE);
         System.Threading.Thread.Sleep(250);
         var after1 = ReadSelection(view);
-        log.AppendLine("① 不激活 + IFolderView::SelectItem: hr=0x" + hr.ToString("X8") +
-                       " -> 选中项=" + (after1.Length == 0 ? "(无)" : System.IO.Path.GetFileName(after1)) +
+        log.AppendLine("(1) no activation + IFolderView::SelectItem: hr=0x" + hr.ToString("X8") +
+                       " -> selection=" + (after1.Length == 0 ? "(none)" : System.IO.Path.GetFileName(after1)) +
                        (System.IO.Path.GetFileName(after1) == targetName ? "  PASS" : "  FAIL"));
 
-        // ② SVUIA_ACTIVATE_NOFOCUS（激活但不抢键盘焦点）之后再改
+        // (2) activate with SVUIA_ACTIVATE_NOFOCUS (activation without stealing keyboard focus), then change
         var hrAct = view.UIActivate(SVUIA_ACTIVATE_NOFOCUS);
         hr = fv.SelectItem(target, SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE);
         System.Threading.Thread.Sleep(250);
         var after2 = ReadSelection(view);
         log.AppendLine("② ACTIVATE_NOFOCUS(hr=0x" + hrAct.ToString("X8") + ") + IFolderView::SelectItem: hr=0x" +
-                       hr.ToString("X8") + " -> 选中项=" +
-                       (after2.Length == 0 ? "(无)" : System.IO.Path.GetFileName(after2)) +
+                       hr.ToString("X8") + " -> selection=" +
+                       (after2.Length == 0 ? "(none)" : System.IO.Path.GetFileName(after2)) +
                        (System.IO.Path.GetFileName(after2) == targetName ? "  PASS" : "  FAIL"));
 
-        // ③ 激活状态下改用 IShellView::SelectItem(pidl) 这条备用路径
+        // (3) while activated, use the fallback IShellView::SelectItem(pidl) path instead
         var hr3 = view.SelectItem(ItemOf(fv, target), SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE);
         System.Threading.Thread.Sleep(250);
         var after3 = ReadSelection(view);
-        log.AppendLine("③ IShellView::SelectItem(pidl): hr=0x" + hr3.ToString("X8") + " -> 选中项=" +
-                       (after3.Length == 0 ? "(无)" : System.IO.Path.GetFileName(after3)) +
+        log.AppendLine("(3) IShellView::SelectItem(pidl): hr=0x" + hr3.ToString("X8") + " -> selection=" +
+                       (after3.Length == 0 ? "(none)" : System.IO.Path.GetFileName(after3)) +
                        (System.IO.Path.GetFileName(after3) == targetName ? "  PASS" : "  FAIL"));
 
-        // 越界行为（决定要不要自己实现首尾回绕）
+        // out-of-bounds behaviour (decides whether wrap-around has to be implemented here)
         var hrOver = fv.SelectItem(count, SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE);
-        log.AppendLine("越过最后一项（索引 " + count + "）: hr=0x" + hrOver.ToString("X8") +
-                       "（不会自动回绕，回绕要应用自己处理）");
+        log.AppendLine("past the last item (index " + count + "): hr=0x" + hrOver.ToString("X8") +
+                       " (no automatic wrap-around; wrapping is up to the app)");
 
-        // 还原
+        // restore
         view.UIActivate(SVUIA_DEACTIVATE);
         if (before.Length != 0)
         {
@@ -270,8 +274,8 @@ public class SelectionSetProbe
         }
         System.Threading.Thread.Sleep(200);
         var restored = ReadSelection(view);
-        log.AppendLine("已还原: 选中项=" +
-                       (restored.Length == 0 ? "(无，与原状态一致)" : System.IO.Path.GetFileName(restored)));
+        log.AppendLine("restored: selection=" +
+                       (restored.Length == 0 ? "(none, same as the initial state)" : System.IO.Path.GetFileName(restored)));
         return log.ToString();
     }
 
@@ -300,7 +304,7 @@ for ($i = 0; $i -lt $windows.Count; $i++) {
 }
 
 if (-not $target) {
-    Write-Host "SKIP: 没有可用的文件资源管理器窗口（当前没有打开任何文件夹窗口）" -ForegroundColor Yellow
+    Write-Host "SKIP: no usable file manager window (no folder window is currently open)" -ForegroundColor Yellow
     exit 0
 }
 

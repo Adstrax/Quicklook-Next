@@ -1,21 +1,21 @@
-# 生成用户友好的发布包：Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
+# Builds a user-friendly release package: Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
 #
-# 目录结构（v3.2.0 起）：
-#   根目录：QuickLook-Next.exe（用户双击它）、QuickLook-Next.dll、
-#           QuickLook-Next.deps.json、QuickLook-Next.runtimeconfig.json、
-#           Translations.config、QLPlugin.ico、portable.lock
-#   lib\：  其余所有运行库 DLL（第三方依赖 + QuickLook.Common）
-#   runtimes\：原生运行库
-#   QuickLook.Plugin\：内置插件
-# 不再把十几个 dll / config 文件与 exe 混在根目录。
+# Layout (since v3.2.0):
+#   root:          QuickLook-Next.exe (what the user double-clicks), QuickLook-Next.dll,
+#                  QuickLook-Next.deps.json, QuickLook-Next.runtimeconfig.json,
+#                  Translations.config, QLPlugin.ico, portable.lock
+#   lib\:          every other runtime DLL (third-party dependencies + QuickLook.Common)
+#   runtimes\:     native runtime libraries
+#   QuickLook.Plugin\: built-in plugins
+# A dozen dll/config files are no longer mixed into the root next to the exe.
 #
-# 用法：
-#   .\Scripts\pack-release.ps1             # 只整理到 Build\Package
-#   .\Scripts\pack-release.ps1 -MakeZip    # 整理并生成 zip
+# Usage:
+#   .\Scripts\pack-release.ps1             # stage into Build\Package only
+#   .\Scripts\pack-release.ps1 -MakeZip    # stage and produce the zip
 
 param(
     [switch]$MakeZip,
-    # v3.32.0: 一个发布包只带一种架构的原生运行库（默认 x64）。
+    # v3.32.0: one package carries the native libraries of a single architecture (x64 by default).
     [ValidateSet('x64', 'arm64')][string]$Architecture = 'x64'
 )
 
@@ -25,7 +25,7 @@ $release = Join-Path $root 'Build\Release'
 $package = Join-Path $root 'Build\Package'
 
 if (-not (Test-Path $release)) {
-    throw "未找到构建产物：$release（请先执行 .\build.ps1）"
+    throw "build output not found: $release (run .\build.ps1 first)"
 }
 
 $version = & git -C $root describe --always --tags --exclude latest 2>$null
@@ -33,17 +33,18 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     $version = '0.0.0'
 }
 
-# 重建 Package 目录
+# Rebuild the Package folder
 if (Test-Path $package) {
     Remove-Item -LiteralPath $package -Recurse -Force
 }
 New-Item -ItemType Directory -Path $package | Out-Null
 
-# 根目录只放程序入口和它必需的清单/配置
-# v3.32.1: QuickLook.Common.dll 也保留一份在根目录。3.31.0 的更新器（已发布、
-# 现网仍在使用）在安装前会校验「解压目录根下存在 QuickLook-Next.exe 与
-# QuickLook.Common.dll」，lib\ 布局会让它误判为“不是 QuickLook-Next 包”而拒绝
-# 自动更新。多这一份 100KB 的副本对运行时没有任何影响（解析器两处都能找到）。
+# The root only holds the program entry point and the manifests/configuration it needs
+# v3.32.1: keep a copy of QuickLook.Common.dll in the root as well. The 3.31.0 updater (already released
+# and still running in the field) checks before installing that "QuickLook-Next.exe and
+# QuickLook.Common.dll exist in the root of the extracted folder"; the lib\ layout made it decide this was
+# "not a QuickLook-Next package" and refuse the automatic update. The extra 100 KB copy costs the runtime
+# nothing (both locations can be found by the resolver).
 foreach ($name in @('QuickLook-Next.exe', 'QuickLook-Next.dll',
         'QuickLook-Next.deps.json', 'QuickLook-Next.runtimeconfig.json',
         'Translations.config', 'QLPlugin.ico', 'QuickLook.Common.dll')) {
@@ -53,16 +54,16 @@ foreach ($name in @('QuickLook-Next.exe', 'QuickLook-Next.dll',
     }
 }
 
-# 其余所有托管 DLL 收进 lib\ 子目录（程序启动时的 AssemblyResolve 兜底会
-# 递归搜索整个程序目录，lib 里的程序集可以正常加载）。主程序 QuickLook-Next.dll
-# 必须留在根目录（apphost 靠它启动）。
+# Every other managed DLL goes into the lib\ subfolder (the AssemblyResolve fallback at startup searches
+# the whole program folder recursively, so assemblies in lib load fine). The main QuickLook-Next.dll must
+# stay in the root, because the apphost starts from it.
 $lib = Join-Path $package 'lib'
 New-Item -ItemType Directory -Path $lib | Out-Null
 Get-ChildItem -LiteralPath $release -Filter *.dll -File |
     Where-Object { $_.Name -ne 'QuickLook-Next.dll' } |
     Copy-Item -Destination $lib -Force
 
-# 原生运行库与内置插件保持子目录
+# Native runtime libraries and built-in plugins keep their subfolders
 if (Test-Path -LiteralPath (Join-Path $release 'runtimes')) {
     Copy-Item -LiteralPath (Join-Path $release 'runtimes') `
         -Destination $package -Recurse -Force
@@ -70,11 +71,12 @@ if (Test-Path -LiteralPath (Join-Path $release 'runtimes')) {
 Copy-Item -LiteralPath (Join-Path $release 'QuickLook.Plugin') `
     -Destination (Join-Path $package 'QuickLook.Plugin') -Recurse -Force
 
-# v3.3.0: 把多个插件各自携带的共享依赖去重到 lib\ 一份（程序启动时的
-# AssemblyResolve 兜底会从 lib\ 加载托管程序集；WebView2Loader.dll 是原生
-# 加载器，一并收进 lib\ 后由 lib 里的 WebView2 托管程序集解析）。只处理
-# 纯托管或与托管程序集成对的原生加载器；带独立原生库的（MediaInfo、
-# SQLitePCLRaw、freetype 等）保持原位。只有字节完全一致的副本才会被移除。
+# v3.3.0: collapse the shared dependencies that several plugins each carry into a single copy in lib\
+# (the AssemblyResolve fallback at startup loads managed assemblies from lib\; WebView2Loader.dll is a
+# native loader and once moved into lib\ is resolved by the WebView2 managed assemblies next to it). Only
+# purely managed files or native loaders paired with a managed assembly are handled; anything with its own
+# native libraries (MediaInfo, SQLitePCLRaw, freetype, ...) stays where it is. Only byte-identical copies
+# are removed.
 $dedupeLibNames = @(
     'UtfUnknown.dll',
     'PureSharpCompress.dll',
@@ -87,11 +89,11 @@ $dedupeLibNames = @(
     'Microsoft.Web.WebView2.WinForms.dll',
     'Microsoft.Web.WebView2.Wpf.dll',
     'WebView2Loader.dll',
-    # v3.32.0: 共享 WebView2 宿主库（Html/Markdown/Office/CHM/Mail/Font/SVG 共用）
+    # v3.32.0: shared WebView2 host library (used by Html/Markdown/Office/CHM/Mail/Font/SVG)
     'QuickLook.Shared.dll',
-    # v3.32.0: 实测字节完全一致的其它重复项（MediaInfoViewer/VideoViewer 的
-    # 托管 MediaInfo 程序集、DbViewer/OfficeViewer 的 MiniExcel 等）。
-    # 只有哈希一致的副本才会被移除，因此列表里多写几个名字是安全的。
+    # v3.32.0: other duplicates measured to be byte-identical (the managed MediaInfo assembly in
+    # MediaInfoViewer/VideoViewer, MiniExcel in DbViewer/OfficeViewer, ...). Only copies with a matching
+    # hash are removed, so listing a few extra names here is safe.
     'QuickLook.MediaInfo.dll',
     'MiniExcel.dll',
     'CommunityToolkit.HighPerformance.dll',
@@ -104,7 +106,7 @@ $dedupeLibNames = @(
     'MsgReader.dll'
 )
 
-# 确保去重清单里的每个文件在 lib\ 有基准副本（没有就从插件目录取一份）
+# Make sure every file on the dedupe list has a reference copy in lib\ (take one from a plugin folder if not)
 foreach ($name in $dedupeLibNames) {
     $libCopy = Join-Path $lib $name
     if (Test-Path -LiteralPath $libCopy) {
@@ -133,12 +135,12 @@ foreach ($name in $dedupeLibNames) {
             $removedDedup++
         }
 }
-Write-Host "已去重共享依赖：移除 $removedDedup 个重复文件"
+Write-Host "Shared dependencies deduplicated: removed $removedDedup duplicate files"
 
-# v3.32.0: 同一个插件程序集只应存在一份。增量构建不会清理旧产物，历史上
-# PDFViewer 目录里就残留过一份 QuickLook.Plugin.HtmlViewer.dll，运行时会触发
-# “Assembly with same name is already loaded”。打包时把重复副本清掉，只保留
-# 与程序集同名的那个插件目录里的副本（找不到就保留最新的那份）。
+# v3.32.0: each plugin assembly should exist exactly once. Incremental builds do not clean up old output,
+# and historically a stray QuickLook.Plugin.HtmlViewer.dll was left inside the PDFViewer folder, which at
+# runtime triggered "Assembly with same name is already loaded". Packaging removes the duplicates and keeps
+# only the copy in the plugin folder named after the assembly (if there is none, the newest copy wins).
 $pluginDllGroups = Get-ChildItem -LiteralPath (Join-Path $package 'QuickLook.Plugin') `
     -Recurse -File -Filter 'QuickLook.Plugin.*.dll' -ErrorAction SilentlyContinue |
     Group-Object Name
@@ -162,21 +164,20 @@ foreach ($group in $pluginDllGroups) {
     }
 }
 if ($removedDuplicates -gt 0) {
-    Write-Host "已移除重复的插件程序集副本：$removedDuplicates 个"
+    Write-Host "Removed duplicate plugin assembly copies: $removedDuplicates"
 }
 
-# 发布包不需要调试符号，也不需要 .NET Framework 时代的 App.config
+# The package needs no debug symbols and no .NET Framework era App.config
 Get-ChildItem -LiteralPath $package -Recurse -Filter *.pdb |
     Remove-Item -Force
 Remove-Item -LiteralPath (Join-Path $package 'QuickLook-Next.dll.config') `
     -ErrorAction SilentlyContinue
 
-# v3.4.0: 运行时用不到的文件不进发布包：
-# - *.xml 是 IntelliSense 文档（约 4MB）
-# - 插件目录下的 *.deps.json 只对 dotnet 工具链有意义（插件走
-#   Assembly.LoadFrom）；根目录的 QuickLook-Next.deps.json 是 apphost 必需的，
-#   必须保留
-# - *.dylib 是 macOS 原生库（Windows 包不需要）
+# v3.4.0: files the runtime never needs stay out of the package:
+# - *.xml files are IntelliSense documentation (about 4 MB)
+# - *.deps.json files under plugin folders only matter to the dotnet tooling (plugins go through
+#   Assembly.LoadFrom); the QuickLook-Next.deps.json in the root is required by the apphost and must be kept
+# - *.dylib files are macOS native libraries (not needed in a Windows package)
 Get-ChildItem -LiteralPath $package -Recurse -File |
     Where-Object {
         $_.Extension -in '.xml', '.dylib' -or
@@ -184,20 +185,20 @@ Get-ChildItem -LiteralPath $package -Recurse -File |
     } |
     Remove-Item -Force
 
-# v3.4.0: VideoViewer 根目录偶尔残留的 MediaInfo.dll 冗余副本（插件实际从
-# runtimes\win-x64\native\ 加载），只保留 runtimes 那份。
+# v3.4.0: the redundant MediaInfo.dll copy that occasionally lingers in the VideoViewer root (the plugin
+# actually loads it from runtimes\win-x64\native\); keep only the runtimes copy.
 $videoRootMediaInfo = Join-Path $package 'QuickLook.Plugin\QuickLook.Plugin.VideoViewer\MediaInfo.dll'
 $videoRuntimeMediaInfo = Join-Path $package `
     'QuickLook.Plugin\QuickLook.Plugin.VideoViewer\runtimes\win-x64\native\MediaInfo.dll'
 if ((Test-Path -LiteralPath $videoRootMediaInfo) -and
     (Test-Path -LiteralPath $videoRuntimeMediaInfo)) {
     Remove-Item -LiteralPath $videoRootMediaInfo -Force
-    Write-Host '已移除 VideoViewer 根目录冗余的 MediaInfo.dll'
+    Write-Host 'Removed the redundant MediaInfo.dll in the VideoViewer root'
 }
 
-# v3.10.0/v3.32.0: 发布包只保留目标架构的原生运行库。win-x86 永远不会被用到
-# （本项目不产出 x86 版本），非目标架构的目录（ChmViewer / OfficeViewer 里的
-# WebView2Loader 等）也一并移除，避免同一个包同时带上多份加载器。
+# v3.10.0/v3.32.0: the package keeps only the native libraries for the target architecture. win-x86 is
+# never used (this project produces no x86 build), and folders for other architectures (the WebView2Loader
+# copies in ChmViewer / OfficeViewer, ...) are removed as well, so one package never ships several loaders.
 $keepArch = if ($Architecture -eq 'arm64') { 'win-arm64' } else { 'win-x64' }
 $dropArchDirs = @('win-x86', 'win-arm64', 'win-x64') | Where-Object { $_ -ne $keepArch }
 $pluginRoot = Join-Path $package 'QuickLook.Plugin'
@@ -205,18 +206,20 @@ foreach ($archDir in $dropArchDirs) {
     Get-ChildItem -LiteralPath $pluginRoot -Recurse -Directory -Filter $archDir -ErrorAction SilentlyContinue |
         ForEach-Object {
             Remove-Item -LiteralPath $_.FullName -Recurse -Force
-            Write-Host "已移除 $($_.FullName.Substring($package.Length + 1))"
+            Write-Host "Removed $($_.FullName.Substring($package.Length + 1))"
         }
 }
 
-# 便携标记：设置数据目录跟随程序目录
+# Portable marker: make the data folder follow the program folder
 Set-Content -LiteralPath (Join-Path $package 'portable.lock') `
     -Value 'This file makes QuickLook-Next portable.' -Encoding ASCII
 
-# v3.20.0: 首次使用说明（尤其是 .NET 运行时依赖），随包一起分发
-# v3.43.0: 补上「更新怎么用 / 出问题看哪里 / 两个可选开关」，这些以前只在代码
-# 注释和提交信息里，用户看不到。
-# v5.5.0: 文件名改成 Readme.txt —— 包里其余文件都是拉丁名，只有它是中文名。
+# v3.20.0: a first-run note (above all about the .NET runtime dependency) shipped with the package.
+# v3.43.0: added "how updating works / where to look when something goes wrong / the two optional
+# switches"; these previously only existed in code comments and commit messages, invisible to users.
+# v5.5.0: the file name became Readme.txt - every other file in the package had a Latin name, only this
+# one had a Chinese name.
+# NOTE: the note text below is intentionally still Chinese; it is the packaged Readme.txt content.
 $firstRunNote = @'
 QuickLook-Next 使用说明
 
@@ -260,40 +263,40 @@ QuickLook-Next 使用说明
 Set-Content -LiteralPath (Join-Path $package 'Readme.txt') `
     -Value $firstRunNote -Encoding UTF8
 
-# v3.32.0: 打包自检 + 体积报告。发布前先确认包里确实有启动必需的文件，
-# 并让「这个包有多大、大头是什么」一眼可见（历史上出现过手工打包漏掉
-# lib 目录、或把 pdb 打进去的情况）。
+# v3.32.0: packaging self-check + size report. Before releasing, confirm the package really contains the
+# files startup needs, and make "how big is this package and what dominates it" visible at a glance (in the
+# past a hand-made package missed the lib folder or shipped pdbs).
 foreach ($required in @('QuickLook-Next.exe', 'QuickLook-Next.dll',
         'QuickLook-Next.deps.json', 'QuickLook-Next.runtimeconfig.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
-        throw "发布包缺少必需文件：$required"
+        throw "package is missing a required file: $required"
     }
 }
 if (-not (Test-Path -LiteralPath (Join-Path $package 'lib\QuickLook.Common.dll'))) {
-    throw '发布包缺少 lib\QuickLook.Common.dll'
+    throw 'package is missing lib\QuickLook.Common.dll'
 }
 if (-not (Test-Path -LiteralPath (Join-Path $package 'QuickLook.Plugin'))) {
-    throw '发布包缺少 QuickLook.Plugin'
+    throw 'package is missing QuickLook.Plugin'
 }
 
 $leftover = @(Get-ChildItem -LiteralPath $package -Recurse -File |
     Where-Object { $_.Extension -in '.pdb', '.xml' })
 if ($leftover.Count -gt 0) {
     $leftover | Remove-Item -Force
-    Write-Host "已清理打包后残留的调试/文档文件：$($leftover.Count) 个"
+    Write-Host "Cleaned up debug/documentation files left after packaging: $($leftover.Count)"
 }
 
 $packageFiles = Get-ChildItem -LiteralPath $package -Recurse -File
-Write-Host ("发布包体积：{0} MB（{1} 个文件）" -f `
+Write-Host ("Package size: {0} MB ({1} files)" -f `
         [math]::Round((($packageFiles | Measure-Object Length -Sum).Sum / 1MB), 1), $packageFiles.Count)
-Write-Host '体积前十：'
+Write-Host 'Top 10 by size:'
 $packageFiles | Sort-Object Length -Descending | Select-Object -First 10 | ForEach-Object {
     Write-Host ("  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.FullName.Substring($package.Length + 1))
 }
 
 if (-not $MakeZip) {
-    Write-Host "已整理到：$package"
-    Write-Host "（加 -Zip 参数可生成压缩包）"
+    Write-Host "Staged into: $package"
+    Write-Host "(add -MakeZip to produce the archive)"
     exit 0
 }
 
@@ -302,8 +305,8 @@ Remove-Item -LiteralPath $zip -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
 
-# 手动写 zip 并统一使用正斜杠分隔符，避免 Windows 下反斜杠路径导致
-# 部分解压工具（macOS / Linux 等）把条目当成单文件名
+# Write the zip by hand with forward slashes throughout, so that backslash paths do not make some
+# extraction tools (macOS / Linux and friends) treat an entry as a single file name
 $base = $package.TrimEnd('\')
 $fileStream = [System.IO.File]::Open($zip, 'Create')
 $archive = New-Object System.IO.Compression.ZipArchive($fileStream, 'Create')
@@ -329,5 +332,5 @@ try {
 }
 Remove-Item -LiteralPath (Join-Path $package 'portable.lock')
 
-Write-Host "已生成发布包：$zip"
-Write-Host ("压缩包体积：{0} MB" -f [math]::Round((Get-Item -LiteralPath $zip).Length / 1MB, 1))
+Write-Host "Release package created: $zip"
+Write-Host ("Archive size: {0} MB" -f [math]::Round((Get-Item -LiteralPath $zip).Length / 1MB, 1))

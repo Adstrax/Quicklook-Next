@@ -1,12 +1,12 @@
-﻿# bench.ps1 - 预览延迟基准
+﻿# bench.ps1 - preview latency benchmark
 #
-# 依赖 QuickLookNext 内置的隐藏 /test-timing 钩子：常驻实例在每次预览
-# "内容就绪"（spinner 消失）时向 %TEMP%\ql-smoke\timing.txt 追加一条
-# 带文件路径的就绪时间戳。本脚本为每个测试文件发起一次预览请求，
-# 用"请求时刻 -> 就绪时刻"计算延迟。
+# Relies on the hidden /test-timing hook built into QuickLookNext: every time a preview's content
+# becomes ready (the spinner disappears), the resident instance appends a timestamp with the file path to
+# %TEMP%\ql-smoke\timing.txt. This script issues one preview request per test file and computes the
+# latency as "request time -> ready time".
 #
-# 用法: .\bench.ps1 [-Rounds 2]
-# 前置: 先运行 test.ps1（准备测试文件并完成构建），或手动构建 Release。
+# Usage: .\bench.ps1 [-Rounds 2]
+# Prerequisite: run test.ps1 first (it prepares the test files and builds), or build Release yourself.
 
 param([int]$Rounds = 2)
 
@@ -21,14 +21,14 @@ $timing = Join-Path $smoke 'timing.txt'
 $startup = Join-Path $smoke 'startup.txt'
 
 if (-not (Test-Path $exe)) {
-    throw "未找到 $exe，请先运行 test.ps1 完成构建"
+    throw "$exe not found - run test.ps1 to build first"
 }
 
 $fileNames = @('test.png', 'test.txt', 'test.md', 'test.json', 'test.zip', 'test.ttf', 'test.pdf')
 $files = $fileNames | ForEach-Object { Join-Path $smoke $_ } |
     Where-Object { Test-Path -LiteralPath $_ }
 if ($files.Count -eq 0) {
-    throw "测试文件不存在（$smoke），请先运行 test.ps1"
+    throw "test files are missing ($smoke) - run test.ps1 first"
 }
 
 if (Test-Path -LiteralPath $timing) {
@@ -41,13 +41,13 @@ if (Test-Path -LiteralPath $startup) {
 $p = Start-Process -FilePath $exe -ArgumentList '/autorun', '/test-timing', '/test-startup' -PassThru
 $requests = [System.Collections.Generic.List[object]]::new()
 try {
-    Start-Sleep -Seconds 14   # 等插件加载完成
+    Start-Sleep -Seconds 14   # wait for the plugins to finish loading
     foreach ($round in 1..$Rounds) {
         foreach ($f in $files) {
             $t0 = Get-Date
             & $exe $f | Out-Null
             $requests.Add([pscustomobject]@{ Path = $f; RequestTime = $t0 })
-            Start-Sleep -Seconds 15   # 给预览完成留足时间
+            Start-Sleep -Seconds 15   # leave plenty of time for the preview to finish
         }
     }
 }
@@ -56,11 +56,11 @@ finally {
 }
 
 if (-not (Test-Path -LiteralPath $timing)) {
-    Write-Host "没有生成 timing 条目（timing.txt 缺失）" -ForegroundColor Red
+    Write-Host "no timing entries were produced (timing.txt is missing)" -ForegroundColor Red
     exit 1
 }
 
-# 解析就绪时间戳（按文件路径分组，同一文件可能有多轮条目）
+# Parse the ready timestamps (grouped by file path; the same file may have entries from several rounds)
 $ready = @{}
 foreach ($line in Get-Content -LiteralPath $timing) {
     $parts = $line.Split('|')
@@ -73,7 +73,7 @@ foreach ($line in Get-Content -LiteralPath $timing) {
     $ready[$path].Add($t)
 }
 
-# 为每个请求匹配"晚于请求时刻"的最早就绪条目
+# Match each request with the earliest ready entry that comes after the request time
 $results = [System.Collections.Generic.List[object]]::new()
 foreach ($r in $requests) {
     $candidates = @($ready[$r.Path] | Where-Object { $_ -ge $r.RequestTime.AddSeconds(-2) })
@@ -88,18 +88,18 @@ foreach ($r in $requests) {
     }
 }
 
-Write-Host "逐次结果：" -ForegroundColor Cyan
+Write-Host "Per-run results:" -ForegroundColor Cyan
 $results | Format-Table -AutoSize
 
-Write-Host "汇总（ms）：" -ForegroundColor Cyan
+Write-Host "Summary (ms):" -ForegroundColor Cyan
 $results | Group-Object File | ForEach-Object {
     $lats = @($_.Group | Where-Object { $null -ne $_.LatencyMs } | Select-Object -ExpandProperty LatencyMs)
     [pscustomobject]@{
         File = $_.Name
-        次数 = $lats.Count
-        平均 = if ($lats.Count) { [math]::Round(($lats | Measure-Object -Average).Average, 0) } else { 'N/A' }
-        最快 = if ($lats.Count) { ($lats | Measure-Object -Minimum).Minimum } else { 'N/A' }
-        最慢 = if ($lats.Count) { ($lats | Measure-Object -Maximum).Maximum } else { 'N/A' }
+        Runs = $lats.Count
+        Average = if ($lats.Count) { [math]::Round(($lats | Measure-Object -Average).Average, 0) } else { 'N/A' }
+        Fastest = if ($lats.Count) { ($lats | Measure-Object -Minimum).Minimum } else { 'N/A' }
+        Slowest = if ($lats.Count) { ($lats | Measure-Object -Maximum).Maximum } else { 'N/A' }
     }
 } | Format-Table -AutoSize
 
@@ -109,9 +109,9 @@ if (Test-Path -LiteralPath $startup) {
         ForEach-Object { $_.Split('|')[0] } | Select-Object -First 1
     $plugins = $startupLines | Where-Object { $_ -match '\|plugins-inited$' } |
         ForEach-Object { $_.Split('|')[0] } | Select-Object -First 1
-    Write-Host "启动耗时（ms）：" -ForegroundColor Cyan
+    Write-Host "Startup timings (ms):" -ForegroundColor Cyan
     [pscustomobject]@{
-        UI就绪 = if ($end) { "$end ms" } else { 'N/A' }
-        插件就绪 = if ($plugins) { "$plugins ms" } else { 'N/A' }
+        UIReady = if ($end) { "$end ms" } else { 'N/A' }
+        PluginsReady = if ($plugins) { "$plugins ms" } else { 'N/A' }
     } | Format-Table -AutoSize
 }

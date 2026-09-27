@@ -1,10 +1,11 @@
-# 测量预览延迟：冷启动应用后连续预览若干文件，输出每次「请求 -> 内容就绪」的耗时。
+# Measure preview latency: cold-start the app, preview several files in a row, and print the
+# "request -> content ready" duration for each one.
 #
-# 用法：pwsh -NoProfile -File .\Scripts\measure-preview.ps1
-#       pwsh -NoProfile -File .\Scripts\measure-preview.ps1 -Files test.png,test.md
+# Usage: pwsh -NoProfile -File .\Scripts\measure-preview.ps1
+#        pwsh -NoProfile -File .\Scripts\measure-preview.ps1 -Files test.png,test.md
 #
-# 说明：请求与 shell 的打开方式一致（再启动一个 QuickLook-Next.exe 把路径转发给
-# 常驻实例），所以数值里包含进程启动与消息转发的开销。
+# Note: the request uses the same path as opening from the shell (a second QuickLook-Next.exe forwards
+# the path to the resident instance), so the numbers include process start-up and message forwarding.
 
 param(
     [string[]]$Files = @('test.png', 'test.md', 'test.pptx', 'test.xlsx'),
@@ -15,7 +16,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# -File 模式下 "a,b" 会作为单个字符串传进来，这里拆开。
+# In -File mode "a,b" arrives as a single string, so split it apart here.
 $Files = @($Files | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $root = Split-Path -Parent $PSScriptRoot
 $exe = Join-Path $root 'Build\Release\QuickLook-Next.exe'
@@ -35,11 +36,11 @@ if ($Memory) { Remove-Item -LiteralPath (Join-Path $smoke 'memory.txt') -Force -
 Start-Process -FilePath $exe -ArgumentList $appArgs
 Start-Sleep -Milliseconds $StartupWaitMs
 
-Write-Host ("{0,-18} {1}" -f '文件', '请求->内容就绪')
+Write-Host ("{0,-18} {1}" -f 'File', 'Request->ready')
 foreach ($file in $Files) {
     $path = Join-Path $smoke $file
     if (-not (Test-Path -LiteralPath $path)) {
-        Write-Host ("{0,-18} 跳过（文件不存在）" -f $file)
+        Write-Host ("{0,-18} skipped (file not found)" -f $file)
         continue
     }
 
@@ -66,7 +67,7 @@ foreach ($file in $Files) {
         Write-Host ("{0,-18} {1,5} ms" -f $file, $ms)
     }
     else {
-        Write-Host ("{0,-18} 超时" -f $file)
+        Write-Host ("{0,-18} timed out" -f $file)
     }
 
     Start-Sleep -Milliseconds 400

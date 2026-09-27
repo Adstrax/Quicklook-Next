@@ -1,7 +1,7 @@
-﻿# optimize-icon.ps1 - 把 app.ico 的未压缩 BMP 帧无损重编码为 PNG 帧
-# （Windows 10/11 支持 PNG 图标帧），体积可缩小数倍且像素完全一致。
+﻿# optimize-icon.ps1 - losslessly re-encodes the uncompressed BMP frames in app.ico as PNG frames
+# (Windows 10/11 supports PNG icon frames). The file can shrink several times over with identical pixels.
 #
-# 用法: powershell -File Scripts\optimize-icon.ps1
+# Usage: powershell -File Scripts\optimize-icon.ps1
 
 param([string]$IcoPath = '')
 

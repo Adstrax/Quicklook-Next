@@ -1,8 +1,9 @@
 ﻿# flatten-native.ps1
-# 将本工程（插件）引用的 RID 特定原生资产（runtimes\<rid>\native\*.dll）
-# 从 NuGet 缓存复制到插件输出根目录，供 Assembly.LoadFrom 加载的插件在运行时解析。
+# Copies the RID-specific native assets this project (a plugin) references
+# (runtimes\<rid>\native\*.dll) from the NuGet cache into the plugin output root, so that plugins
+# loaded with Assembly.LoadFrom can resolve them at runtime.
 #
-# 用法（由各插件 csproj 的 FlattenRuntimeNative 目标调用）：
+# Usage (invoked by the FlattenRuntimeNative target in each plugin csproj):
 #   powershell -File flatten-native.ps1 -AssetsPath <project.assets.json>
 #              -ProjectDir <plugin project dir> -Configuration <Debug|Release> -Platform <Platform>
 

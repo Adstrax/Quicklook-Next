@@ -1,8 +1,9 @@
-# 视频健壮性回归：把 ql-smoke\video-matrix 里的样本逐个预览一遍，记录
-# 「请求 -> 内容就绪」耗时、预览窗口标题、以及该次预览新增的错误日志行数。
+# Video robustness regression: preview every sample in ql-smoke\video-matrix in turn and record the
+# "request -> content ready" duration, the preview window title, and the number of new error log lines
+# that preview produced.
 #
-# 用法：
-#   pwsh -NoProfile -File .\Scripts\run-video-matrix.ps1                      # 全部
+# Usage:
+#   pwsh -NoProfile -File .\Scripts\run-video-matrix.ps1                      # everything
 #   pwsh -NoProfile -File .\Scripts\run-video-matrix.ps1 -TimeoutMs 20000
 param(
     [int]$TimeoutMs = 15000,
@@ -21,7 +22,7 @@ $log = Join-Path $root 'Build\Release\UserData\QuickLookNext.Exception.log'
 $env:QL_SMOKE_DIR = $smoke
 
 if (-not (Test-Path -LiteralPath $matrix)) {
-    throw "先运行 .\ql-smoke\make-video-matrix.ps1 生成样本"
+    throw "Run .\Scripts\make-video-matrix.ps1 first to generate the samples"
 }
 
 Add-Type @"
@@ -52,8 +53,9 @@ function Start-InstrumentedApp {
     return $p
 }
 
-# Start-Process 的 -ArgumentList 不会自动加引号：路径带空格时必须自己包起来，
-# 否则子进程收到的是两个参数（本脚本第一版就踩了这个坑，误报"带空格的路径预览失败"）。
+# Start-Process -ArgumentList does not add quotes on its own: a path with spaces has to be wrapped here,
+# otherwise the child process receives two arguments (the first version of this script hit exactly that
+# trap and produced a false report of "paths with spaces fail to preview").
 function Request-Preview([string]$Path) {
     Start-Process -FilePath $exe -ArgumentList "`"$Path`"" | Out-Null
 }
@@ -63,10 +65,11 @@ $app = Start-InstrumentedApp
 $files = Get-ChildItem -LiteralPath $matrix -File | Where-Object { $_.Name -like $Filter } | Sort-Object Name
 $rows = @()
 
-Write-Host ("{0,-26} {1,10} {2,6} {3}" -f '文件', '耗时', '错误行', '窗口标题') -ForegroundColor Cyan
+Write-Host ("{0,-26} {1,10} {2,6} {3}" -f 'File', 'Duration', 'ErrLines', 'Window title') -ForegroundColor Cyan
 
 foreach ($file in $files) {
-    # 上一个样本如果让应用崩了，这里重启一个带 test-timing 的实例，否则后面所有样本都测不到
+    # If the previous sample crashed the app, restart an instance with test-timing here, otherwise none
+    # of the remaining samples can be measured
     $restarted = $false
     if (-not (Get-Process -Id $app.Id -ErrorAction SilentlyContinue)) {
         $app = Start-InstrumentedApp
@@ -98,7 +101,7 @@ foreach ($file in $files) {
     $logAfter = if (Test-Path -LiteralPath $log) { @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue).Count } else { 0 }
     $newLog = [math]::Max(0, $logAfter - $logBefore)
 
-    $result = if ($died) { '应用崩溃' } elseif ($ms -ne $null) { "$ms ms" } else { '超时' }
+    $result = if ($died) { 'app crashed' } elseif ($ms -ne $null) { "$ms ms" } else { 'timed out' }
     Write-Host ("{0,-26} {1,10} {2,6} {3}" -f $file.Name, $result, $newLog, $title)
 
     $rows += [PSCustomObject]@{
@@ -110,7 +113,7 @@ foreach ($file in $files) {
         Title       = $title
     }
 
-    # 再请求同一个文件一次 = 关闭预览，保证下一个样本从干净状态开始
+    # Requesting the same file again closes the preview, so the next sample starts from a clean state
     if (-not $died) { Request-Preview $path }
     Start-Sleep -Milliseconds 400
 }
@@ -128,9 +131,9 @@ $died = @($rows | Where-Object { $_.Died })
 $withLog = @($rows | Where-Object { $_.NewLogLines -gt 0 })
 
 Write-Host ''
-Write-Host ("共 {0} 个样本：崩溃 {1} 个，超时 {2} 个，产生错误日志 {3} 个" -f $rows.Count, $died.Count, $timedOut.Count, $withLog.Count) `
+Write-Host ("{0} samples: {1} crashed, {2} timed out, {3} produced error log lines" -f $rows.Count, $died.Count, $timedOut.Count, $withLog.Count) `
     -ForegroundColor ($(if ($died.Count -eq 0 -and $timedOut.Count -eq 0 -and $withLog.Count -eq 0) { 'Green' } else { 'Yellow' }))
-if ($died.Count -gt 0) { Write-Host ('崩溃: ' + (($died | ForEach-Object { $_.File }) -join ', ')) -ForegroundColor Red }
-if ($timedOut.Count -gt 0) { Write-Host ('超时: ' + (($timedOut | ForEach-Object { $_.File }) -join ', ')) -ForegroundColor Yellow }
-if ($withLog.Count -gt 0) { Write-Host ('有错误日志: ' + (($withLog | ForEach-Object { $_.File }) -join ', ')) -ForegroundColor Yellow }
-Write-Host "结果已写入: $out"
+if ($died.Count -gt 0) { Write-Host ('crashed: ' + (($died | ForEach-Object { $_.File }) -join ', ')) -ForegroundColor Red }
+if ($timedOut.Count -gt 0) { Write-Host ('timed out: ' + (($timedOut | ForEach-Object { $_.File }) -join ', ')) -ForegroundColor Yellow }
+if ($withLog.Count -gt 0) { Write-Host ('with error log lines: ' + (($withLog | ForEach-Object { $_.File }) -join ', ')) -ForegroundColor Yellow }
+Write-Host "Results written to: $out"

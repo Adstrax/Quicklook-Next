@@ -1,8 +1,8 @@
 ﻿# capture-screenshots.ps1 - launches the app, previews the smoke-test files and
 # captures each window to docs\screenshots for the README.
 #
-# 用法: powershell -File Scripts\capture-screenshots.ps1
-#       powershell -File Scripts\capture-screenshots.ps1 -OnlyPdf
+# Usage: powershell -File Scripts\capture-screenshots.ps1
+#        powershell -File Scripts\capture-screenshots.ps1 -OnlyPdf
 
 param([switch]$OnlyPdf)
 
@@ -17,7 +17,7 @@ $outDir = Join-Path $root 'docs\screenshots'
 $env:QL_SMOKE_DIR = $smoke
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-if (-not (Test-Path $exe)) { throw "未找到 $exe，请先构建 Release" }
+if (-not (Test-Path $exe)) { throw "$exe not found - build Release first" }
 
 Add-Type -TypeDefinition @'
 using System;
@@ -73,13 +73,13 @@ function Capture-Preview($p, $file, $title, $outName) {
     Write-Host "saved $out"
 }
 
-# 1. 常驻实例
+# 1. resident instance
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 $p = Start-Process -FilePath $exe -ArgumentList '/autorun' -PassThru
 Start-Sleep -Seconds 8
 
-# 2. 各格式预览窗口
+# 2. one preview window per format
 if (-not $OnlyPdf) {
     Capture-Preview $p 'test.png' 'test.png' 'preview-image'
     Capture-Preview $p 'test.md' 'test.md' 'preview-markdown'
@@ -93,7 +93,7 @@ Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
 if (-not $OnlyPdf) {
-    # 3. 托盘菜单（全屏抓取，菜单出现在光标处）
+    # 3. tray menu (full-screen capture; the menu appears at the cursor)
     $p2 = Start-Process -FilePath $exe -ArgumentList '/autorun /test-tray-menu' -PassThru
     Start-Sleep -Seconds 4
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -101,7 +101,7 @@ if (-not $OnlyPdf) {
     Stop-Process -Id $p2.Id -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
 
-    # 4. 插件管理面板
+    # 4. plugin manager panel
     $p3 = Start-Process -FilePath $exe -ArgumentList '/autorun /test-plugin-manager' -PassThru
     Start-Sleep -Seconds 6
     $info = [ShotHelper]::Find($p3.Id, 'Manage Plugins')

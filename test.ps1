@@ -1,7 +1,8 @@
-# QuickLookNext 冒烟测试：每次提交前必须运行并通过。
-# 覆盖：全量构建 -> 启动 -> 插件加载无失败 -> PNG/文本/SQLite 预览 -> 窗口断言 -> 日志零新增错误。
+# QuickLookNext smoke test: must be run and must pass before every commit.
+# Covers: full build -> start -> plugin load without failures -> PNG/text/SQLite previews -> window
+# assertions -> no new errors in the log.
 #
-# 用法: .\test.ps1
+# Usage: .\test.ps1
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -82,30 +83,31 @@ public class WinEnumRect {
     [WinEnumRect]::Rect($targetPid, $titleMatch)
 }
 
-# ---------- 1. 清理旧实例 ----------
-Write-Host "== 1/9 清理旧实例 ==" -ForegroundColor Cyan
-# v3.31.0: 进程名是 "QuickLook-Next"（程序集名带连字符）。旧写法永远匹配不到，
-# 于是托盘里残留的实例会让下面启动的实例作为「第二实例」转发后立即退出，
-# 后续所有断言都在检查一个已经死掉的进程 —— 表现为一整片莫名其妙的失败。
+# ---------- 1. Clean up old instances ----------
+Write-Host "== 1/9 Clean up old instances ==" -ForegroundColor Cyan
+# v3.31.0: the process name is "QuickLook-Next" (the assembly name has a hyphen). The old spelling never
+# matched, so an instance left in the tray made the instance started below forward as a "second instance"
+# and exit immediately, after which every assertion was checking an already-dead process - which shows up
+# as a whole batch of inexplicable failures.
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 3
 if ($null -ne (Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue)) {
-    Write-Host '=== 旧实例无法清理，测试终止（新实例会作为第二实例直接退出）===' -ForegroundColor Red
+    Write-Host '=== Could not clean up the old instance; aborting (a new instance would exit as a second instance) ===' -ForegroundColor Red
     exit 1
 }
 
-# ---------- 2. 构建 ----------
-Write-Host "== 2/9 全量构建 ==" -ForegroundColor Cyan
+# ---------- 2. Build ----------
+Write-Host "== 2/9 Full build ==" -ForegroundColor Cyan
 Get-ChildItem (Join-Path $root 'Build\Release') -Force -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force
 # v1.2.34: build the whole solution in one parallel invocation instead of
 # compiling the 16 projects one by one - roughly halves the test time.
 & dotnet build (Join-Path $root 'QuickLookNext.slnx') -c Release -v minimal --nologo *> $null
-Assert ($LASTEXITCODE -eq 0) '构建 QuickLookNext.slnx'
+Assert ($LASTEXITCODE -eq 0) 'build QuickLookNext.slnx'
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-# ---------- 3. 准备测试文件 ----------
-Write-Host "== 3/9 准备测试文件 ==" -ForegroundColor Cyan
+# ---------- 3. Prepare the test files ----------
+Write-Host "== 3/9 Prepare the test files ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $smoke | Out-Null
 # v3.42.0: the preview warm-up proves itself by writing this file, so a leftover
 # from an earlier run must not be able to satisfy the assertion below.
@@ -120,7 +122,7 @@ $g.Dispose()
 $bmp.Save((Join-Path $smoke 'test.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Set-Content -Path (Join-Path $smoke 'test.txt') -Value "QuickLookNext smoke test`r`nLine 2" -Encoding UTF8
-Set-Content -Path (Join-Path $smoke 'test.md') -Value "# Markdown`n`n这是 **测试**。" -Encoding UTF8
+Set-Content -Path (Join-Path $smoke 'test.md') -Value "# Markdown`n`nThis is **bold** text." -Encoding UTF8
 Set-Content -Path (Join-Path $smoke 'test.json') -Value '{"name":"ql-smoke","version":"1.0.0","scripts":{}}' -Encoding UTF8
 Compress-Archive -Path (Join-Path $smoke 'test.txt') -DestinationPath (Join-Path $smoke 'test.zip') -Force
 Copy-Item -LiteralPath "$env:WINDIR\Fonts\arial.ttf" -Destination (Join-Path $smoke 'test.ttf') -Force
@@ -139,9 +141,9 @@ if (-not (Test-Path (Join-Path $smoke 'test.pdf'))) {
 Copy-Item -LiteralPath (Join-Path $root 'Build\Release\QuickLook-Next.exe') `
     -Destination (Join-Path $smoke 'test-pe.exe') -Force
 Set-Content -Path (Join-Path $smoke 'test-mermaid.md') `
-    -Value "## 图`n`n``````mermaid`ngraph TD;`n  A-->B;`n``````" -Encoding UTF8
+    -Value "## Diagram`n`n``````mermaid`ngraph TD;`n  A-->B;`n``````" -Encoding UTF8
 Set-Content -Path (Join-Path $smoke 'test-math.md') `
-    -Value "## 公式`n`n质能方程 $E=mc^2$ 或 $$\int_0^1 x dx$$" -Encoding UTF8
+    -Value "## Formula`n`nMass-energy equivalence $E=mc^2$ or $$\int_0^1 x dx$$" -Encoding UTF8
 # v3.12.0: a minimal but valid xlsx (OOXML zip) for the self-rendered
 # spreadsheet preview.
 Add-Type -AssemblyName System.IO.Compression
@@ -161,8 +163,8 @@ Add-XlsxEntry $xlsxZip '[Content_Types].xml' '<?xml version="1.0" encoding="UTF-
 Add-XlsxEntry $xlsxZip '_rels/.rels' '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'
 Add-XlsxEntry $xlsxZip 'xl/workbook.xml' '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>'
 Add-XlsxEntry $xlsxZip 'xl/_rels/workbook.xml.rels' '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
-$xlsxRows = '<row r="1"><c r="A1" t="inlineStr"><is><t>姓名</t></is></c><c r="B1" t="inlineStr"><is><t>部门</t></is></c><c r="C1" t="inlineStr"><is><t>月薪</t></is></c><c r="D1" t="inlineStr"><is><t>入职日期</t></is></c></row>'
-$xlsxData = @(@('张三','研发','18000','2024-03-15'),@('李四','产品','16000','2023-11-02'),@('王五','设计','15000','2025-01-20'))
+$xlsxRows = '<row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Team</t></is></c><c r="C1" t="inlineStr"><is><t>Salary</t></is></c><c r="D1" t="inlineStr"><is><t>Hire date</t></is></c></row>'
+$xlsxData = @(@('Alice','Engineering','18000','2024-03-15'),@('Bob','Design','16000','2023-11-02'),@('Cara','Support','15000','2025-01-20'))
 for ($i = 0; $i -lt $xlsxData.Count; $i++) {
     $r = $i + 2
     $cells = @()
@@ -190,11 +192,11 @@ Add-XlsxEntry $docxZip 'word/_rels/document.xml.rels' '<?xml version="1.0" encod
 Add-XlsxEntry $docxZip 'word/styles.xml' '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style></w:styles>'
 Add-XlsxEntry $docxZip 'word/numbering.xml' '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>'
 $docxBody = "<w:document xmlns:w=`"$wNs`"><w:body>"
-$docxBody += '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>QuickLook-Next 测试文档</w:t></w:r></w:p>'
-$docxBody += '<w:p><w:r><w:t>普通文本，</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>加粗</w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t>斜体</w:t></w:r><w:r><w:rPr><w:color w:val="C00000"/><w:sz w:val="28"/></w:rPr><w:t>红色大字</w:t></w:r></w:p>'
-$docxBody += '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>项目一</w:t></w:r></w:p>'
-$docxBody += '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>项目二</w:t></w:r></w:p>'
-$docxBody += '<w:tbl><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr><w:p><w:r><w:t>合并表头</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>单元格 A</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>单元格 B</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+$docxBody += '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>QuickLook-Next test document</w:t></w:r></w:p>'
+$docxBody += '<w:p><w:r><w:t>Plain text, </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t>italic</w:t></w:r><w:r><w:rPr><w:color w:val="C00000"/><w:sz w:val="28"/></w:rPr><w:t>big red</w:t></w:r></w:p>'
+$docxBody += '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Item one</w:t></w:r></w:p>'
+$docxBody += '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Item two</w:t></w:r></w:p>'
+$docxBody += '<w:tbl><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr><w:p><w:r><w:t>Merged header</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Cell A</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell B</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
 $docxBody += '</w:body></w:document>'
 Add-XlsxEntry $docxZip 'word/document.xml' $docxBody
 $docxZip.Dispose()
@@ -213,12 +215,12 @@ Add-XlsxEntry $pptxZip '_rels/.rels' "<?xml version=`"1.0`" encoding=`"UTF-8`" s
 Add-XlsxEntry $pptxZip 'ppt/_rels/presentation.xml.rels' "<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><Relationships xmlns=`"http://schemas.openxmlformats.org/package/2006/relationships`"><Relationship Id=`"rId1`" Type=`"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide`" Target=`"slides/slide1.xml`"/><Relationship Id=`"rId2`" Type=`"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide`" Target=`"slides/slide2.xml`"/></Relationships>"
 Add-XlsxEntry $pptxZip 'ppt/presentation.xml' "<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><p:presentation xmlns:p=`"$pNs`" xmlns:r=`"$rNs`"><p:sldSz cx=`"12192000`" cy=`"6858000`"/><p:sldIdLst><p:sldId id=`"256`" r:id=`"rId1`"/><p:sldId id=`"257`" r:id=`"rId2`"/></p:sldIdLst></p:presentation>"
 $slideXml1 = "<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><p:sld xmlns:p=`"$pNs`" xmlns:a=`"$aNs`" xmlns:r=`"$rNs`"><p:cSld><p:spTree>"
-$slideXml1 += '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="457200" y="2286000"/><a:ext cx="11277600" cy="1524000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="zh-CN" sz="5400" b="1"/><a:t>QuickLook-Next 演示文稿</a:t></a:r></a:p></p:txBody></p:sp>'
-$slideXml1 += '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Subtitle"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="2286000" y="4114800"/><a:ext cx="7620000" cy="914400"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="zh-CN" sz="2400"/><a:t>自研渲染测试</a:t></a:r></a:p></p:txBody></p:sp>'
+$slideXml1 += '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="457200" y="2286000"/><a:ext cx="11277600" cy="1524000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="5400" b="1"/><a:t>QuickLook-Next presentation</a:t></a:r></a:p></p:txBody></p:sp>'
+$slideXml1 += '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Subtitle"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="2286000" y="4114800"/><a:ext cx="7620000" cy="914400"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="2400"/><a:t>custom renderer test</a:t></a:r></a:p></p:txBody></p:sp>'
 $slideXml1 += '</p:spTree></p:cSld></p:sld>'
 Add-XlsxEntry $pptxZip 'ppt/slides/slide1.xml' $slideXml1
 $slideXml2 = "<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><p:sld xmlns:p=`"$pNs`" xmlns:a=`"$aNs`" xmlns:r=`"$rNs`"><p:cSld><p:spTree>"
-$slideXml2 += '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="10363200" cy="5029200"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="zh-CN" sz="2800" b="1"/><a:t>要点列表</a:t></a:r></a:p><a:p><a:r><a:rPr lang="zh-CN" sz="2000"/><a:t>第一点：标题、文本、定位都支持</a:t></a:r></a:p></p:txBody></p:sp>'
+$slideXml2 += '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="10363200" cy="5029200"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="2800" b="1"/><a:t>Bullet list</a:t></a:r></a:p><a:p><a:r><a:rPr lang="en-US" sz="2000"/><a:t>First point: heading, text and positioning are all supported</a:t></a:r></a:p></p:txBody></p:sp>'
 $slideXml2 += '</p:spTree></p:cSld></p:sld>'
 Add-XlsxEntry $pptxZip 'ppt/slides/slide2.xml' $slideXml2
 Add-XlsxEntry $pptxZip 'ppt/slides/_rels/slide1.xml.rels' '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
@@ -234,8 +236,8 @@ if (Test-Path -LiteralPath (Join-Path $smoke 'test.mp4')) {
         $videoBytes[0..([int]($videoBytes.Length * 0.4))])
 }
 
-# ---------- 4. 启动 + 插件加载 ----------
-Write-Host "== 4/9 启动并验证插件加载 ==" -ForegroundColor Cyan
+# ---------- 4. Start + plugin loading ----------
+Write-Host "== 4/9 Start and verify plugin loading ==" -ForegroundColor Cyan
 $before = Get-LogLength
 $p = Start-Process -FilePath $exe -ArgumentList '/autorun /test-tray-menu /test-warmup' -PassThru
 $trayMenuSeen = $false
@@ -249,25 +251,26 @@ for ($i = 0; $i -lt 60; $i++) {
 # Wait for the menu to auto-close and the plugins to finish loading.
 Start-Sleep -Seconds 15
 $alive = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
-Assert ($null -ne $alive) '启动后进程存活'
-Assert $trayMenuSeen '托盘菜单窗口出现并自动关闭'
+Assert ($null -ne $alive) 'process is alive after startup'
+Assert $trayMenuSeen 'tray menu window appeared and closed itself'
 $diagFile = Join-Path $smoke 'tray-menu-dwm.txt'
 $dwmDiag = if (Test-Path $diagFile) { Get-Content $diagFile -Raw } else { '' }
 if ($env:QL_SMOKE_CI -eq '1') {
     # CI runners may not have DWM compositing; skip the Acrylic assertion.
-    Write-Host 'SKIP: 托盘菜单 Acrylic（CI 环境）' -ForegroundColor Yellow
+    Write-Host 'SKIP: tray menu Acrylic (CI environment)' -ForegroundColor Yellow
 }
 else {
-    Assert ($dwmDiag -match 'accent-applied=True') '托盘菜单材质已应用（WCA 调用成功）'
-# v5.0.2: 菜单类界面回到 WCA acrylic。这条断言只要求「确实报告了一种材质」，
-# 防止哪天又退化成完全没有材质（host-backdrop 是 5.0.0/5.0.1 用过的，正则保留兼容）。
-Assert ($dwmDiag -match 'material=(host-backdrop|acrylic)') '托盘菜单报告了所用的材质'
+    Assert ($dwmDiag -match 'accent-applied=True') 'tray menu material applied (WCA call succeeded)'
+# v5.0.2: menu-style surfaces went back to WCA acrylic. This assertion only requires that *a* material was
+# reported, so that we notice if it ever degrades to no material at all (host-backdrop is what 5.0.0/5.0.1
+# used, and the regex keeps accepting it for compatibility).
+Assert ($dwmDiag -match 'material=(host-backdrop|acrylic)') 'tray menu reported the material it used'
 }
-Assert ($dwmDiag -match 'more-menu-opened=true') 'More 菜单复用同一 Acrylic 菜单路径'
-Assert ((Get-LogLength) -eq $before) '插件加载无失败（日志零新增）'
+Assert ($dwmDiag -match 'more-menu-opened=true') 'the More menu reuses the same Acrylic menu path'
+Assert ((Get-LogLength) -eq $before) 'plugin loading had no failures (no new log entries)'
 
-# ---------- 5. 预览测试 ----------
-Write-Host "== 5/9 预览测试 ==" -ForegroundColor Cyan
+# ---------- 5. Preview tests ----------
+Write-Host "== 5/9 Preview tests ==" -ForegroundColor Cyan
 $previews = @(
     @{ File = 'test.png'; Title = 'test.png' },
     @{ File = 'test.txt'; Title = 'test.txt' },
@@ -312,16 +315,16 @@ foreach ($pv in $previews) {
     & $exe $target
     Start-Sleep -Seconds 12
     $alive = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
-    Assert ($null -ne $alive) "预览 $label 后进程存活"
+    Assert ($null -ne $alive) "process is alive after previewing $label"
     if ($pv.CheckTitle -ne $false) {
         $titles = Get-QuickLookNextWindows $p.Id
-        Assert (($titles -join ' ') -match [regex]::Escape($pv.Title)) "预览窗口出现: $($pv.Title)"
+        Assert (($titles -join ' ') -match [regex]::Escape($pv.Title)) "preview window appeared: $($pv.Title)"
     }
     if ($pv.ExpectLog) {
-        Assert ((Get-LogLength) -gt $before) "预览 $label 报错被记录（可预期：损坏文件）"
+        Assert ((Get-LogLength) -gt $before) "previewing $label logged an error (expected: corrupt file)"
     }
     else {
-        Assert ((Get-LogLength) -eq $before) "预览 $label 无错误（日志零新增）"
+        Assert ((Get-LogLength) -eq $before) "previewing $label produced no errors (no new log entries)"
     }
 
     # v1.2.36: regression guard - the preview window must be centered on the
@@ -340,22 +343,22 @@ foreach ($pv in $previews) {
             $wa = $screen.WorkingArea
             $cx = $wa.Left + $wa.Width / 2
             $cy = $wa.Top + $wa.Height / 2
-            Assert ([math]::Abs($winCenter.X - $cx) -lt $wa.Width * 0.15) "预览窗口水平居中: $($pv.Title)"
-            Assert ([math]::Abs($winCenter.Y - $cy) -lt $wa.Height * 0.15) "预览窗口垂直居中: $($pv.Title)"
+            Assert ([math]::Abs($winCenter.X - $cx) -lt $wa.Width * 0.15) "preview window is horizontally centered: $($pv.Title)"
+            Assert ([math]::Abs($winCenter.Y - $cy) -lt $wa.Height * 0.15) "preview window is vertically centered: $($pv.Title)"
         }
         else {
-            Assert $false "预览窗口矩形可读取: $($pv.Title)"
+            Assert $false "preview window rect is readable: $($pv.Title)"
         }
     }
 }
 
-# ---------- 6. 性能与内存基线 ----------
+# ---------- 6. Performance and memory baseline ----------
 # v3.43.0: record "first preview right after startup" latency and idle memory in
 # baseline.txt, with a deliberately loose ceiling. Every problem fixed recently
 # (the WMI query stalling the first window render for ~2 s, the warm-up that did
 # nothing, the controller pool that was not being used) was found by hand-made
 # measurements - nothing guarded against them coming back. This is that guard.
-Write-Host "== 6/9 性能与内存基线 ==" -ForegroundColor Cyan
+Write-Host "== 6/9 Performance and memory baseline ==" -ForegroundColor Cyan
 
 $measureOutput = & pwsh -NoProfile -File (Join-Path $root 'Scripts\measure-preview.ps1') `
     -Files test.png,test.txt,test.md -StartupWaitMs 1500 -Memory
@@ -374,25 +377,26 @@ foreach ($line in $measureOutput) {
 }
 $baseline | Set-Content -Path (Join-Path $smoke 'baseline.txt') -Encoding UTF8
 
-# 上限放得很宽：正常 100-350ms，WMI 那次回归是 1.2-1.8s。
+# The ceiling is deliberately loose: normal is 100-350 ms, and the WMI regression measured 1.2-1.8 s.
 foreach ($file in @('test.png', 'test.txt', 'test.md')) {
     if ($firstPreviewMs.ContainsKey($file)) {
         Assert ($firstPreviewMs[$file] -lt 1000) `
-            "启动后首次预览 $file 在 1000ms 内（实测 $($firstPreviewMs[$file])ms）"
+            "first preview of $file after startup is within 1000 ms (measured $($firstPreviewMs[$file]) ms)"
     }
     else {
-        Assert $false "启动后首次预览 $file 有测量结果"
+        Assert $false "first preview of $file after startup has a measurement"
     }
 }
 
-# ---------- 7. 自动更新（真实文件替换） ----------
-# v3.40.0: 更新包下载后由脚本在应用退出后替换文件。该脚本曾经坏在
-# xcopy /EXCLUDE:"<文件>"（xcopy 读不了带引号的排除文件）——备份被判失败、更新中
-# 止，刚下载的安装包被丢弃，应用又回到旧版本。这里用真实生成的脚本对一个副本做
-# 一次完整替换，断言：文件换新、UserData 保留、临时目录被清理。
-Write-Host "== 7/9 自动更新流程 ==" -ForegroundColor Cyan
+# ---------- 7. Auto-update (a real file replacement) ----------
+# v3.40.0: after the update package is downloaded, a script replaces the files once the app exits. That
+# script used to break on xcopy /EXCLUDE:"<file>" (xcopy cannot read a quoted exclude file) - the backup
+# was judged failed, the update stopped, the freshly downloaded package was thrown away and the app went
+# back to the old version. Here the really generated script performs one full replacement on a copy, and we
+# assert: files are new, UserData is kept, the temp folder is cleaned up.
+Write-Host "== 7/9 Auto-update flow ==" -ForegroundColor Cyan
 
-# 脚本会等待名为 QuickLook-Next.exe 的进程退出，先清干净再跑。
+# The script waits for the process named QuickLook-Next.exe to exit, so clean up first.
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
 $updRoot = Join-Path $root 'Build\UpdateSmoke'
@@ -409,7 +413,7 @@ foreach ($name in @('QuickLook-Next.exe', 'QuickLook-Next.dll', 'QuickLook.Commo
 Set-Content -Path (Join-Path $updApp 'old-only.txt') -Value 'old' -Encoding UTF8
 Set-Content -Path (Join-Path $updApp 'UserData\keep.txt') -Value 'keep' -Encoding UTF8
 
-# 模拟“解压好的安装包”：只需包含更新前的完整性检查所需的入口文件。
+# Simulate an "already extracted package": only the entry files the pre-update integrity check needs.
 Copy-Item -LiteralPath (Join-Path $root 'Build\Release\QuickLook-Next.exe') -Destination $updSrc -Force
 Copy-Item -LiteralPath (Join-Path $root 'Build\Release\QuickLook.Common.dll') -Destination $updSrc -Force
 Set-Content -Path (Join-Path $updSrc 'new-only.txt') -Value 'new' -Encoding UTF8
@@ -422,48 +426,50 @@ $updLog = Join-Path $env:TEMP 'QuickLookNext-update.log'
 Remove-Item -LiteralPath $updScript, $updLog -Force -ErrorAction SilentlyContinue
 
 Start-Process -FilePath $exe -ArgumentList '/test-update-script' -Wait -WindowStyle Hidden
-Assert (Test-Path -LiteralPath $updScript) '更新脚本已生成'
+Assert (Test-Path -LiteralPath $updScript) 'update script was generated'
 
 & cmd.exe /c $updScript | Out-Null
 for ($i = 0; $i -lt 60 -and -not (Test-Path -LiteralPath $updLog); $i++) { Start-Sleep -Milliseconds 500 }
 $updText = if (Test-Path -LiteralPath $updLog) { Get-Content -LiteralPath $updLog -Raw } else { '' }
 
-Assert ($updText -match 'update ok') '更新脚本完成替换（日志 update ok）'
-Assert (Test-Path (Join-Path $updApp 'new-only.txt')) '新版本文件已就位'
-Assert (-not (Test-Path (Join-Path $updApp 'old-only.txt'))) '旧版本文件已清理'
-Assert (Test-Path (Join-Path $updApp 'UserData\keep.txt')) '用户数据（UserData）未被动过'
-Assert (-not (Test-Path -LiteralPath $updWork)) '更新临时目录已清理（不再堆积安装包）'
+Assert ($updText -match 'update ok') 'update script completed the replacement (log says update ok)'
+Assert (Test-Path (Join-Path $updApp 'new-only.txt')) 'new-version files are in place'
+Assert (-not (Test-Path (Join-Path $updApp 'old-only.txt'))) 'old-version files were cleaned up'
+Assert (Test-Path (Join-Path $updApp 'UserData\keep.txt')) 'user data (UserData) was left untouched'
+Assert (-not (Test-Path -LiteralPath $updWork)) 'update temp folder was cleaned up (no more piling up packages)'
 
-# 脚本最后会尝试启动副本，收尾掉，避免影响后面的步骤。
+# The script tries to start the copy at the end; shut that down so it does not affect later steps.
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -like "$updRoot*" } | Stop-Process -Force
 
-# v3.42.0: 预览预热 —— 应用启动后应在后台准备好常用的预览家族（首次预览慢的那部分
-# 工作），并把结果写进 warmup.txt。
+# v3.42.0: preview warm-up - after startup the app should prepare the common preview families in the
+# background (the work that made the first preview slow) and write the result to warmup.txt.
 $warmUpDiag = Join-Path $smoke 'warmup.txt'
-Assert (Test-Path -LiteralPath $warmUpDiag) '预览预热已执行（warmup.txt）'
+Assert (Test-Path -LiteralPath $warmUpDiag) 'preview warm-up ran (warmup.txt)'
 if (Test-Path -LiteralPath $warmUpDiag) {
     $warmed = Get-Content -LiteralPath $warmUpDiag -Raw
-    Assert ($warmed -match 'QuickLook\.Plugin\.') "预览预热覆盖了预览家族: $($warmed.Trim())"
+    Assert ($warmed -match 'QuickLook\.Plugin\.') "preview warm-up covered preview families: $($warmed.Trim())"
 }
 
-# v5.0.1: 更新界面曾经在英文系统上显示中文 —— 新增的 Update_* 文案只补到了
-# zh-CN/zh-TW，而翻译的回退链是「当前语言 → 父语言 → en → 中文 failsafe」，英文用户
-# 于是落到了中文兜底文案上。这里直接拿代码里用到的键去对 en / zh-CN / zh-TW 三个区块，
-# 缺一个就失败（en 是回退链的兜底，必须齐全）。
+# v5.0.1: the update UI used to show Chinese on English systems - the new Update_* strings had only been
+# added to zh-CN/zh-TW, and the translation fallback chain is "current language -> parent language -> en ->
+# Chinese failsafe", so English users landed on the Chinese fallback text. Here the keys actually used in
+# code are checked against the en / zh-CN / zh-TW blocks, and a missing one fails (en is the end of the
+# fallback chain, so it must be complete).
 $translationFile = Join-Path $root 'QuickLookNext\Translations.config'
 [xml]$translations = Get-Content -LiteralPath $translationFile -Raw
 $usedUpdateKeys = Get-ChildItem (Join-Path $root 'QuickLookNext') -Recurse -Filter *.cs |
     Select-String -Pattern 'TranslationHelper\.Get\("(Update_[A-Za-z]+)"' -AllMatches |
     ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-Assert ($usedUpdateKeys.Count -gt 0) '找到了更新界面的文案键'
+Assert ($usedUpdateKeys.Count -gt 0) 'found the update UI string keys'
 foreach ($locale in 'en', 'zh-CN', 'zh-TW') {
     $missingKeys = @($usedUpdateKeys | Where-Object { $null -eq $translations.Translations.$locale.SelectSingleNode($_) })
-    Assert ($missingKeys.Count -eq 0) "更新界面文案在 $locale 齐全（缺少: $($missingKeys -join ', ')）"
+    Assert ($missingKeys.Count -eq 0) "update UI strings are complete for $locale (missing: $($missingKeys -join ', '))"
 }
 
-# v3.41.0: 更新提示框 —— 用假 release 打开真实对话框，它在冒烟模式下 2 秒后自动
-# 关闭并写下诊断（材质 + 尺寸 + 按钮文案 + 界面语言），据此断言材质与文案。
+# v3.41.0: update prompt - open the real dialog with a fake release; in smoke mode it closes itself after
+# 2 seconds and writes a diagnostic (material + size + button labels + UI language), which the assertions
+# below use for the material and the strings.
 $dialogDiag = Join-Path $smoke 'update-dialog.txt'
 Remove-Item -LiteralPath $dialogDiag -Force -ErrorAction SilentlyContinue
 Start-Process -FilePath $exe -ArgumentList '/test-update-prompt'
@@ -471,17 +477,18 @@ for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $dialogDiag); $i++) { S
 $dialogText = if (Test-Path -LiteralPath $dialogDiag) { Get-Content -LiteralPath $dialogDiag -Raw } else { '' }
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
-Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托盘菜单相同的材质'
-Assert ($dialogText -match 'material=(host-backdrop|acrylic)') '更新对话框报告了所用的材质'
-Assert ($dialogText -match 'update=.*;ignore=') '更新对话框包含 立即更新 / 忽略更新 两个按钮'
-# v5.0.1: 对话框文案必须跟随界面语言，不能落回中文 failsafe。
+Assert ($dialogText -match 'accent-applied=True') 'update dialog uses the same material as the tray menu'
+Assert ($dialogText -match 'material=(host-backdrop|acrylic)') 'update dialog reported the material it used'
+Assert ($dialogText -match 'update=.*;ignore=') 'update dialog has both the Update now and Ignore buttons'
+# v5.0.1: the dialog strings must follow the UI language and must not fall back to the Chinese failsafe.
 $uiLang = if ($dialogText -match 'language=([A-Za-z-]+)') { $Matches[1] } else { '' }
-Assert ($uiLang -ne '') '更新对话框报告了界面语言'
+Assert ($uiLang -ne '') 'update dialog reported the UI language'
 if ($uiLang -notlike 'zh*') {
-    Assert ($dialogText -notmatch '[\u4e00-\u9fff]') "英文界面下更新对话框无中文回落（language=$uiLang）"
+    Assert ($dialogText -notmatch '[\u4e00-\u9fff]') "update dialog has no Chinese fallback on an English UI (language=$uiLang)"
 }
 
-# v3.43.0: 下载进度面板 —— 同一套材质 + 进度真的在走 + 完成后切到「正在安装」。
+# v3.43.0: download progress panel - the same material + progress really advancing + a switch to
+# "installing" when done.
 $progressDiag = Join-Path $smoke 'update-progress.txt'
 Remove-Item -LiteralPath $progressDiag -Force -ErrorAction SilentlyContinue
 Start-Process -FilePath $exe -ArgumentList '/test-update-progress'
@@ -489,22 +496,23 @@ for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $progressDiag); $i++) {
 $progressText = if (Test-Path -LiteralPath $progressDiag) { Get-Content -LiteralPath $progressDiag -Raw } else { '' }
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
-Assert ($progressText -match 'accent-applied=True') '下载进度面板使用相同的材质'
-Assert ($progressText -match 'material=(host-backdrop|acrylic)') '下载进度面板报告了所用的材质'
-Assert ($progressText -match 'detail=100%.*MB') '下载进度面板显示了进度与已下载体积'
-# v5.0.1: 状态文案同样跟随界面语言（以前固定断言中文，其实是在断言那个 bug）。
+Assert ($progressText -match 'accent-applied=True') 'download progress panel uses the same material'
+Assert ($progressText -match 'material=(host-backdrop|acrylic)') 'download progress panel reported the material it used'
+Assert ($progressText -match 'detail=100%.*MB') 'download progress panel shows the progress and the downloaded size'
+# v5.0.1: the status string follows the UI language too (it used to be asserted as Chinese, which was
+# really asserting that bug).
 $progressLang = if ($progressText -match 'language=([A-Za-z-]+)') { $Matches[1] } else { '' }
-Assert ($progressLang -ne '') '下载进度面板报告了界面语言'
+Assert ($progressLang -ne '') 'download progress panel reported the UI language'
 if ($progressLang -like 'zh*') {
-    Assert ($progressText -match 'status=.*安装') '下载完成后进度面板切到安装提示'
+    Assert ($progressText -match 'status=.*安装') 'progress panel switches to the install message when the download finishes'
 }
 else {
-    Assert ($progressText -match '(?i)status=.*installing') '下载完成后进度面板切到安装提示（跟随界面语言）'
-    Assert ($progressText -notmatch '[\u4e00-\u9fff]') "英文界面下下载进度面板无中文回落（language=$progressLang）"
+    Assert ($progressText -match '(?i)status=.*installing') 'progress panel switches to the install message when the download finishes (follows the UI language)'
+    Assert ($progressText -notmatch '[\u4e00-\u9fff]') "download progress panel has no Chinese fallback on an English UI (language=$progressLang)"
 }
 
-# ---------- 6. Shell 集成验证（空格键链路：Explorer 选区读取） ----------
-Write-Host "== 8/9 Shell 集成验证 ==" -ForegroundColor Cyan
+# ---------- 6. Shell integration (the space-bar chain: reading the Explorer selection) ----------
+Write-Host "== 8/9 Shell integration ==" -ForegroundColor Cyan
 $shellProbe = @"
 using System;
 using System.Reflection;
@@ -612,22 +620,22 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($probeResult)) {
-    Assert $true "Explorer 选区读取链路（COM 探针）返回: $probeResult"
+    Assert $true "Explorer selection read path (COM probe) returned: $probeResult"
 }
 else {
-    Write-Host "SKIP: 当前环境无 Explorer 文件窗口可供选区探针读取（不影响应用功能）" -ForegroundColor Yellow
+    Write-Host "SKIP: no Explorer window in this environment for the selection probe to read (does not affect app behaviour)" -ForegroundColor Yellow
 }
 
-# ---------- 7. 清理 ----------
-Write-Host "== 9/9 清理 ==" -ForegroundColor Cyan
+# ---------- 7. Cleanup ----------
+Write-Host "== 9/9 Cleanup ==" -ForegroundColor Cyan
 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 # v3.31.0: also clean up anything a preview request may have spawned while the
 # main instance was gone, so the next run starts from a known state.
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
 if ($failed) {
-    Write-Host "`n=== 测试失败 ===" -ForegroundColor Red
+    Write-Host "`n=== TESTS FAILED ===" -ForegroundColor Red
     exit 1
 }
-Write-Host "`n=== 全部测试通过 ===" -ForegroundColor Green
+Write-Host "`n=== ALL TESTS PASSED ===" -ForegroundColor Green
 exit 0
