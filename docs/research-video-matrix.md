@@ -1,67 +1,81 @@
-# 视频预览健壮性回归（2026-09-19）
+# Video preview robustness regression (2026-09-19)
 
-用一批有代表性的视频把"预览一张视频"这条路走一遍：打开速度、是否出画面、失败时是否优雅、会不会崩。
-样本矩阵覆盖容器/编码/变体，共 **22 个**，全部由 ffmpeg 生成（脚本在仓库里，可复跑）。
+We walked the whole "preview a video" path with a representative batch of files: how fast it opens,
+whether a picture appears, whether failures degrade gracefully, and whether anything crashes.
+The sample matrix covers containers / codecs / variants, **22 samples** in total, all generated with
+ffmpeg (the scripts live in the repo, so the run is repeatable).
 
-## 结论
+## Results
 
 | | |
 |---|---|
-| 22/22 样本正常预览 | 出画面耗时 299–1422 ms（中位数约 350 ms） |
-| 崩溃 | **0**（修复前：见下面的 find #1） |
-| 超时/无预览 | **0** |
-| 故意损坏的文件 | 2 个（0 字节、截断），均**优雅报错**并写日志，不再崩溃 |
+| 22/22 samples preview normally | First frame in 299–1422 ms (median ≈ 350 ms) |
+| Crashes | **0** (before the fix: see find #1 below) |
+| Timeouts / no preview | **0** |
+| Deliberately broken files | 2 (0-byte, truncated), both **fail gracefully** and log the error instead of crashing |
 
-覆盖到的格式：H.264/MP4、H.265（8-bit + 10-bit）/MP4+MKV、AV1/MKV、VP9+Opus/WebM、MPEG-2/AVI、
-WMV2+WMA/WMV、H.264/MOV、H.264/TS、H.264+MP3/FLV、Theora+Vorbis/OGV、4K H.264、6 分钟长视频、
-竖屏 240×320、带旋转元数据的横屏、可变帧率、无音轨、纯音频（MP3/M4A）、中文+带空格路径、
-截断文件、0 字节文件。
+Formats covered: H.264/MP4, H.265 (8-bit + 10-bit)/MP4+MKV, AV1/MKV, VP9+Opus/WebM, MPEG-2/AVI,
+WMV2+WMA/WMV, H.264/MOV, H.264/TS, H.264+MP3/FLV, Theora+Vorbis/OGV, 4K H.264, a 6-minute long video,
+portrait 240×320, landscape with rotation metadata, variable frame rate, no audio track, audio only
+(MP3/M4A), Chinese characters plus spaces in the path, a truncated file, and a 0-byte file.
 
-## find #1：打不开的视频会**崩溃整个应用**（已修）
+## find #1: an unplayable video **crashed the entire app** (fixed)
 
-`QuickLook.Plugin.VideoViewer.ViewerPanel.MediaFailed` 前两行直接清空缩略图（`videoThumbnail.Source`
-/ `Visibility`），但 **WPFMediaKit 是在自己的工作线程上抛这个回调的** —— 从非 UI 线程碰视觉树会抛
-`InvalidOperationException: The calling thread cannot access this object`，而那个异常落在没有捕获的
-工作线程上，**整个进程直接退出**。日志里两条 8 行堆栈（0 字节文件、截断文件）就是它。
+The first two lines of `QuickLook.Plugin.VideoViewer.ViewerPanel.MediaFailed` cleared the thumbnail
+(`videoThumbnail.Source` / `Visibility`) directly, but **WPFMediaKit raises that callback on its own
+worker thread** — touching the visual tree from a non-UI thread throws
+`InvalidOperationException: The calling thread cannot access this object`, and because that exception
+landed on a worker thread with no handler, **the process exited immediately**. The two 8-line stacks in
+the log (0-byte file, truncated file) were exactly this.
 
-用户感受：预览一个打不开的视频（损坏文件、编码缺失、容器不支持的 `.mp4`）→ 整个 QuickLook 直接消失，
-而不是提示"这个视频打不开"。这与上游 [#1768](https://github.com/QL-Win/QuickLook/issues/1768)
-"Cannot open videos" 是同一类现象。
+What the user saw: previewing an unplayable video (corrupt file, missing codec, a `.mp4` in an
+unsupported container) made QuickLook vanish altogether, instead of reporting "this video cannot be
+played". This is the same class of symptom as upstream
+[#1768](https://github.com/QL-Win/QuickLook/issues/1768) "Cannot open videos".
 
-修复（5.0.9）：所有 UI 操作都挪到窗口 Dispatcher 上执行；用户看到一句话提示
-（`VV_PlaybackFailed`：无法播放此视频 / This video could not be played），完整异常写进日志。
-顺带把原来直接显示在面板上的**原始堆栈**换成了这句提示。
+Fix (5.0.9): every UI operation is now dispatched to the window's Dispatcher; the user sees a one-line
+message (`VV_PlaybackFailed`: 无法播放此视频 / This video could not be played), and the full exception is
+written to the log. The **raw stack trace** that used to be displayed in the panel was replaced by that
+message.
 
-## find #2：脚本自身的坑（已修，记录以免重犯）
+## find #2: a trap in the script itself (fixed; recorded so it is not repeated)
 
-第一版扫描脚本用 `Start-Process -ArgumentList $path` 请求预览 —— PowerShell 的 `-ArgumentList`
-**不会自动加引号**，所以路径带空格时子进程收到的是两个参数、应用拿到的路径被截断，表现为
-"带空格的视频文件预览失败"。一度误判成"中文路径有问题"，隔离测试后确认：**中文没问题，空格才有问题**，
-而且那是脚本的错，不是应用的错。修正后 `中文 名称 测试.mp4` 正常预览。
+The first version of the scan script requested a preview with `Start-Process -ArgumentList $path` —
+PowerShell's `-ArgumentList` **does not add quotes automatically**, so a path containing a space arrived
+as two arguments in the child process and the app received a truncated path; that looked like
+"video files with spaces fail to preview". It was briefly misdiagnosed as "Chinese paths are broken";
+after isolating the variables we confirmed that Chinese was fine and the space was the problem, and that
+it was the script's fault rather than the app's. After the fix, `中文 名称 测试.mp4` previews normally.
 
-## 怎么复跑
+## How to re-run
 
 ```powershell
-# 1) 需要 ffmpeg（winget install --id Gyan.FFmpeg -e）；生成 22 个样本到 ql-smoke\video-matrix
+# 1) requires ffmpeg (winget install --id Gyan.FFmpeg -e); generates the 22 samples into ql-smoke\video-matrix
 pwsh -NoProfile -File .\Scripts\make-video-matrix.ps1
 
-# 2) 逐个预览并输出 耗时 / 崩溃 / 日志新增 / 窗口标题，结果写到 ql-smoke\video-matrix-results.txt
+# 2) previews each sample and reports duration / crashes / new log lines / window title; writes ql-smoke\video-matrix-results.txt
 pwsh -NoProfile -File .\Scripts\run-video-matrix.ps1
 ```
 
-扫描脚本会在应用被某个样本搞崩后**自动重启**带 `/test-timing` 的实例，所以崩一次不会污染后面的样本。
+The scan script **restarts the app automatically** with `/test-timing` if a sample kills it, so a single
+crash does not contaminate the remaining samples.
 
-## 固化成防线
+## Locked in as a guard
 
-`test.ps1` 现在会先把 `test.mp4` 截断成 `test-corrupt.mp4` 并预览它（不带 ffmpeg 也能造出来）：
+`test.ps1` now truncates `test.mp4` into `test-corrupt.mp4` and previews it first (no ffmpeg needed to
+produce it):
 
-- 断言 **进程存活**（这就是 find #1 的守卫：崩溃会让整条冒烟测试失败）
-- 断言 **确实写了错误日志**（失败必须被报告，而不是静默吞掉）
+- it asserts the **process is still alive** (this is the guard for find #1: a crash fails the whole smoke run)
+- it asserts an **error log entry was actually written** (failures must be reported, not swallowed silently)
 
-## 没覆盖到的
+## Not covered
 
-- 网络路径（UNC / 映射盘）与超长路径（>260 字符）：需要真实环境，未纳入
-- HDR / Dolby Vision、以及需要额外解码器的编码（如 AV1 硬解路径）：样本是软解友好的
-- 双显卡切换场景：上游 [#1968](https://github.com/QL-Win/QuickLook/issues/1968) 指向核显/独显切换，
-  我们已有 `UseHardwareAcceleration` 开关（OPTIONS.md），但没有自动化手段制造双 GPU 环境
-- 播放中的交互（暂停/拖动进度/音量）：只测了"出画面 + 不崩"，交互仍靠人工
+- Network paths (UNC / mapped drives) and very long paths (more than 260 characters): these need a real
+  environment and were not included
+- HDR / Dolby Vision, and codecs that need extra decoders (for example the AV1 hardware-decode path):
+  the samples are all software-decode friendly
+- Dual-GPU switching: upstream [#1968](https://github.com/QL-Win/QuickLook/issues/1968) points at
+  iGPU/dGPU switching; we already have the `UseHardwareAcceleration` switch (OPTIONS.md), but no
+  automated way to produce a dual-GPU environment
+- In-playback interaction (pause / seek / volume): only "a frame appears + no crash" was tested;
+  interaction is still covered by manual testing

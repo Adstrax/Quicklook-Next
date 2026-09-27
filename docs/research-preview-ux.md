@@ -1,205 +1,256 @@
-# 预览体验调查与可行性验证记录
+# Preview experience: investigation and feasibility notes
 
-> 状态：**仅调研与验证，未改动产品代码、未发布版本**。记录时间 2026-09-17。
+> Status: **research and verification only — no product code changed, no release published.** Recorded 2026-09-17.
 >
-> 起因：有用户反馈"预览（视频）时窗口能否记住上一次大小，或者自定义窗口大小"。
-> 查过上游后决定**不做**这项需求（见 §3），转而验证两件更有价值的事：
-> **←/→ 文件夹内切换文件**、**大图预览保护**。本文是这两项的可行性验证记录，
-> 外加一份上游热门 issue 的排期参考。
+> Origin: a user asked "can the preview window remember its last size when previewing (video), or use a
+> custom window size". After checking upstream we decided **not** to implement that request (see §3) and
+> instead verified two more valuable things: **←/→ to switch files inside a folder** and
+> **large-image preview protection**. This document records the feasibility work for those two, plus a
+> scheduling reference drawn from upstream's popular issues.
 
-## 1. 结论速览
+## 1. Summary
 
-| 项 | 结论 | 关键证据 |
+| Item | Conclusion | Key evidence |
 |---|---|---|
-| ←/→ 切换同目录上/下一个文件 | **已实现，无需开发**（见 §2.5；本节的"程序化改选区"是被否掉的另一种实现） | `KeystrokeDispatcher` + `FocusMonitor` + `ViewWindowManager.SwitchPreview` |
-| 大图预览保护 | **必要** | 6400 万像素 PNG：首帧 287ms（速度没问题），但私有内存峰值 **1.2–1.7 GB**（普通图 243 MB），关闭后仍留 429 MB（基线 203 MB） |
-| 记住预览窗口尺寸 | **不做** | 上游 8 年间同类请求全部被拒（#169/#821/#492/#1196）；固定尺寸会把一个宽高比强加给所有内容 → 黑边/空白 |
+| ←/→ to switch to the previous/next file in the same folder | **Already implemented, nothing to build** (see §2.5; the "programmatically change the Explorer selection" approach described below is the rejected alternative) | `KeystrokeDispatcher` + `FocusMonitor` + `ViewWindowManager.SwitchPreview` |
+| Large-image preview protection | **Necessary** | 64-megapixel PNG: first frame in 287 ms (speed is fine), but private memory peaks at **1.2–1.7 GB** (243 MB for an ordinary image), and 429 MB is still held after closing (baseline 203 MB) |
+| Remembering the preview window size | **Not doing it** | Every comparable request upstream over 8 years was rejected (#169/#821/#492/#1196); a fixed size forces one aspect ratio onto all content → letterboxing / empty space |
 
-## 2. ←/→ 文件导航：可行性验证
+## 2. ←/→ file navigation: feasibility
 
-> **更正（2026-09-19）**：这一项**功能早已实现**——见 §2.5。下面记录的是"另一种实现方式"（由本程序主动改 Explorer 选区）的可行性验证，结论是**不采用**：现有实现更简单，而且不会和插件的方向键冲突。
+> **Correction (2026-09-19)**: this **feature has been implemented for a long time** — see §2.5. What
+> follows is the feasibility work for an "alternative implementation" (making this app change the
+> Explorer selection itself), and the conclusion is **do not adopt it**: the existing implementation is
+> simpler and does not conflict with the plugins' use of the arrow keys.
 
-### 2.5 现有实现（先看这里，别再重复开发）
+### 2.5 The existing implementation (read this first; do not build it again)
 
-方向键切换文件在本仓库里是**已有的**功能，机制是"把按键让给资源管理器，再跟随选区"：
+Arrow-key file switching is an **existing** feature of this repo. The mechanism is "give the key to the
+file manager, then follow the selection":
 
-1. 全局键盘钩子 `GlobalKeyboardHook.HookProc` 只在按键被 `Handled` 时拦截（`return kea.Handled ? 1 : CallNextHookEx(...)`）；
-   方向键**不会被吞**，所以照常送到资源管理器 → Explorer 自己移动选中项（方向由视图/排序决定，和 macOS Quick Look 一样）；
-2. 按键松开时 `KeystrokeDispatcher` 发 `PipeMessages.Switch`；`ViewWindowManager.SwitchPreview()` 不带路径时**重新读当前选区**并预览
-   （`NativeMethods.QuickLookNext.GetCurrentSelection()`）；
-3. 另外 `FocusMonitor` 在选区/焦点变化时也会主动发 `Switch`（带新路径），两条路径互为兜底。
+1. The global keyboard hook `GlobalKeyboardHook.HookProc` only intercepts when the key event is already
+   `Handled` (`return kea.Handled ? 1 : CallNextHookEx(...)`); the arrow keys are **never swallowed**, so
+   they reach the file manager as usual → Explorer moves the selection itself (the direction follows the
+   view/sort order, just like macOS Quick Look);
+2. On key-up, `KeystrokeDispatcher` sends `PipeMessages.Switch`; when `ViewWindowManager.SwitchPreview()`
+   is called without a path it **re-reads the current selection** and previews that
+   (`NativeMethods.QuickLookNext.GetCurrentSelection()`);
+3. Separately, `FocusMonitor` also sends a `Switch` (with the new path) whenever the selection or focus
+   changes, so the two paths cover for each other.
 
-由此还得到一条现成的"按键归属"规则：**Explorer 持有焦点时方向键用于切换文件；预览窗口被点击获得焦点后，方向键归插件**（视频快进/快退、PDF 翻页等）——两者不冲突，靠焦点天然区分。
+This also yields a ready-made "key ownership" rule: **while Explorer holds focus the arrow keys switch
+files; once the preview window is clicked and takes focus the arrow keys belong to the plugin** (video
+seek, PDF paging, ...) — the two never conflict because focus separates them naturally.
 
-上游 issue [#691](https://github.com/QL-Win/QuickLook/issues/691) 里"没做成"的结论是旧信息：当时的难点是"预览窗口不抢输入"，后来的解法就是上面这种"不拦截方向键 + 跟随选区"。
+The "not done" conclusion in upstream issue
+[#691](https://github.com/QL-Win/QuickLook/issues/691) is outdated information: the difficulty at the time
+was "the preview window must not steal input", and the solution that arrived later is exactly this
+"don't intercept the arrow keys + follow the selection" approach.
 
-### 2.1 实测输出
+### 2.1 Measured output
 
 ```
-PASS: IShellView -> IFolderView 可用
-PASS: ItemCount = 18（能按视图顺序枚举项目）
-视图顺序（前 8 项）: America | Artificial | Beauty | CutePet | Economics | Japan | Jing | Lin
-原状态: 选中项=(无)，标记索引=-1，焦点索引=0
-目标: 第 1 项 = Artificial
-① 不激活 + IFolderView::SelectItem: hr=0x00000000 -> 选中项=Artificial  PASS
-② ACTIVATE_NOFOCUS(hr=0x00000000) + IFolderView::SelectItem: hr=0x00000000 -> 选中项=Artificial  PASS
-③ IShellView::SelectItem(pidl): hr=0x00000000 -> 选中项=Artificial  PASS
-越过最后一项（索引 18）: hr=0x80004005（不会自动回绕，回绕要应用自己处理）
-已还原: 选中项=(无，与原状态一致)
+PASS: IShellView -> IFolderView available
+PASS: ItemCount = 18 (items can be enumerated in view order)
+view order (first 8): America | Artificial | Beauty | CutePet | Economics | Japan | Jing | Lin
+initial state: selection=(none), marked index=-1, focused index=0
+target: item 1 = Artificial
+(1) no activation + IFolderView::SelectItem: hr=0x00000000 -> selection=Artificial  PASS
+(2) ACTIVATE_NOFOCUS(hr=0x00000000) + IFolderView::SelectItem: hr=0x00000000 -> selection=Artificial  PASS
+(3) IShellView::SelectItem(pidl): hr=0x00000000 -> selection=Artificial  PASS
+past the last item (index 18): hr=0x80004005 (no automatic wrap-around; wrapping is up to the app)
+restored: selection=(none, same as the initial state)
 ```
 
-（探针只操作一个已打开的文件夹窗口，改完立即还原，未改动任何文件。）
+（The probe only touches one already-open folder window, restores it immediately, and changes no files.）
 
-### 2.2 为什么这条路走得通
+### 2.2 Why this route works
 
-- 应用读选区**已经在用** `IShellBrowser::QueryActiveShellView → IShellView::GetItemObject(SVGIO_SELECTION)`
-  （`QuickLookNext/NativeMethods/QuickLook.cs`），只差在同一个 `IShellView` 上再 QueryInterface
-  一个 `IFolderView`——探针证明这一步通得过（`PASS: IShellView -> IFolderView 可用`）。
-- `IFolderView::ItemCount(SVGIO_ALLVIEW)` + `Item(i)` 返回的是 **Explorer 当前的显示顺序**
-  （包含用户的排序设置），所以"下一项"和用户屏幕上看到的一致，不需要我们自己排序目录。
+- The app **already reads the selection** via
+  `IShellBrowser::QueryActiveShellView → IShellView::GetItemObject(SVGIO_SELECTION)`
+  (`QuickLookNext/NativeMethods/QuickLook.cs`); the only missing piece is querying one more interface,
+  `IFolderView`, on the same `IShellView` — and the probe proves that step works
+  (`PASS: IShellView -> IFolderView available`).
+- `IFolderView::ItemCount(SVGIO_ALLVIEW)` + `Item(i)` return **Explorer's current display order**
+  (including the user's sort settings), so "the next item" matches what the user sees on screen and we do
+  not have to sort the directory ourselves.
 - `IFolderView::SelectItem(index, SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE)`
-  **不需要视图被激活**即可生效（上面 ① 就是不带任何激活的成功案例）——这对"不该抢焦点"的
-  预览工具是决定性的一点。
-- 应用本来就在**跟随 Explorer 的选区事件**（见 CHANGELOG 里 "follow the Explorer selection
-  from events instead of a 500 ms poll"），所以选区一变，预览会自动切到新文件。
-- 越界返回 `E_FAIL` 且不改变选区 → 首尾回绕（最后一项 → 第一项）需要应用自己实现。
+  takes effect **without the view being activated** (case (1) above is the successful run with no
+  activation at all) — which is the decisive point for a preview tool that must not steal focus.
+- The app is already **following Explorer's selection events** (see the CHANGELOG entry "follow the
+  Explorer selection from events instead of a 500 ms poll"), so as soon as the selection changes the
+  preview switches to the new file automatically.
+- Going past the end returns `E_FAIL` and leaves the selection unchanged → wrap-around (last item →
+  first item) would have to be implemented by the app itself.
 
-### 2.3 实现草图（预计改动 4 处）
+### 2.3 Implementation sketch (about 4 places to change)
 
-1. `QuickLookNext/NativeMethods/QuickLook.cs`：新增 `IFolderView` 接口声明
-   （`ItemCount` / `Item` / `GetFocusedItem` / `SelectItem`）与一个内部方法
-   `TryMoveSelection(int delta)`（找到当前项 → 目标项 → 回绕处理 → `SelectItem`）。
-2. 全局键盘钩子：当"预览已打开 **且** 预览来源是 Explorer 选区"时拦下 ←/→，其余场景一律放行。
-3. 目标窗口：使用**提供当前预览的那个 Explorer 窗口**的 `IShellBrowser`（多窗口时不会改错窗口）。
-4. 回绕与边界：`index - 1 < 0 → count - 1`；`index + 1 >= count → 0`。
+1. `QuickLookNext/NativeMethods/QuickLook.cs`: add an `IFolderView` interface declaration
+   (`ItemCount` / `Item` / `GetFocusedItem` / `SelectItem`) and an internal helper
+   `TryMoveSelection(int delta)` (find the current item → target item → handle wrap-around →
+   `SelectItem`).
+2. Global keyboard hook: intercept ←/→ when "a preview is open **and** the preview came from an Explorer
+   selection", and let everything else through unchanged.
+3. Target window: use the `IShellBrowser` of **the Explorer window that provided the current preview**
+   (so multiple windows cannot make it move the wrong one).
+4. Wrap-around and bounds: `index - 1 < 0 → count - 1`; `index + 1 >= count → 0`.
 
-### 2.4 待确认 / 风险
+### 2.4 Open questions / risks
 
-- **多选**：以 `GetFocusedItem`（或带标记项）为基准，多选时只移动"当前项"。
-- **虚拟文件夹**（搜索结果、库）：`Item(i)` 顺序即视图顺序，可用；路径解析统一走
-  `SHGetNameFromIDList`。
-- **按键归属**：预览窗口本身有键盘焦点时，←/→ 是否应该给插件（视频快退/快进、图片翻页）
-  要定优先级。建议：预览窗口有焦点 → 给插件；焦点在别处（典型空格键预览场景）→ 文件导航。
-- **来源判定**：预览可能是通过命令行/管道打开的（不是 Explorer 选区），这种情况要直接跳过。
+- **Multi-selection**: base it on `GetFocusedItem` (or the marked item) and only move the "current item"
+  when several are selected.
+- **Virtual folders** (search results, libraries): `Item(i)` order is the view order, so it works; path
+  resolution should always go through `SHGetNameFromIDList`.
+- **Key ownership**: when the preview window itself has keyboard focus, should ←/→ go to the plugin
+  (video rewind/forward, image paging)? A priority has to be chosen. Suggested: preview window focused →
+  plugin; focus elsewhere (the typical space-key preview case) → file navigation.
+- **Source check**: a preview may have been opened from the command line or a pipe (not from an Explorer
+  selection); that case must be skipped outright.
 
-## 3. 为什么不做"记住预览窗口尺寸"
+## 3. Why we are not implementing "remember the preview window size"
 
-上游（QL-Win/QuickLook）同类诉求的历史：
+History of comparable requests upstream (QL-Win/QuickLook):
 
-| issue | 诉求 | 上游答复 |
+| issue | Request | Upstream answer |
 |---|---|---|
-| [#169](https://github.com/QL-Win/QuickLook/issues/169)（2018） | 记住窗口大小和位置 | 原作者 xupefei：大小**只在切换预览时保留**，关闭后恢复，**"This is intended"**；后续要求写进配置时维护者回"要同时满足所有插件的要求很难" |
-| [#821](https://github.com/QL-Win/QuickLook/issues/821) | 按文件类型记住尺寸 | emako：**"No plan to support"** |
-| [#492](https://github.com/QL-Win/QuickLook/issues/492) | 记住上一次大小 | emako：**"No supported plans"** |
-| [#1196](https://github.com/QL-Win/QuickLook/issues/1196) → #1078 → #608 | 同一诉求的多次重复 | 一路判重复，最终回到 #169 |
-| [#525](https://github.com/QL-Win/QuickLook/issues/525)（原作者提出） | 视频窗口没有贴到实际视频尺寸 | xupefei：**"视频插件会检测真实分辨率并让窗口去贴合它；检测不到时才用默认尺寸，于是出现奇怪的边框"** |
+| [#169](https://github.com/QL-Win/QuickLook/issues/169) (2018) | Remember window size and position | Original author xupefei: the size is **only kept while switching previews** and is restored on close, **"This is intended"**; when it was later requested as a persisted setting the maintainer replied that it is hard to satisfy every plugin at the same time |
+| [#821](https://github.com/QL-Win/QuickLook/issues/821) | Remember sizes per file type | emako: **"No plan to support"** |
+| [#492](https://github.com/QL-Win/QuickLook/issues/492) | Remember the last size | emako: **"No supported plans"** |
+| [#1196](https://github.com/QL-Win/QuickLook/issues/1196) → #1078 → #608 | The same request repeated | Closed as duplicates all the way, eventually pointing back at #169 |
+| [#525](https://github.com/QL-Win/QuickLook/issues/525) (opened by the original author) | The video window does not snap to the real video size | xupefei: **"the video plugin detects the real resolution and fits the window to it; when it cannot detect it, it falls back to the default size, which produces the odd borders"** |
 
-代码侧一致：上游 `QuickLook/ViewerWindow.xaml.cs` 就是本仓库这套 `_customWindowSize`
-（**只在内存、会话内有效**），上游 `OPTIONS.md` 里**没有任何窗口尺寸/位置选项**。
+The code agrees: upstream `QuickLook/ViewerWindow.xaml.cs` is exactly this repo's
+`_customWindowSize` (**in memory only, valid for the session**), and upstream `OPTIONS.md` has **no window
+size or position options at all**.
 
-结论：预览窗口尺寸"由内容决定"是刻意设计。把它固定下来，等于给每个文件强加同一个宽高比
-——视频会出现信箱黑边、图片会居中留白。**5.0.4 试过持久化，效果就是用户反馈的"很大的黑边和空白"，
-发布当天已撤回**（Release 删除，最新版回到 5.0.3；分支上的提交仍需回退，见 §5）。
+Conclusion: a preview window whose size is "determined by the content" is deliberate design. Pinning it
+means forcing the same aspect ratio onto every file — video gets letterbox bars and images get centred
+with empty space. **5.0.4 tried persisting it, and the result was exactly the "huge black bars and empty
+space" users reported, so it was withdrawn the same day** (the release was deleted and the latest version
+went back to 5.0.3; the commits on the branch still need reverting, see §5).
 
-## 4. 大图预览保护：验证数据
+## 4. Large-image preview protection: the data
 
-同一台机器、本地产物实测：
+Measured on the same machine, with local builds:
 
-| 文件 | 请求→内容就绪 | 私有内存峰值 | 工作集峰值 | 关闭预览后 |
+| File | Request → content ready | Peak private memory | Peak working set | After closing the preview |
 |---|---|---|---|---|
-| `test.png`（普通图） | 108 ms | 243 MB | 335 MB | — |
-| `big8000.png`（8000×8000，6400 万像素） | 287 ms | **1,193–1,682 MB** | 1,657 MB | 429 MB（基线 203 MB） |
+| `test.png` (ordinary image) | 108 ms | 243 MB | 335 MB | — |
+| `big8000.png` (8000x8000, 64 megapixels) | 287 ms | **1,193–1,682 MB** | 1,657 MB | 429 MB (baseline 203 MB) |
 
-结论：
+Conclusions:
 
-- **速度不是问题**：首帧走的是缩略图路径，6400 万像素也能 287ms 出内容；
-- **内存是风险**：64MP 就吃到 1.2–1.7 GB；再大一档（1 亿像素以上的全景/TIFF）在 8 GB 机器上
-  就是上游 [#1054 "Crash when previewing large images"](https://github.com/QL-Win/QuickLook/issues/1054)
-  的崩溃场景；
-- **关闭后没有完全归还**（+226 MB），大图路径建议在关闭时主动回收一次；
-- 现成的钩子已经存在：`MetaProvider.GetSize()`（只读文件头拿像素数，目前用于计算窗口尺寸）、
-  `AnimatedImage` 的缩略图路径 + `DecodedImageCache`。
+- **Speed is not the problem**: the first frame goes through the thumbnail path, and 64 megapixels still
+  produces content in 287 ms;
+- **memory is the risk**: 64 MP already costs 1.2–1.7 GB; one step up (panoramas/TIFFs beyond 100
+  megapixels) on an 8 GB machine is the crash scenario from upstream
+  [#1054 "Crash when previewing large images"](https://github.com/QL-Win/QuickLook/issues/1054);
+- **closing does not return everything** (+226 MB), so the large-image path should reclaim memory
+  explicitly when it closes;
+- the hooks already exist: `MetaProvider.GetSize()` (reads the pixel count from the file header only;
+  currently used to compute the window size), plus `AnimatedImage`'s thumbnail path and
+  `DecodedImageCache`.
 
-### 修复草图
+### Fix sketch
 
-1. 像素数阈值（建议默认 40 MP，可配置）：超过时**只渲染缩略图**，并在标题/提示里说明
-   "按 1:1（或放大）才会解码原始尺寸"；
-2. 1:1 / 放大操作再触发全分辨率解码（挂在现有的 `ZoomToFit` / `_zoomFactor` 逻辑上）；
-3. 关闭大图预览后做一次强制 GC + 清空解码缓存（**仅大图路径**，避免影响普通图的首帧速度）；
-4. ImageMagick 那条路径（TIFF/PSD/DICOM 等）同样加护栏。
+1. A pixel-count threshold (suggested default 40 MP, configurable): above it, **render only the
+   thumbnail** and say so in the title/hint ("decode at the original size by switching to 1:1 (or
+   zooming in)");
+2. let the 1:1 / zoom-in actions trigger a full-resolution decode (hooked onto the existing `ZoomToFit` /
+   `_zoomFactor` logic);
+3. force a GC and clear the decode cache after closing a large-image preview (**large-image path only**,
+   so ordinary images keep their fast first frame);
+4. add the same guard rails to the ImageMagick path (TIFF/PSD/DICOM and friends).
 
-### 5.0.5 已实施的部分 + 实测复核（2026-09-19）
+### 5.0.5: what shipped, plus a re-measurement (2026-09-19)
 
-已实现"解码像素上限"（`DecodePixelLimit`，默认 40 MP，插件配置 `MaxDecodePixels`，`0` = 关闭；
-WIC 与 ImageMagick 两条路径都覆盖），标题会标注"已按 40 MP 上限缩放预览"，关闭大图预览时主动回收一次。
+The "decode pixel limit" is implemented (`DecodePixelLimit`, default 40 MP, plugin option
+`MaxDecodePixels`, `0` = off; it covers both the WIC and the ImageMagick path), the title is annotated
+with "preview scaled to the 40 MP limit", and closing a large-image preview reclaims memory explicitly.
 
-同一张 6400 万像素 JPEG 的 A/B：
+A/B on the same 64-megapixel JPEG:
 
-| 解码上限 | 峰值 | 稳定值 |
+| Decode limit | Peak | Steady state |
 |---|---|---|
-| 关闭（旧行为） | 1,705 MB | 1,424 MB |
-| **40 MP（新默认）** | **1,425 MB** | **1,146 MB** |
-| 8 MP（强压，仅用于定位） | 1,038 MB | — |
+| Off (previous behaviour) | 1,705 MB | 1,424 MB |
+| **40 MP (new default)** | **1,425 MB** | **1,146 MB** |
+| 8 MP (forced, for diagnosis only) | 1,038 MB | — |
 
-**结论：护栏只解决了一部分（约 -17%）。** 把上限压到 8 MP 仍有 ~1 GB 峰值，说明剩余开销**与解码大小
-无关**，来自显示层：`NativeProvider.GetThumbnail` 会把缩略图缩放成"原图坐标系"的 `TransformedBitmap`
-（8000×8000），WPF 又在这个巨大坐标系里布局/渲染。真正要解决得改成：
+**Conclusion: the guard rail only solves part of it (about -17%).** Pushing the limit down to 8 MP still
+left a ~1 GB peak, which means the remaining cost is **unrelated to the decode size** and comes from the
+display layer: `NativeProvider.GetThumbnail` scales the thumbnail into a `TransformedBitmap` in "original
+image coordinates" (8000x8000), and WPF then lays out and renders inside that enormous coordinate space.
+Really fixing it requires:
 
-1. 缩略图保持自己的像素坐标系（不放大到原图坐标）；
-2. 面板的缩放/平移数学改用"解码像素尺寸 + 比例系数"，而不是"原图像素尺寸"；
-3. 只有用户放大到超过某个阈值（如 100%）时，才按需解码更高分辨率（并受同一个像素上限约束）。
+1. the thumbnail keeps its own pixel coordinate space (no upscaling to the original image's coordinates);
+2. the panel's zoom/pan math switches from "original image pixel size" to "decoded pixel size + a scale
+   factor";
+3. higher resolutions are decoded on demand only when the user zooms past some threshold (say 100%), and
+   under the same pixel limit.
 
-这一项会动到面板的缩放/平移逻辑（回归面较大），单独作为一步来做。
+That touches the panel's zoom/pan logic (a large regression surface), so it is being done as its own step.
 
-### 5.0.6 完成收尾（2026-09-19 同日）
+### 5.0.6: the follow-up (same day, 2026-09-19)
 
-实验定位确认了上面的判断：只去掉"缩略图放大到原图坐标系"这一步（其它不动），峰值 1,425 → **911 MB**
-（8 MP 上限时 1,038 → 437 MB）。但直接取消会让**帧换入后不再适应窗口**（缩略图几何 ≠ 帧几何，面板不会
-重算适配，实测截图是放大裁切的状态）。
+An experiment confirmed the diagnosis above: removing only the "upscale the thumbnail to the original
+image's coordinate space" step (nothing else) took the peak from 1,425 → **911 MB** (1,038 → 437 MB at the
+8 MP limit). But dropping it outright meant **frames no longer fit the window after they loaded** (the
+thumbnail geometry is not the frame geometry, so the panel does not recompute the fit; the measured
+screenshot showed an over-zoomed, cropped state).
 
-最终做法：**缩略图放大到"渲染帧的解码尺寸"**（受同一个 40 MP 上限约束），两者几何一致 → 适配正确
-（截图验证），峰值也降下来：
+The final approach: **upscale the thumbnail to the decoded size of the rendered frame** (under the same
+40 MP limit). Both then share one geometry → the fit is correct (verified with screenshots) and the peak
+still comes down:
 
-| 版本 | 峰值 | 稳定值 |
+| Version | Peak | Steady state |
 |---|---|---|
-| 5.0.4 之前（无护栏） | 1,705 MB | 1,424 MB |
-| 5.0.5（仅解码上限） | 1,425 MB | 1,146 MB |
-| **5.0.6（坐标空间 = 解码尺寸）** | **1,156 MB** | — |
+| Before 5.0.4 (no guard rail) | 1,705 MB | 1,424 MB |
+| 5.0.5 (decode limit only) | 1,425 MB | 1,146 MB |
+| **5.0.6 (coordinate space = decoded size)** | **1,156 MB** | — |
 
-缩放徽标同步折算（`ZoomDisplayFactor = ZoomFactor × 解码尺寸/真实尺寸`），100% 的含义仍是"相对原图的
-1:1"。至此"大图保护"这一项可以视为完成；若要进一步压，只剩"只在放大时按需解码"这一条（收益递减）。
+The zoom badge is converted the same way (`ZoomDisplayFactor = ZoomFactor × decoded size / real size`), so
+100% still means "1:1 relative to the original image". At this point the "large-image protection" item can
+be considered complete; the only further reduction left is "decode on demand when zooming in" (diminishing
+returns).
 
-## 5. 上游热门 issue 汇总（排期参考）
+## 5. Popular upstream issues (scheduling reference)
 
-按 open issue 评论数与全量 👍 数排序后筛选（"我们的现状"是代码核实过的）：
+Filtered after sorting by open-issue comment count and total 👍 count ("where we stand" was verified
+against the code):
 
-| 上游 | 诉求 | 上游状态 | 我们的机会 |
+| Upstream | Request | Upstream status | Our opportunity |
 |---|---|---|---|
-| [#691](https://github.com/QL-Win/QuickLook/issues/691) / [#1979](https://github.com/QL-Win/QuickLook/issues/1979) | 应用内 ←/→ 切换文件 | 旧结论是"未做成" | **我们已经有了**：不拦截方向键 + 跟随 Explorer 选区，见 §2.5 |
-| [#1054](https://github.com/QL-Win/QuickLook/issues/1054) | 大图预览崩溃 | open，11 条评论 | 见 §4 |
-| [#827](https://github.com/QL-Win/QuickLook/issues/827) / [#1956](https://github.com/QL-Win/QuickLook/issues/1956) | 混合 DPI 多显示器尺寸错 / 改缩放后 Markdown 渲染错 | open | 监听 DPI 变化重新贴合 + WebView2 重新布局 |
-| [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | 图片 OCR 提取文字 | open，10 条评论 | 系统自带 `Windows.Media.Ocr`，我们已引 WinRT 投影，零新依赖 |
-| [#1933](https://github.com/QL-Win/QuickLook/issues/1933) | 显示/清理缓存占用 | open | 我们已有"打开数据文件夹"和 profile 修复逻辑，加个占用统计即可 |
-| [#1571](https://github.com/QL-Win/QuickLook/issues/1571) | ARM64 原生支持 | open，14 条评论 | `pack-release.ps1` 已有 `-Architecture arm64`，但 Magick/LAV/pdfium/MediaInfo 缺 arm64 原生库 |
-| [#1844](https://github.com/QL-Win/QuickLook/issues/1844) / [#1528](https://github.com/QL-Win/QuickLook/issues/1528) / [#1768](https://github.com/QL-Win/QuickLook/issues/1768) / [#1968](https://github.com/QL-Win/QuickLook/issues/1968) | 视频播放各种打不开（上游 4.x 换 WPFMediaKit 后） | open | 我们用 LAVFilters，理论上更稳；做一轮长视频/HEVC/MKV/网络路径回归即可作为优势背书 |
-| [#1987](https://github.com/QL-Win/QuickLook/issues/1987) | 记住窗口尺寸/位置 | open | **不做**，见 §3 |
+| [#691](https://github.com/QL-Win/QuickLook/issues/691) / [#1979](https://github.com/QL-Win/QuickLook/issues/1979) | In-app ←/→ file switching | old conclusion: "not done" | **We already have it**: don't intercept the arrow keys + follow the Explorer selection, see §2.5 |
+| [#1054](https://github.com/QL-Win/QuickLook/issues/1054) | Large-image preview crashes | open, 11 comments | see §4 |
+| [#827](https://github.com/QL-Win/QuickLook/issues/827) / [#1956](https://github.com/QL-Win/QuickLook/issues/1956) | Wrong sizes in mixed-DPI multi-monitor setups / Markdown renders wrong after a scaling change | open | refit on DPI changes + re-layout WebView2 |
+| [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | Extract text from images (OCR) | open, 10 comments | the built-in `Windows.Media.Ocr`; we already reference the WinRT projection, so zero new dependencies |
+| [#1933](https://github.com/QL-Win/QuickLook/issues/1933) | Show/clear cache usage | open | we already have "open the data folder" and profile repair logic; adding a usage readout is enough |
+| [#1571](https://github.com/QL-Win/QuickLook/issues/1571) | Native ARM64 support | open, 14 comments | `pack-release.ps1` already has `-Architecture arm64`, but Magick/LAV/pdfium/MediaInfo have no ARM64 native libraries |
+| [#1844](https://github.com/QL-Win/QuickLook/issues/1844) / [#1528](https://github.com/QL-Win/QuickLook/issues/1528) / [#1768](https://github.com/QL-Win/QuickLook/issues/1768) / [#1968](https://github.com/QL-Win/QuickLook/issues/1968) | Lots of videos that will not open (upstream after 4.x moved to WPFMediaKit) | open | we use LAVFilters, which should be more stable; one regression pass over long videos / HEVC / MKV / network paths is enough to back that claim up |
+| [#1987](https://github.com/QL-Win/QuickLook/issues/1987) | Remember window size/position | open | **not doing it**, see §3 |
 
-我们**已经领先**上游的部分（上游仍有人抱怨、我们已实现）：失焦自动关闭（#484）、启动与首预览性能
-（上游 #1953 约 500ms 延迟；我们启动 96ms、首预览 100–350ms）、插件管理界面（#1916）、
-二进制/Hex 查看（#290）。
+Where we are **already ahead** of upstream (people still complain there, we have shipped it): auto-close
+on focus loss (#484), startup and first-preview performance (upstream #1953 measures about 500 ms of
+delay; ours is 96 ms to start and 100–350 ms to first preview), the plugin manager (#1916), and
+binary/Hex viewing (#290).
 
-## 6. 待办与交接
+## 6. To-do and handover
 
-1. **回退 5.0.4 的"记住窗口尺寸"持久化**（保留其中两处真修复：插件请求的尺寸不再污染用户尺寸、
-   固定尺寸预览的 `CanResize` 门控、以及"重置窗口大小"菜单项）——作为 5.0.5 的内容，**尚未发布**；
-2. 大图护栏（§4）——**已完成**（5.0.5 加解码上限，5.0.6 把坐标空间按解码尺寸，6400 万像素峰值
-   1,705 → 1,156 MB）；
-3. ~~←/→ 文件导航~~——**功能已存在**，不需要开发（见 §2.5），本条已从计划移除；
-4. 之后候选：图片 OCR（#1608）、缓存占用与清理（#1933）、ARM64（#1571）、视频健壮性回归。
+1. **Revert the 5.0.4 "remember window size" persistence** (keeping the genuine fixes it also carried:
+   plugin-requested sizes no longer pollute the user's size, the `CanResize` gating for fixed-size
+   previews, and the "reset window size" menu item) — this was the content of 5.0.5 and is **not shipped
+   yet**;
+2. the large-image guard rail (§4) — **done** (5.0.5 added the decode limit, 5.0.6 moved the coordinate
+   space to the decoded size, taking the 64-megapixel peak from 1,705 → 1,156 MB);
+3. ~~←/→ file navigation~~ — **the feature already exists**, nothing to build (see §2.5); this item has
+   been removed from the plan;
+4. later candidates: image OCR (#1608), cache usage and cleanup (#1933), ARM64 (#1571), video robustness
+   regression.
 
-## 7. 复现方式
+## 7. How to reproduce
 
-- 选区探针：`pwsh -NoProfile -File .\Scripts\probe-explorer-selection.ps1`
-  （挑第一个文件夹窗口做验证，改动立即还原）
-- 大图测量：`pwsh -NoProfile -File .\Scripts\measure-preview.ps1 -Files <大图> -StartupWaitMs 1500`
-  （耗时）；内存峰值用外部采样该进程的 `PrivateMemorySize64`
+- Selection probe: `pwsh -NoProfile -File .\Scripts\probe-explorer-selection.ps1`
+  (picks the first folder window for the check and restores it immediately)
+- Large-image measurement: `pwsh -NoProfile -File .\Scripts\measure-preview.ps1 -Files <large image>
+  -StartupWaitMs 1500` (duration); memory peaks come from sampling the process's `PrivateMemorySize64`
+  externally

@@ -1,94 +1,108 @@
-# 混合 DPI 多显示器：预览窗口"横跨三块屏"的成因与修复
+# Mixed-DPI multi-monitor setups: why the preview window used to span three screens, and the fix
 
-> 状态：**已修复并随 5.0.10 发布**。记录时间 2026-09-19。
+> Status: **fixed and shipped in 5.0.10.** Recorded 2026-09-19.
 >
-> 起因：上游 [QL-Win/QuickLook#827](https://github.com/QL-Win/QuickLook/issues/827)
-> ——在 4K 笔记本（主屏 250%、副屏 175%）+ 外接 1080p（100%）的机器上，
-> 用外接屏预览**横向大图**时，预览窗口会横跨三块显示器；竖图和小图正常。
+> Origin: upstream [QL-Win/QuickLook#827](https://github.com/QL-Win/QuickLook/issues/827)
+> — on a machine with a 4K laptop (internal 250%, external 175%) plus a 1080p monitor (100%),
+> previewing a **large landscape image** on the external screen made the preview window span three
+> monitors; portrait and small images were fine.
 
-## 1. 结论速览
+## 1. Summary
 
-| 项 | 结论 |
+| Item | Conclusion |
 |---|---|
-| 根因 | **算尺寸用的显示器**和**放窗口用的显示器**不是同一块：插件按前台窗口所在屏算，窗口定位按自己所在屏算 |
-| 为什么"横图才出问题" | 适配比例取 `min(宽比, 高比)`：横图由**宽度**决定比例，宽屏的 DIP 尺寸一旦被放大到低缩放屏，像素宽度就超出该屏 |
-| 为什么"方向键切换就正常" | 那条路径走的是"已有窗口"分支，定位基准仍是窗口自己所在屏，两侧基准一致 |
-| 修法 | ① 预览开始时把**目标屏**交给插件（`ContextObject.HostDesktopSize`）；② 应用尺寸前用同一块屏**夹取**；③ DPI 变化时重新贴合 |
-| 本机可验证的部分 | 单屏结果与修复前**逐像素一致**（见 §4）；尺寸算法本身由 12 条单元测试覆盖 |
+| Root cause | **The monitor used to compute the size** and **the monitor used to place the window** were not the same one: the plugin measured against the screen holding the foreground window, while window placement used the screen the window itself was on |
+| Why only landscape images broke | The fit ratio is `min(width ratio, height ratio)`: a landscape image is driven by **width**, so once a widescreen DIP size was scaled up onto a lower-scaling screen, the pixel width exceeded that screen |
+| Why arrow-key switching still looked fine | That path takes the "existing window" branch, where the placement reference is still the window's own screen, so both sides agreed |
+| Fix | (1) hand the **target screen** to the plugin when the preview starts (`ContextObject.HostDesktopSize`); (2) **clamp** against that same screen before applying the size; (3) refit when the DPI changes |
+| What can be verified on this machine | single-screen results are **pixel-identical** to before the fix (see §4); the sizing math itself is covered by 12 unit tests |
 
-## 2. 成因
+## 2. Root cause
 
-两个尺寸基准，分别来自两块不同的屏幕：
+Two sizing references, each coming from a different screen:
 
-1. **插件算尺寸**：`ContextObject.SetPreferredSizeFit()`（`QuickLook.Common/Plugin/ContextObject.cs`）
-   调用 `WindowHelper.GetCurrentDesktopSize()`，其中 `GetCurrentDesktopRectInPixel()` 用的是
-   **`GetForegroundWindow()`**——也就是资源管理器所在那块屏。
-   插件随后把 `PreferredSize` 交给宿主（图片 0.8、PDF 0.9、Office 0.8 …… 都是这个入口）。
+1. **The plugin computes the size**: `ContextObject.SetPreferredSizeFit()`
+   (`QuickLook.Common/Plugin/ContextObject.cs`) calls `WindowHelper.GetCurrentDesktopSize()`, whose
+   `GetCurrentDesktopRectInPixel()` uses **`GetForegroundWindow()`** — that is, the screen the file
+   manager is on. The plugin then hands `PreferredSize` to the host (images 0.8, PDF 0.9, Office 0.8
+   ... all come through this entry point).
 
-2. **宿主放窗口**：`ViewerWindow.Actions.cs` 的 `ResizeAndCentreNewWindow()`
-   用 `GetCurrentDesktopRectInPixel()` + `GetCurrentScaleFactor()` 居中；
-   `ResizeAndCentreExistingWindow()` 则用 `GetDesktopRectFromWindowInPixel(this)`——
-   **预览窗口自己所在那块屏**。
+2. **The host places the window**: `ResizeAndCentreNewWindow()` in `ViewerWindow.Actions.cs` centres
+   using `GetCurrentDesktopRectInPixel()` + `GetCurrentScaleFactor()`, while
+   `ResizeAndCentreExistingWindow()` uses `GetDesktopRectFromWindowInPixel(this)` — **the screen the
+   preview window itself is on**.
 
-于是"尺寸"和"落点"来自两块屏：
+So "the size" and "the landing spot" came from two different screens:
 
-- 在前台窗口那块屏（DIP 桌面更大，例如 1920×1040@100%）算出的尺寸，
-  一旦落到缩放更高的屏（1536×864 DIP @250%），换算成像素就被放大 2.5 倍 →
-  横图那种"宽度顶满"的形状最先生效，窗口于是宽过屏幕，横跨多块显示器。
-- 竖图的比例由**高度**决定，高度上有 10% 的边距余量（`limitPercentY`）兜着，所以看起来正常。
+- A size computed on the foreground window's screen (where the DIP desktop is larger, e.g.
+  1920x1040@100%) would land on a higher-scaling screen (1536x864 DIP @250%), where converting to pixels
+  multiplies by 2.5 — the landscape "width fills the screen" shape triggered first, so the window ended
+  up wider than the screen and spanned multiple monitors.
+- A portrait image is driven by **height**, and height has a 10% margin (`limitPercentY`) covering it,
+  so it looked fine.
 
-另外 `ResizeAndCentre*` 只会**夹位置**（把左/上边界拉回屏内），从不夹尺寸——
-`pxNewRect` 大于屏宽时窗口照旧溢出，这正是截图里"三屏连成一片"的样子。
+On top of that, `ResizeAndCentre*` only **clamped the position** (pulling the left/top edge back onto
+the screen) and never clamped the size — when `pxNewRect` was wider than the screen the window still
+overflowed, which is exactly the "three screens joined together" look in the screenshot.
 
-## 3. 修复
+## 3. The fix
 
-三处，都在"尺寸/落点必须用同一块屏"这个原则上：
+Three changes, all on the principle that "the size and the landing spot must use the same screen":
 
-1. **把目标屏交给插件**（`ViewerWindow.Actions.cs` 的 `BeginShow`）：
-   每次预览开始、`Prepare` 之前设置
-   `ContextObject.HostDesktopSize = GetTargetDesktopSizeInDip()`——
-   目标屏 = 前台窗口所在屏（新窗口的居中基准），失效时回落到预览窗口自己的屏，再回落到主屏。
-   `SetPreferredSizeFit()` 优先用它，拿不到才退回原来的 `GetCurrentDesktopSize()`。
+1. **Hand the target screen to the plugin** (`BeginShow` in `ViewerWindow.Actions.cs`): on every preview
+   start, before `Prepare`, set
+   `ContextObject.HostDesktopSize = GetTargetDesktopSizeInDip()` — the target screen is the foreground
+   window's screen (the centring reference for a new window), falling back to the preview window's own
+   screen and then to the primary screen. `SetPreferredSizeFit()` prefers it and only falls back to the
+   old `GetCurrentDesktopSize()` when it is unavailable.
 
-2. **应用尺寸前夹取**（`ComputeWindowSize(clampToDesktop: true)`）：
-   用**落点所在屏**的 DIP 工作区做 `ClampToDesktop`。
-   即便插件写死了尺寸、或用户在预览打开后又把鼠标移到别的屏，
-   窗口也不会大于它即将落上的那块屏。**用户自己拖出来的尺寸不夹**——那是用户的意图，不是尺寸计算错误。
-   插件后置的尺寸请求（`ApplyPreferredSizeNow`，例如 PDF 量完页面）同样夹取。
+2. **Clamp before applying the size** (`ComputeWindowSize(clampToDesktop: true)`): run `ClampToDesktop`
+   against the DIP work area of the **screen it will land on**. Even if the plugin hard-codes a size, or
+   the user moves the mouse to another screen after the preview opened, the window will never be larger
+   than the screen it is about to land on. **Sizes the user dragged out themselves are not clamped** —
+   that is the user's intent, not a sizing mistake. Later size requests from the plugin
+   (`ApplyPreferredSizeNow`, e.g. once a PDF has measured its pages) are clamped the same way.
 
-3. **DPI 变化后重新贴合**（`ViewerWindow.OnDpiChanged` → `RefitWindowToItsOwnDesktop`）：
-   Windows 在跨屏移动时保持窗口的**物理尺寸**，因此 DIP 尺寸会变——
-   在 250% 的 4K 屏上看着正好的窗口，落到 100% 的 1080p 屏上就可能宽出几块屏。
-   DPI 一变就按当前屏重新夹取（并把这次调整标记为"宿主的修正"，不写进用户的尺寸记忆）。
+3. **Refit after a DPI change** (`ViewerWindow.OnDpiChanged` → `RefitWindowToItsOwnDesktop`): Windows
+   preserves a window's **physical size** when it moves across screens, so the DIP size changes — a
+   window that looked right on a 250% 4K screen can end up several screens wide on a 100% 1080p screen.
+   As soon as the DPI changes, clamp again against the current screen (and mark that adjustment as a
+   "host correction" so it never lands in the user's size memory).
 
-尺寸数学集中在 `QuickLook.Common/Helpers/PreviewWindowSizing.cs`（纯函数）：
+The sizing math lives in `QuickLook.Common/Helpers/PreviewWindowSizing.cs` (pure functions):
 
-- `FitRatio(content, desktop, maxRatio)`：取 `min(宽比, 高比)`，**不放大**（上限 1）；
-- 异常输入不产生坏窗口：`maxRatio` 为 0/负/NaN 视作"整屏"，桌面查询失败（0×0）时原样返回，
-  都不会把预览压成 0 像素；
-- `ClampToDesktop(size, desktop)`：只缩不放，桌面未知时不动。
+- `FitRatio(content, desktop, maxRatio)`: takes `min(width ratio, height ratio)` and **never scales up**
+  (capped at 1);
+- bad input cannot produce a broken window: `maxRatio` of 0/negative/NaN is treated as "the whole
+  screen", and a failed desktop query (0x0) returns the input unchanged, so neither case squashes the
+  preview to 0 pixels;
+- `ClampToDesktop(size, desktop)`: only shrinks, never grows, and does nothing when the desktop is
+  unknown.
 
-## 4. 验证
+## 4. Verification
 
-### 4.1 单元测试（不需要第二块屏）
+### 4.1 Unit tests (no second screen required)
 
-`QuickLook.Tests/PreviewWindowSizingTests.cs`，12 条，覆盖 #827 的两块极端屏
-（4K@250% → 1536×864 DIP，1080p@100% → 1920×1040 DIP）与 4289×631 那种"宽而扁"的形状：
+`QuickLook.Tests/PreviewWindowSizingTests.cs`, 12 cases, covering the two extreme screens from #827
+(4K@250% → 1536x864 DIP, 1080p@100% → 1920x1040 DIP) and the wide-and-flat 4289x631 shape:
 
-- 本来放得下就不放大；横图按宽度、竖图按高度收敛；上限 >1 视作 1；
-- 非法比例（0/负数/NaN）与未知桌面都不会产生 0 尺寸窗口；
-- 夹取只缩不放，未知桌面不动；
-- 端到端形状：在 1080p 上按 90% 量出的页面（高 936 DIP）放到 250% 的 4K 屏上时，
-  未夹取前高度换成像素是 2340 px > 面板 2160 px（即"横跨多屏"），夹取后 = 2160 px，正好落在屏内。
+- something that already fits is not scaled up; landscape converges by width, portrait by height; a cap
+  above 1 is treated as 1;
+- invalid ratios (0/negative/NaN) and an unknown desktop never produce a 0-sized window;
+- clamping only shrinks and never grows, and does nothing when the desktop is unknown;
+- end-to-end shape: a page measured at 90% on a 1080p screen (936 DIP high) placed on a 250% 4K screen
+  is 2340 px tall before clamping, which exceeds the 2160 px panel (the "spans multiple screens" case),
+  and exactly 2160 px after clamping, so it lands inside the screen.
 
-测试套件：**60/60 通过**（原 48 条 + 新增 12 条）。
+Test suite: **60/60 passing** (48 existing + 12 new).
 
-### 4.2 单屏不变性（本机可复现）
+### 4.2 Single-screen invariance (reproducible on this machine)
 
-改动会经过"目标屏"这条新路径，所以必须在单屏机器上证明结果**没有变**。
-本机：单屏 1536×960 DIP @200%（物理 3072×1920）。
+The change goes through the new "target screen" path, so we have to prove on a single-screen machine that
+the result **did not change**. This machine: one screen, 1536x960 DIP @200% (physical 3072x1920).
 
-复现方式（隐藏开关 `/test-preview-diag` 会把每次落位结果写进 `<smokeDir>\preview-rect.txt`）：
+How to reproduce (the hidden switch `/test-preview-diag` writes every placement result to
+`<smokeDir>\preview-rect.txt`):
 
 ```powershell
 pwsh -NoProfile -Command {
@@ -101,33 +115,39 @@ pwsh -NoProfile -Command {
 }
 ```
 
-6000×4000 的图片：
+For a 6000x4000 image:
 
-| | 修复前 | 修复后 |
+| | Before the fix | After the fix |
 |---|---|---|
-| 窗口（DIP） | 1154×770 | 1154×770 |
-| 窗口（像素） | 2308×1540 @ (382,190) | 2308×1540 @ (382,190) |
+| Window (DIP) | 1154x770 | 1154x770 |
+| Window (pixels) | 2308x1540 @ (382,190) | 2308x1540 @ (382,190) |
 
-逐像素一致，说明这次改动在单屏场景下是**路径替换**而非行为改变。
-顺带把 png / pdf / md 各预览一遍：进程存活，窗口均居中落在 `monitorPx=(0,0,3072,1920)` 内。
+Pixel-identical, which shows that on a single screen this change is a **path replacement** rather than a
+behaviour change. We also previewed a png / pdf / md each: the process stayed alive and every window was
+centred inside `monitorPx=(0,0,3072,1920)`.
 
-### 4.3 落位规则现在单独可测（v5.5.0）
+### 4.3 The placement rules are now testable on their own (v5.5.0)
 
-窗口"保持中心、再拉回屏内"的那套 9/10 规则从 `ViewerWindow` 抽到了
-`QuickLookNext/Helpers/WindowPlacement.cs`（纯函数），因此**不用第二块屏**也能测混合 DPI 的几何：
+The 9/10 rule set that "keeps the centre and then pulls the window back onto the screen" was extracted
+from `ViewerWindow` into `QuickLookNext/Helpers/WindowPlacement.cs` (pure functions), so the mixed-DPI
+geometry can be tested **without a second screen**:
 
-- `WindowPlacementTests` 用该 issue 里的机器（4K@250% + 1080p@100%）验证：左三分之一保留左边缘、
-  右/下三分之一保留右/下边缘、中间被推回屏内；
-- **"先夹取尺寸、再落位"的完整链路**有一条专门用例：2600×1400 DIP 的窗口在 1080p 屏上被夹到
-  1920×1080 → 落位结果 `(0,0)`，四边都在屏内；
-- 测试还暴露了一个遗留边界：右/下锚点按"旧窗口的右/下边"定位，当窗口一次长大很多时会被顶出
-  **对侧**边缘（实测在 250% 面板上向左溢出 72 px）。现在落位结束前统一再拉回屏内一次，
-  对各分支都是 no-op（窗口放得下时偏移量为 0），因此没有改变原本的锚点语义。
+- `WindowPlacementTests` uses the machine from that issue (4K@250% + 1080p@100%) to verify: the left
+  third keeps the left edge, the right/bottom thirds keep the right/bottom edges, and the middle gets
+  pushed back onto the screen;
+- there is a dedicated case for the **full "clamp the size, then place" chain**: a 2600x1400 DIP window
+  is clamped to 1920x1080 on a 1080p screen and lands at `(0,0)`, fully on screen;
+- the tests also exposed a pre-existing edge case: right/bottom anchors are positioned from the old
+  window's right/bottom edge, so a window that grows a lot in one step could be pushed out past the
+  **opposite** edge (measured: 72 px off the left edge of a 250% panel). Placement now pulls the window
+  back on screen once at the end, which is a no-op for every branch when the window fits (offset 0), so
+  the original anchor semantics are unchanged.
 
-### 4.4 在真机上复核：`/test-monitor-refit`
+### 4.4 Re-checking on real hardware: `/test-monitor-refit`
 
-本机只有一块屏，真实混合 DPI 无法复现，所以加了这个开关：它按**每块屏**跑一遍生产代码里的
-同一个适配 / 夹取 / 落位函数，并把结果写进 `<smokeDir>\monitor-refit.txt`。
+This machine only has one screen, so real mixed DPI cannot be reproduced here; that is why this switch
+exists. It runs the same fit / clamp / place functions from production code once per screen and writes
+the results to `<smokeDir>\monitor-refit.txt`.
 
 ```powershell
 pwsh -NoProfile -Command {
@@ -138,7 +158,7 @@ pwsh -NoProfile -Command {
 }
 ```
 
-本机（单屏 3072×1920 @200%）的输出：
+Output on this machine (single screen, 3072x1920 @200%):
 
 ```
 monitors=1
@@ -151,23 +171,28 @@ primary=\\.\DISPLAY1
     placement from (1843,960,768,384) -> (0,0) inside=True
 ```
 
-在混合 DPI 机器上，每个屏幕都会有一节这样的记录；要看的就一件事：**`inside=True`**，
-并且尺寸在缩放大的一侧（像素更大）与缩放大的一侧（DIP 更小）都合理。
+On a mixed-DPI machine there will be one such record per screen, and there is exactly one thing to look
+at: **`inside=True`** — plus the sizes being sensible on both the higher-scaling side (larger pixel size)
+and the lower-scaling side (smaller DIP desktop).
 
-### 4.5 本机**不能**验证的部分（如实记录）
+### 4.5 What this machine **cannot** verify (recorded honestly)
 
-本机只有一块屏，混合 DPI 的**真实**效果无法在此复现——上面的证据是
-"数学正确 + 单屏零回归 + 落位规则单测 + 逐屏诊断"，不是"在双屏机器上看到修好了"。
-要在真机上复核：先跑 §4.4 的 `/test-monitor-refit` 看 `inside=True`，
-再按 §4.2 的命令预览横图、竖图、PDF 各一次，检查 `preview-rect.txt` 里
-`px=W×H at=(x,y)` 是否完整落在 `monitorPx=(l,t,w,h)` 之内。
+There is only one screen here, so the **real** mixed-DPI effect cannot be reproduced locally. The evidence
+above is "the math is correct + zero single-screen regression + unit tests for the placement rules +
+per-screen diagnostics", not "we saw it fixed on a two-screen machine". To re-check on real hardware: run
+`/test-monitor-refit` from §4.4 first and look for `inside=True`, then use the commands from §4.2 to
+preview a landscape image, a portrait image and a PDF once each, and check whether
+`px=W×H at=(x,y)` in `preview-rect.txt` falls entirely inside `monitorPx=(l,t,w,h)`.
 
-## 5. 相关与后续
+## 5. Related work and follow-ups
 
-- 上游 #827：2021 年报告，2025 年仍被标记"升级到 .NET Framework 4.7.2 之前无法解决"
-  （[#1504](https://github.com/QL-Win/QuickLook/issues/1504)）；
-  本仓库的定位代码本来就已按屏幕查询，本次补的是"两侧基准一致 + 落位夹取"。
-- 上游 [#1956](https://github.com/QL-Win/QuickLook/issues/1956)"改屏幕缩放后 Markdown 渲染错"
-  与本文同源（DPI 变化后没有重新贴合内容），本次的 `OnDpiChanged` 钩子为它留好了入口，
-  但**未**在该 issue 上做验证，暂不算已解决。
-- 仍未做：预览窗口被用户拖到另一块屏时**主动**重算插件内容尺寸（当前只在打开与 DPI 变化时贴合）。
+- Upstream #827 was reported in 2021 and was still tagged "cannot be resolved before upgrading to .NET
+  Framework 4.7.2" in 2025
+  ([#1504](https://github.com/QL-Win/QuickLook/issues/1504)); this repo's placement code already queried
+  per screen, and what this change adds is "both sides use the same reference + clamp on placement".
+- Upstream [#1956](https://github.com/QL-Win/QuickLook/issues/1956) "Markdown renders incorrectly after
+  changing screen scaling" shares its root with this document (content is not refitted after a DPI
+  change); this change's `OnDpiChanged` hook leaves the entry point ready for it, but it was **not**
+  verified against that issue, so it does not count as resolved yet.
+- Still not done: **actively** recomputing the plugin content size when the user drags the preview window
+  to another screen (today it only refits on open and on a DPI change).
