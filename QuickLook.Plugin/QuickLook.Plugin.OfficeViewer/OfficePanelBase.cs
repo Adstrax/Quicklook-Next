@@ -135,7 +135,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             Content = new TextBlock
             {
                 Text = TranslationHelper.Get("WEBVIEW2_INIT_FAILED",
-                    failsafe: "WebView2 组件初始化失败。\n请重启应用；若仍然如此，删除程序目录 UserData\\WebView2_Data 后重试。",
+                    failsafe: "The WebView2 component failed to initialize.\nRestart the app; if that does not help, delete UserData\\WebView2_Data in the program folder and try again.",
                     domain: System.Reflection.Assembly.GetExecutingAssembly().GetName().Name),
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
@@ -204,7 +204,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             """
             <!DOCTYPE html><html><head><meta charset="utf-8">
             <style>body{margin:24px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#C42B1C}</style>
-            </head><body><div>无法读取此文档（文件可能已损坏或格式不受支持）。</div></body></html>
+            </head><body><div>This document cannot be read (the file may be corrupt or in an unsupported format).</div></body></html>
             """ + (error is null ? string.Empty : $"<!-- {error.Message} -->");
     }
 }

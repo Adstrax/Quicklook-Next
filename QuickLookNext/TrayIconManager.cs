@@ -89,7 +89,7 @@ internal partial class TrayIconManager : IDisposable
             "WindowBackdrop", nameof(Dwmapi.SystembackdropType.Acrylic), "QuickLookNext")?.Trim();
         var currentTheme = (Themes)SettingHelper.Get("LastTheme", (int)Themes.None, "QuickLookNext");
 
-        // v1.3.7: group headers show the current selection (e.g. 主题模式：亮色),
+        // v1.3.7: group headers show the current selection (e.g. "Theme mode: Light"),
         // and the choices live in a nested flyout to keep the top level short.
         var themeMode = ThemeModes.FirstOrDefault(m => m.Theme == currentTheme);
         var themeGroupLabel =
@@ -409,8 +409,9 @@ internal partial class TrayIconManager : IDisposable
         }).ThenBy(LanguageDisplayName, StringComparer.CurrentCultureIgnoreCase);
     }
 
-    // v1.3.6: 顶部状态栏默认隐藏开关 - 开启后鼠标移入内容区不再弹出顶栏，
-    // 只有移到窗口顶部标题栏区域才显示（可随时在托盘菜单切回旧行为）。
+    // v1.3.6: the HideTopBarByDefault toggle - once on, moving the mouse into the content area no longer
+    // pops the top bar up; only moving into the window's top caption zone shows it (the tray menu can
+    // switch back to the old behaviour at any time).
     private static void ToggleHideTopBarByDefault()
     {
         var current = SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext");

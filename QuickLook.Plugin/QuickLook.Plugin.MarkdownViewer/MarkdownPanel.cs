@@ -209,7 +209,7 @@ public class MarkdownPanel : WebpagePanel
             """
             <!DOCTYPE html><html><head><meta charset="utf-8">
             <style>body{margin:24px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#C42B1C}</style>
-            </head><body><div>无法读取此文档（文件可能已损坏或格式不受支持）。</div></body></html>
+            </head><body><div>This document cannot be read (the file may be corrupt or in an unsupported format).</div></body></html>
             """;
     }
 

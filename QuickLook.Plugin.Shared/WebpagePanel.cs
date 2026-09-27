@@ -330,7 +330,7 @@ public class WebpagePanel : UserControl
             Content = new TextBlock
             {
                 Text = TranslationHelper.Get("WEBVIEW2_INIT_FAILED",
-                    failsafe: "WebView2 组件初始化失败。\n请重启应用；若仍然如此，删除程序目录 UserData\\WebView2_Data 后重试。",
+                    failsafe: "The WebView2 component failed to initialize.\nRestart the app; if that does not help, delete UserData\\WebView2_Data in the program folder and try again.",
                     domain: Assembly.GetExecutingAssembly().GetName().Name),
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,

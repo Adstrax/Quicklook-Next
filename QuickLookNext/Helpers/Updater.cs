@@ -53,7 +53,7 @@ internal class Updater
     // v3.31.0: refuse obviously oversized packages before writing them to disk.
     private const long MaxPackageBytes = 400L * 1024 * 1024;
 
-    // v3.35.0: the version the user chose to skip ("忽略更新"). Background checks
+    // v3.35.0: the version the user chose to skip ("Ignore update"/Update_Ignored). Background checks
     // stay quiet for it; a manual check clears it so the user can change their mind.
     private const string IgnoredVersionSetting = "IgnoredUpdateVersion";
 
@@ -207,7 +207,7 @@ internal class Updater
 
         TrayIconManager.ShowNotification(string.Empty,
             string.Format(TranslationHelper.Get("Update_Ignored",
-                failsafe: "已忽略 {0}；下次手动检查更新时会再次提示。"), version));
+                failsafe: "Version {0} will not be offered again until the next manual check."), version));
     }
 
     /// <summary>
@@ -241,7 +241,7 @@ internal class Updater
             Application.Current.Dispatcher.Invoke(() =>
             {
                 dialog?.SetStatus(TranslationHelper.Get("Update_Installing",
-                    failsafe: "下载完成，正在安装并重启…"));
+                    failsafe: "Download complete - installing and restarting..."));
 
                 // Give the panel a moment to paint the final state before the app
                 // goes away - the file swap happens after this process exits.
@@ -258,7 +258,7 @@ internal class Updater
             Application.Current.Dispatcher.Invoke(() =>
                 TrayIconManager.ShowNotification(string.Empty,
                     TranslationHelper.Get("Update_Cancelled",
-                        failsafe: "已取消更新，仍在使用当前版本。")));
+                        failsafe: "Update cancelled - you are still on the current version.")));
             return;
         }
 
@@ -267,7 +267,7 @@ internal class Updater
         Application.Current.Dispatcher.Invoke(() =>
             TrayIconManager.ShowNotification(string.Empty,
                 TranslationHelper.Get("Update_AutoUpdateFailed",
-                    failsafe: "自动更新失败，点击打开下载页面"),
+                    failsafe: "Auto-update failed, click to open the download page."),
                 timeout: 20000,
                 clickEvent: OpenReleasesPage));
     }
@@ -621,7 +621,7 @@ internal class Updater
                 TrayIconManager.ShowNotification(string.Empty,
                     string.Format(
                         TranslationHelper.Get("Update_FailedNotice",
-                            failsafe: "上次自动更新未完成（{0}）。点击打开下载页面手动更新。"),
+                            failsafe: "The last automatic update did not finish ({0}). Click to open the download page."),
                         reason),
                     timeout: 20000,
                     clickEvent: OpenReleasesPage));
@@ -635,15 +635,15 @@ internal class Updater
     private static string DescribeFailure(string log)
     {
         if (log.Contains("backup failed", StringComparison.OrdinalIgnoreCase))
-            return "备份现有文件失败";
+            return "backing up the existing files failed";
 
         if (log.Contains("copy failed", StringComparison.OrdinalIgnoreCase))
-            return "写入新版本文件失败";
+            return "writing the new version files failed";
 
         if (log.Contains("Can't read file", StringComparison.OrdinalIgnoreCase))
-            return "更新脚本读取临时文件失败";
+            return "the update script could not read its temp file";
 
-        return "详见 %TEMP%\\QuickLookNext-update.log";
+        return "see %TEMP%\\QuickLookNext-update.log";
     }
 
     /// <summary>

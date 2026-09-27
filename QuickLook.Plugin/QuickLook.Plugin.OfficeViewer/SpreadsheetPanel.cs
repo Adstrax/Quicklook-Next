@@ -51,7 +51,7 @@ public sealed class SpreadsheetPanel : OfficePanelBase
 
         if (rows is null)
         {
-            sb.Append("<div class=\"error\">无法读取此工作簿（文件可能已损坏或格式不受支持）。</div>");
+            sb.Append("<div class=\"error\">This workbook cannot be read (the file may be corrupt or in an unsupported format).</div>");
         }
         else
         {

@@ -31,7 +31,7 @@ internal static class PptxToHtml
             using var archive = ZipFile.OpenRead(path);
             var presentation = ReadXml(archive, "ppt/presentation.xml");
             if (presentation?.Root is null)
-                return ErrorHtml("这不是有效的 PPT 演示文稿（缺少 presentation.xml）。");
+                return ErrorHtml("Not a valid PowerPoint presentation (ppt/presentation.xml is missing).");
 
             var presRels = ReadRels(archive, "ppt/_rels/presentation.xml.rels");
             var sldSz = presentation.Root.Element(P + "sldSz");
@@ -67,7 +67,7 @@ internal static class PptxToHtml
         }
         catch (Exception e)
         {
-            return ErrorHtml("无法读取此 PPT 演示文稿：" + WebUtility.HtmlEncode(e.Message));
+            return ErrorHtml("This PowerPoint presentation cannot be read: " + WebUtility.HtmlEncode(e.Message));
         }
     }
 

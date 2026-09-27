@@ -51,7 +51,7 @@ internal sealed class UpdateDialog : Window
     {
         _isDark = TrayIconManager.IsDarkTheme();
 
-        Title = TranslationHelper.Get("Update_Title", failsafe: "软件更新");
+        Title = TranslationHelper.Get("Update_Title", failsafe: "Software Update");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
         ResizeMode = ResizeMode.NoResize;
@@ -180,7 +180,7 @@ internal sealed class UpdateDialog : Window
 
         var title = new TextBlock
         {
-            Text = TranslationHelper.Get("Update_Title", failsafe: "软件更新"),
+            Text = TranslationHelper.Get("Update_Title", failsafe: "Software Update"),
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
@@ -211,7 +211,7 @@ internal sealed class UpdateDialog : Window
         var headline = new TextBlock
         {
             Text = string.Format(
-                TranslationHelper.Get("Update_FoundInline", failsafe: "发现新版本 {0}"), version),
+                TranslationHelper.Get("Update_FoundInline", failsafe: "Version {0} is available"), version),
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -220,7 +220,7 @@ internal sealed class UpdateDialog : Window
         var current = new TextBlock
         {
             Text = string.Format(
-                TranslationHelper.Get("Update_CurrentVersion", failsafe: "当前版本 {0}"),
+                TranslationHelper.Get("Update_CurrentVersion", failsafe: "Current version {0}"),
                 Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?"),
             Foreground = ThemePalette.SecondaryText(_isDark),
             FontSize = 12,
@@ -230,14 +230,14 @@ internal sealed class UpdateDialog : Window
         var body = new TextBlock
         {
             Text = TranslationHelper.Get("Update_Ask",
-                failsafe: "现在更新，或忽略这个版本（下次手动检查更新时仍会提示）。"),
+                failsafe: "Update now, or skip this version? You will be asked again on the next manual check."),
             TextWrapping = TextWrapping.Wrap,
             Foreground = ThemePalette.SecondaryText(_isDark),
             LineHeight = 19,
             Margin = new Thickness(0, 0, 0, 18),
         };
 
-        var update = CreateButton(TranslationHelper.Get("Update_Now", failsafe: "立即更新"), primary: true, subtle: false);
+        var update = CreateButton(TranslationHelper.Get("Update_Now", failsafe: "Update now"), primary: true, subtle: false);
         update.IsDefault = true;
         update.Click += (_, _) =>
         {
@@ -245,7 +245,7 @@ internal sealed class UpdateDialog : Window
             Close();
         };
 
-        var ignore = CreateButton(TranslationHelper.Get("Update_Ignore", failsafe: "忽略更新"), primary: false, subtle: false);
+        var ignore = CreateButton(TranslationHelper.Get("Update_Ignore", failsafe: "Skip this version"), primary: false, subtle: false);
         ignore.IsCancel = true;
         ignore.Margin = new Thickness(8, 0, 0, 0);
         ignore.Click += (_, _) => Close();
@@ -266,7 +266,7 @@ internal sealed class UpdateDialog : Window
 
         if (!string.IsNullOrEmpty(releaseNotesUrl))
         {
-            var notes = CreateLink(TranslationHelper.Get("Update_Notes", failsafe: "查看更新内容"));
+            var notes = CreateLink(TranslationHelper.Get("Update_Notes", failsafe: "What's new"));
             notes.Click += (_, _) => OpenUrl(releaseNotesUrl);
             Grid.SetColumn(notes, 0);
             footer.Children.Add(notes);

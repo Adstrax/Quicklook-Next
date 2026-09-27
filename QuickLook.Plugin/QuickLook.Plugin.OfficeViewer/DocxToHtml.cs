@@ -35,7 +35,7 @@ internal static class DocxToHtml
             var numbering = ReadXml(archive, "word/numbering.xml");
             var rels = ReadRels(archive, "word/_rels/document.xml.rels");
             if (document is null)
-                return ErrorHtml("这不是有效的 Word 文档（缺少 document.xml）。");
+                return ErrorHtml("Not a valid Word document (word/document.xml is missing).");
 
             var styleNames = BuildStyleMap(styles);
             var numberingFormats = BuildNumberingFormats(numbering);
@@ -98,7 +98,7 @@ internal static class DocxToHtml
         }
         catch (Exception e)
         {
-            return ErrorHtml("无法读取此 Word 文档：" + WebUtility.HtmlEncode(e.Message));
+            return ErrorHtml("This Word document cannot be read: " + WebUtility.HtmlEncode(e.Message));
         }
 
         return sb.ToString();

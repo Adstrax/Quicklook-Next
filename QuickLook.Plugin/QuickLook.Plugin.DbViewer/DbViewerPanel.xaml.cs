@@ -46,7 +46,7 @@ public partial class DbViewerPanel : UserControl
 
         if (_databaseType == DatabaseType.Unknown)
         {
-            MessageBox.Show("无法识别的数据库格式");
+            MessageBox.Show("Unrecognized database format");
             return;
         }
 
@@ -86,7 +86,7 @@ public partial class DbViewerPanel : UserControl
 
         if (databaseType == DatabaseType.Unknown)
         {
-            MessageBox.Show("无法识别的数据库格式");
+            MessageBox.Show("Unrecognized database format");
             return;
         }
 

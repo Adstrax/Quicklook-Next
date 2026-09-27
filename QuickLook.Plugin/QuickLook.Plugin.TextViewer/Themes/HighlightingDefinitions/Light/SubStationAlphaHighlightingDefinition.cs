@@ -580,10 +580,10 @@ public class SubStationAlphaHighlightingDefinition : LightHighlightingDefinition
         public static class SubtitleEffectParser
         {
             /// <summary>
-            /// 解析ASS字幕行，把特效和正文分块输出
+            /// Parses one ASS subtitle line, emitting the effect blocks and the plain text blocks separately
             /// </summary>
-            /// <param name="line">ASS原始字符串</param>
-            /// <returns>SubtitleLine对象</returns>
+            /// <param name="line">the raw ASS string</param>
+            /// <returns>a SubtitleLine object</returns>
             public static SubtitleLine Parse(string line)
             {
                 var result = new SubtitleLine();
@@ -593,7 +593,7 @@ public class SubStationAlphaHighlightingDefinition : LightHighlightingDefinition
                 int lastIndex = 0;
                 foreach (Match match in regex.Matches(line))
                 {
-                    // 处理特效前的文本
+                    // text before this effect
                     if (match.Index > lastIndex)
                     {
                         string text = line.Substring(lastIndex, match.Index - lastIndex);
@@ -609,7 +609,7 @@ public class SubStationAlphaHighlightingDefinition : LightHighlightingDefinition
                             segIdx++;
                         }
                     }
-                    // 处理特效
+                    // the effect itself
                     result[segIdx.ToString()] = new SubtitleText
                     {
                         Effect = match.Value,
@@ -620,7 +620,7 @@ public class SubStationAlphaHighlightingDefinition : LightHighlightingDefinition
                     segIdx++;
                     lastIndex = match.Index + match.Length;
                 }
-                // 处理最后的文本
+                // trailing text
                 if (lastIndex < line.Length)
                 {
                     string text = line.Substring(lastIndex);

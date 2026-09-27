@@ -64,7 +64,7 @@ public partial class ViewerWindow : Window
     //   so the hook re-delivers wheel input to the preview window (only while
     //   the window is layered; the non-layered acrylic path keeps the native
     //   routing).
-    // - 1.3.6: "顶部状态栏默认隐藏" - the top caption zone is the draggable
+    // - 1.3.6: "HideTopBarByDefault" (Icon_HideTopBarByDefault) - the top caption zone is the draggable
     //   WindowChrome region (HTCAPTION), so WPF gets no MouseMove there; the
     //   hook watches the cursor and reveals the bar when it enters the zone.
     private LowLevelMouseProc _mouseProc;
@@ -745,10 +745,11 @@ public partial class ViewerWindow : Window
         _lastCursorX = pt.X;
         _lastCursorY = pt.Y;
 
-        // v1.3.6: "顶部状态栏默认隐藏"（托盘菜单可开关，默认开启）——鼠标在内容区
-        // 移动不再弹出顶栏；进入窗口顶部标题栏区域由低层鼠标钩子检测并显示
-        // （顶部 32px 是 WindowChrome 可拖动区，WPF 收不到那里的 MouseMove）。
-        // 关闭该选项后恢复旧行为（任意鼠标移动即显示）。
+        // v1.3.6: "HideTopBarByDefault" (toggleable from the tray menu, on by default) - moving the mouse
+        // inside the content area no longer pops the top bar up; entering the window's top caption zone is
+        // detected by the low-level mouse hook and shows it instead (the top 32 px is the draggable
+        // WindowChrome region, so WPF never sees a MouseMove there).
+        // Turning the option off restores the old behaviour (any mouse movement shows the bar).
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             return;
 
@@ -833,7 +834,7 @@ public partial class ViewerWindow : Window
     }
 
     /// <summary>
-    /// v1.3.6: apply the "顶部状态栏默认隐藏" mode to the open preview right
+    /// v1.3.6: apply the "HideTopBarByDefault" mode to the open preview right
     /// away (used by the tray menu toggle). Plugin-driven always-visible bars
     /// (e.g. paused video controls) are left alone.
     /// </summary>
@@ -864,7 +865,7 @@ public partial class ViewerWindow : Window
     // preview, and consumes the original message so it does not reach the
     // focused window (e.g. an Explorer list behind the preview).
     // ---- v1.3.6: the same hook reveals the top bar when the cursor enters
-    // the top caption zone while "顶部状态栏默认隐藏" is enabled.
+    // the top caption zone while "HideTopBarByDefault" is enabled.
 
     private const int WH_MOUSE_LL = 14;
     private const uint WM_MOUSEWHEEL = 0x020A;
@@ -931,7 +932,7 @@ public partial class ViewerWindow : Window
 
     /// <summary>
     /// v1.3.6: start polling the cursor so the top bar can reveal when the
-    /// cursor enters the top caption zone (the "顶部状态栏默认隐藏" mode). The
+    /// cursor enters the top caption zone (the "HideTopBarByDefault" mode). The
     /// poll only runs while the preview window is visible, so its cost is a
     /// single GetCursorPos + rect check every 100 ms.
     /// </summary>

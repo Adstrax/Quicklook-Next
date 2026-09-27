@@ -56,7 +56,7 @@ internal sealed class UpdateProgressDialog : Window
         _isDark = TrayIconManager.IsDarkTheme();
         _onCancel = onCancel;
 
-        Title = TranslationHelper.Get("Update_Title", failsafe: "软件更新");
+        Title = TranslationHelper.Get("Update_Title", failsafe: "Software Update");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
         ResizeMode = ResizeMode.NoResize;
@@ -75,7 +75,7 @@ internal sealed class UpdateProgressDialog : Window
         _headline = new TextBlock
         {
             Text = string.Format(
-                TranslationHelper.Get("Update_Downloading", failsafe: "正在下载 {0}"), version),
+                TranslationHelper.Get("Update_Downloading", failsafe: "Downloading {0}"), version),
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -108,7 +108,7 @@ internal sealed class UpdateProgressDialog : Window
         _status = new TextBlock
         {
             Text = TranslationHelper.Get("Update_DownloadHint",
-                failsafe: "下载完成后会自动安装并重启，当前预览不会丢失。"),
+                failsafe: "The app installs and restarts by itself when the download finishes."),
             Foreground = ThemePalette.SecondaryText(_isDark),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
@@ -184,7 +184,7 @@ internal sealed class UpdateProgressDialog : Window
     {
         _fill.Width = _track.ActualWidth > 0 ? _track.ActualWidth : Math.Max(0, Width - 40);
         _fill.Opacity = 0.5;
-        _detail.Text = TranslationHelper.Get("Update_DownloadingUnknown", failsafe: "正在下载…");
+        _detail.Text = TranslationHelper.Get("Update_DownloadingUnknown", failsafe: "Downloading...");
     }
 
     internal void SetStatus(string text)
@@ -243,7 +243,7 @@ internal sealed class UpdateProgressDialog : Window
 
             timer.Stop();
             SetStatus(TranslationHelper.Get("Update_Installing",
-                failsafe: "下载完成，正在安装并重启…"));
+                failsafe: "Download complete - installing and restarting..."));
 
             try
             {
@@ -280,7 +280,7 @@ internal sealed class UpdateProgressDialog : Window
 
         var title = new TextBlock
         {
-            Text = TranslationHelper.Get("Update_Title", failsafe: "软件更新"),
+            Text = TranslationHelper.Get("Update_Title", failsafe: "Software Update"),
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
@@ -292,7 +292,7 @@ internal sealed class UpdateProgressDialog : Window
 
         var cancel = new Button
         {
-            Content = TranslationHelper.Get("Update_Cancel", failsafe: "取消"),
+            Content = TranslationHelper.Get("Update_Cancel", failsafe: "Cancel"),
             Background = ThemePalette.ButtonBg(_isDark),
             Foreground = ThemePalette.Text(_isDark),
             BorderThickness = new Thickness(0),

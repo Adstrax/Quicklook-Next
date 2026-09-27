@@ -73,7 +73,7 @@ internal sealed class NativeFontPanel : UserControl, IFontPreviewPanel
         foreach (var size in new[] { 12d, 16d, 24d, 36d, 48d })
             _content.Children.Add(BuildSample(size));
 
-        _content.Children.Add(BuildCaption(TranslationHelper.Get("FontPreview_Charset", failsafe: "字符集")));
+        _content.Children.Add(BuildCaption(TranslationHelper.Get("FontPreview_Charset", failsafe: "Character set")));
         _content.Children.Add(BuildCharset());
     }
 
@@ -96,7 +96,7 @@ internal sealed class NativeFontPanel : UserControl, IFontPreviewPanel
         if (glyphs is null || glyphs.Count == 0)
         {
             _content.Children.Add(BuildCaption(TranslationHelper.Get("FontPreview_NoGlyphs",
-                failsafe: "该字体没有可枚举的字符。")));
+                failsafe: "This font has no enumerable characters.")));
             return;
         }
 
@@ -139,7 +139,7 @@ internal sealed class NativeFontPanel : UserControl, IFontPreviewPanel
             var family = Fonts.GetFontFamilies(new Uri(path)).FirstOrDefault();
             if (family is null)
             {
-                ShowError(TranslationHelper.Get("FontPreview_LoadFailed", failsafe: "无法读取该字体文件。"));
+                ShowError(TranslationHelper.Get("FontPreview_LoadFailed", failsafe: "Could not read this font file."));
                 return false;
             }
 
@@ -152,7 +152,7 @@ internal sealed class NativeFontPanel : UserControl, IFontPreviewPanel
         }
         catch (Exception e)
         {
-            ShowError($"{TranslationHelper.Get("FontPreview_LoadFailed", failsafe: "无法读取该字体文件。")}\n{e.Message}");
+            ShowError($"{TranslationHelper.Get("FontPreview_LoadFailed", failsafe: "Could not read this font file.")}\n{e.Message}");
             return false;
         }
     }
