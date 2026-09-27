@@ -7,6 +7,26 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.5.1
+
+### English-first repository, and English where a translation is missing
+
+- The repository reads English now, not just the README: this changelog, the three research notes
+  under `docs/`, every script (`test.ps1`, `bench.ps1`, `Scripts/*`) and the comments that were still
+  Chinese in the C#/XAML sources. The Chinese changelog and README live on as
+  `CHANGELOG.zh-CN.md` and `README.zh-CN.md`, and the Chinese screenshots moved to
+  `docs/screenshots/zh-CN/`.
+- The same problem existed in strings users actually see: the update dialog, the download progress
+  panel, the "WebView2 failed to initialize" notice, the "this document cannot be read" pages
+  (Office and Markdown), the DbViewer password prompt and the font previewer all carried Chinese
+  **failsafe** text. When a translation key was missing, an English user got Chinese - the update
+  path was exactly the bug reported against 5.0.1. Those fallbacks now mirror the `en` block of
+  `Translations.config`.
+- Deliberately still Chinese: the language packs themselves (`Translations.config`, so the Chinese UI
+  keeps working), the usage note packaged as `Readme.txt`, and the OCR test data (it exists to test
+  Han word joining and full-width punctuation).
+- No behaviour change elsewhere: build is clean (0 warnings, 0 errors) and the unit tests are 94/94.
+
 ## QuickLook-Next 5.5.0
 
 ### Mixed-DPI placement is testable now, not just "trusted"
