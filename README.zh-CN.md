@@ -1,6 +1,8 @@
 # QuickLook-Next
 
-**简体中文** | [English](README.md)
+<p align="center">
+  <a href="README.md">English</a> · <b>简体中文</b>
+</p>
 
 > QuickLook 的 **UI 美化与功能完善版**（基于 [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook)
 > 4.5.0 的 .NET 10 迁移版）。
@@ -8,8 +10,7 @@
 QuickLook-Next 保留完整的文件预览能力，并把预览背景、窗口圆角、主题、托盘菜单、
 插件管理、语言、自动更新等体验全面重构与增强——**功能只多不少**。
 
-独立分支 `lite`，与官方完整版命名隔离（管道 / 互斥体使用 `QuickLookNext.App.*`），
-可同时安装互不干扰。
+与官方完整版命名隔离（管道 / 互斥体使用 `QuickLookNext.App.*`），可同时安装互不干扰。
 
 ## 界面一览
 

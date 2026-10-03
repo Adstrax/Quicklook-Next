@@ -1,6 +1,11 @@
 # QuickLook-Next
 
-**English** | [简体中文](README.zh-CN.md)
+<p align="center">
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+> 中文用户请点上面的「简体中文」 —— GitHub 不会按浏览器语言自动切换 README，
+> 中文说明在 [README.zh-CN.md](README.zh-CN.md)。
 
 > A **UI-polished and feature-complete** edition of [QuickLook](https://github.com/QL-Win/QuickLook)
 > (ported to .NET 10, based on the 4.5.0 codebase).
@@ -9,8 +14,8 @@ QuickLook-Next keeps the full file-preview capability and rebuilds the experienc
 preview backdrop, rounded corners, themes, tray menu, plugin manager, language
 switching, auto-update — **more features, not fewer**.
 
-It lives on the isolated `lite` branch (named pipes / mutex use `QuickLookNext.App.*`),
-so it can be installed side-by-side with the official build without conflicts.
+Named pipes and the mutex use the `QuickLookNext.App.*` prefix, so it can be installed
+side-by-side with the official build without conflicts.
 
 ## Screenshots
 
