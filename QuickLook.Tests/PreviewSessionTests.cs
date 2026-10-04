@@ -63,9 +63,9 @@ internal class PreviewSessionTests
         session.Opened(0);
         session.Closed(1_000);
 
-        Assert.False(session.ShouldRelease(1_000 + TimeoutMs - 1, true, previewOpen: false),
+        Assert.False(session.ShouldRelease(1_000 + TimeoutMs - 1, true, previewOpen: false, TimeoutMs),
             "a moment before the timeout");
-        Assert.True(session.ShouldRelease(1_000 + TimeoutMs, true, previewOpen: false),
+        Assert.True(session.ShouldRelease(1_000 + TimeoutMs, true, previewOpen: false, TimeoutMs),
             "at the timeout");
     }
 
@@ -75,7 +75,7 @@ internal class PreviewSessionTests
         session.Opened(0);
 
         // Closing the window would close the preview the user is reading.
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: true),
+        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: true, TimeoutMs),
             "a preview is open");
     }
 
@@ -85,7 +85,7 @@ internal class PreviewSessionTests
         session.Opened(0);
         session.Closed(0);
 
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, lowMemoryMode: false, previewOpen: false),
+        Assert.False(session.ShouldRelease(TimeoutMs * 10, lowMemoryMode: false, previewOpen: false, TimeoutMs),
             "normal mode");
     }
 
@@ -93,7 +93,7 @@ internal class PreviewSessionTests
     {
         var session = new PreviewSession();
 
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: false),
+        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: false, TimeoutMs),
             "nothing was warmed");
     }
 
@@ -105,7 +105,7 @@ internal class PreviewSessionTests
         session.End();
 
         Assert.False(session.ShouldWarm(lowMemoryMode: true), "the next window is built cold");
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: false),
+        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: false, TimeoutMs),
             "and there is nothing left to release");
     }
 
@@ -118,7 +118,25 @@ internal class PreviewSessionTests
 
         session.Opened(TimeoutMs * 5);
         Assert.True(session.ShouldWarm(lowMemoryMode: true), "warm again");
-        Assert.False(session.ShouldRelease(TimeoutMs * 5 + TimeoutMs - 1, true, previewOpen: false),
+        Assert.False(session.ShouldRelease(TimeoutMs * 5 + TimeoutMs - 1, true, previewOpen: false, TimeoutMs),
             "and the countdown starts over");
+    }
+
+    /// <summary>
+    /// v5.6.3: the wait is the user's choice, so the rule has to take it from the
+    /// caller rather than from a constant.
+    /// </summary>
+    public void TheWaitIsWhateverTheUserPicked()
+    {
+        var session = new PreviewSession();
+        session.Opened(0);
+        session.Closed(0);
+
+        const long fiveMinutes = 5 * 60 * 1000;
+
+        Assert.False(session.ShouldRelease(TimeoutMs + 1, true, false, fiveMinutes),
+            "past the default but not past the chosen wait");
+        Assert.True(session.ShouldRelease(fiveMinutes + 1, true, false, fiveMinutes),
+            "past the chosen wait");
     }
 }

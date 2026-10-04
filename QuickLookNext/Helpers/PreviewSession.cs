@@ -38,8 +38,8 @@ namespace QuickLookNext.Helpers;
 /// The warm-up follows the session now. Nothing is warmed until the user has
 /// actually previewed something (the idle footprint of the low memory mode is
 /// unchanged), every window rebuilt while they keep previewing is warmed as usual,
-/// and once they have stopped for <see cref="IdleTimeout"/> the parked window is
-/// released so the memory goes back to the idle baseline.
+/// and once they have stopped the parked window is released - after the wait the user
+/// picked in <see cref="LowMemoryRelease"/>, which is what that setting controls.
 /// </para>
 ///
 /// <para>
@@ -49,13 +49,6 @@ namespace QuickLookNext.Helpers;
 /// </summary>
 internal sealed class PreviewSession
 {
-    /// <summary>
-    /// How long the warm window is kept after the last preview. Long enough that
-    /// flicking through a folder never hits a cold start, short enough that "I am
-    /// done looking at files" is followed by the memory coming back.
-    /// </summary>
-    internal static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(90);
-
     private long _lastActivityMs;
 
     /// <summary>True once the user has previewed something and has not gone idle since.</summary>
@@ -83,12 +76,12 @@ internal sealed class PreviewSession
     /// memory mode, only inside a session, never while a preview is open (closing the
     /// window would close that preview), and only after the idle timeout.
     /// </summary>
-    internal bool ShouldRelease(long nowMs, bool lowMemoryMode, bool previewOpen)
+    internal bool ShouldRelease(long nowMs, bool lowMemoryMode, bool previewOpen, long timeoutMs)
     {
         if (!lowMemoryMode || !IsActive || previewOpen)
             return false;
 
-        return nowMs - _lastActivityMs >= (long)IdleTimeout.TotalMilliseconds;
+        return nowMs - _lastActivityMs >= timeoutMs;
     }
 
     /// <summary>Ends the session, so the next window is built cold.</summary>

@@ -178,8 +178,10 @@ fixes or implements is noted where there is one.
 - **Low memory mode** — the two startup warm-ups become a switch. Measured idle memory on a single
   200% screen: 64 MB with both off, 112–118 MB with the window only, 169–179 MB by default; the
   warm-ups in exchange buy roughly 200 ms per preview. Since 5.6.2 the mode does not slow previewing
-  down: the window warm-up follows the preview session and the parked window is released after 90 s
-  without a preview, so consecutive previews stay at ~120 ms and the memory still comes back.
+  down: the window warm-up follows the preview session, so consecutive previews stay at ~120 ms.
+  Since 5.6.3 the memory also really comes back — the tray process restarts itself once you have
+  stopped previewing, after a wait you choose under *Release memory* (90 seconds by default, up to
+  "never"); measured 67 MB idle before a preview and 69 MB after the release.
 - **Huge-image protection** — a 40 MP decode cap, plus zoom and memory accounting in the coordinate
   space the image was actually decoded in: a 64 MP image dropped from a 1705 MB peak to 1156 MB
   without changing how it looks. (upstream #1054)

@@ -7,6 +7,34 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.3
+
+### The low memory mode finally gives the memory back
+
+- 5.6.2 made previewing fast again in this mode, but the memory itself never came back: after a single
+  preview the process sat at ~202 MB (5.6.1) or ~205 MB (5.6.2) and stayed there. The mode's promise -
+  "the app is not holding a preview stack while I am not previewing" - only held until the first
+  preview, which is not a real user state.
+- Why it cannot be done in-process: after one preview the **managed heap is about 9 MB**, while the
+  private bytes are ~135 MB above the cold baseline. The preview loads native modules that stay loaded
+  for the life of the process - ImageMagick (~23 MB), and the GPU driver's shader compiler (~74 MB when
+  WPF renders on the GPU) - and nothing can unload them while the process lives. Software rendering
+  avoids the GPU half (measured peak 206 -> 93 MB) but that trades away rendering smoothness, so it
+  stays a separate setting instead of being forced on.
+- So the release is a restart: once the mode has been idle for the wait the user picked, the tray
+  process starts itself again with `/autorun` (silent - no "started" notification) and comes back at
+  the cold baseline.
+- **The wait is the user's choice** (tray menu → *Release memory*): 90 seconds (default), 5 minutes,
+  15 minutes, 1 hour, or never. A short wait gives the memory back sooner; a long one keeps previews
+  quick for as long as the user is likely to come back. `0` switches the release off.
+- Measured end to end on one machine with the default 90 s: 67 MB before the preview, 202 MB while
+  previewing, and **69 MB** after the release, with the process id changing as expected. The restart is
+  logged (`Low memory mode: restarting to release the preview footprint`).
+- The restart is skipped whenever something is on screen (a panel, a dialog, the update prompt), so it
+  cannot interrupt the user; when it is skipped the parked window is released instead and the next
+  preview opens a new session.
+- Unit tests 122/122 (seven new ones for the wait options and the configurable timeout).
+
 ## QuickLook-Next 5.6.2
 
 ### Fixed: the low memory mode made every preview slow

@@ -191,6 +191,23 @@ These keys are also stored in `QuickLookNext.config`.
   nothing is warmed before the first preview, every window rebuilt while you keep
   previewing is warmed off-screen, and the parked window is released 90 s after the
   last preview (measured: 325 ms per preview before, 117 ms after).
+- v5.6.3: and the memory really comes back now - see `<LowMemoryReleaseSeconds>`.
+
+### `<LowMemoryReleaseSeconds>`
+- Default: `90`
+- Type: `Integer`
+- Description: How long the low memory mode waits after the last preview before it
+  hands its memory back. The tray menu has the same choices under
+  "释放内存 / Release memory": `90` (90 seconds), `300` (5 minutes), `900` (15
+  minutes), `3600` (1 hour) or `0` (never).
+- The release is a restart of the tray process, because the memory cannot be given back
+  in-process: after a preview the managed heap is ~9 MB while the private bytes are
+  ~135 MB above the baseline, and the preview's native modules (ImageMagick ~23 MB, the
+  GPU driver's shader compiler ~74 MB) cannot be unloaded while the process lives. The
+  restart is silent (`/autorun`, so no "started" notification) and cannot interrupt you:
+  it is skipped whenever a panel, a dialog or an update prompt is on screen.
+- Measured with the default 90 s: 67 MB before a preview, 202 MB while previewing, 69 MB
+  after the release.
 
   The two warm-ups exist to make the first preview fast, and both keep memory resident
   for the life of the tray process. Measured on one machine (single 200% display,

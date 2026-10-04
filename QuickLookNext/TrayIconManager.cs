@@ -114,6 +114,12 @@ internal partial class TrayIconManager : IDisposable
                 ? TranslationHelper.Get("Icon_Language_FollowSystem", failsafe: "Follow System")
                 : LanguageDisplayName(currentLanguage));
 
+        // v5.6.3: the current wait before the low memory mode hands its memory back.
+        var releaseGroupLabel =
+            $"{TranslationHelper.Get("Icon_LowMemoryRelease", failsafe: "Release memory")}：" +
+            TranslationHelper.Get(Helpers.LowMemoryRelease.Current.Key,
+                failsafe: Helpers.LowMemoryRelease.Current.Name);
+
         return
         [
             new TrayMenuEntry
@@ -221,6 +227,24 @@ internal partial class TrayIconManager : IDisposable
                         Command = ToggleLowMemoryMode,
                         IsChecked = Helpers.StartupWarmUp.IsLowMemoryMode,
                     },
+                ],
+            },
+            // v5.6.3: the low memory mode releases its memory by restarting the tray
+            // process once the user has stopped previewing; this is how long it waits.
+            // Same shape as the theme / backdrop / language groups: the header carries
+            // the current choice and the flyout carries the alternatives.
+            new TrayMenuEntry
+            {
+                Header = releaseGroupLabel,
+                Icon = FontSymbols.Sync,
+                Children =
+                [
+                    ..Helpers.LowMemoryRelease.Options.Select(option => new TrayMenuEntry
+                    {
+                        Header = TranslationHelper.Get(option.Key, failsafe: option.Name),
+                        Command = () => SetLowMemoryRelease(option.Seconds),
+                        IsChecked = Helpers.LowMemoryRelease.Seconds == option.Seconds,
+                    }),
                 ],
             },
             TrayMenuEntry.Separator,
@@ -436,8 +460,18 @@ internal partial class TrayIconManager : IDisposable
         ShowNotification(string.Empty,
             TranslationHelper.Get(on ? "Icon_LowMemoryModeOn" : "Icon_LowMemoryModeOff",
                 failsafe: on
-                    ? "Low memory mode is on - the startup warm-up stays off from the next start."
+                    ? "Low memory mode is on - the startup warm-up stays off, and the memory comes back after the wait set under \"Release memory\"."
                     : "Low memory mode is off - the startup warm-up is back from the next start."));
+    }
+
+    /// <summary>
+    /// v5.6.3: how long the low memory mode waits after the last preview before it
+    /// releases its memory (by restarting). Takes effect with the next preview: the
+    /// session timer reads the setting every time it is armed.
+    /// </summary>
+    private static void SetLowMemoryRelease(int seconds)
+    {
+        Helpers.LowMemoryRelease.Set(seconds);
     }
 
     internal static bool IsDarkTheme()
@@ -509,8 +543,6 @@ internal partial class TrayIconManager : IDisposable
 
     public void Restart(string fileName = null, string dir = null, string args = null, int? exitCode = null, bool forced = false)
     {
-        _ = args; // Currently there is no cli supported by QL
-
         try
         {
             using Process process = new()
@@ -520,6 +552,10 @@ internal partial class TrayIconManager : IDisposable
                     // v1.2.16: AppFullPath is the .exe, not the managed .dll.
                     FileName = fileName ?? App.AppFullPath,
                     WorkingDirectory = dir ?? Environment.CurrentDirectory,
+                    // v5.6.3: the low memory mode restarts itself silently and passes
+                    // /autorun for that, which is the flag the autostart shortcut uses
+                    // to suppress the "started" notification.
+                    Arguments = args ?? string.Empty,
                     UseShellExecute = true,
                 },
             };

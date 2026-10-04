@@ -384,11 +384,21 @@ private void InitNewViewerWindow()
         if (!Helpers.StartupWarmUp.IsLowMemoryMode || !_session.IsActive)
             return;
 
+        // v5.6.3: the wait is the user's choice (tray menu -> Options -> Release
+        // memory); 0 means they never want the release.
+        var seconds = Helpers.LowMemoryRelease.Seconds;
+        if (seconds <= 0)
+            return;
+
         _sessionTimer ??= new DispatcherTimer(
-            PreviewSession.IdleTimeout,
+            TimeSpan.FromSeconds(seconds),
             DispatcherPriority.Background,
             OnSessionIdle,
             System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher);
+
+        // The interval is fixed at construction, so re-create it when the choice changes.
+        if (Math.Abs(_sessionTimer.Interval.TotalSeconds - seconds) > 0.5)
+            _sessionTimer.Interval = TimeSpan.FromSeconds(seconds);
 
         _sessionTimer.Stop();
         _sessionTimer.Start();
@@ -399,13 +409,27 @@ private void InitNewViewerWindow()
         _sessionTimer?.Stop();
 
         if (!_session.ShouldRelease(Environment.TickCount64,
-                Helpers.StartupWarmUp.IsLowMemoryMode, !string.IsNullOrEmpty(_invokedPath)))
+                Helpers.StartupWarmUp.IsLowMemoryMode, !string.IsNullOrEmpty(_invokedPath),
+                (long)TimeSpan.FromSeconds(Helpers.LowMemoryRelease.Seconds).TotalMilliseconds))
             return;
 
-        // Hand the parked window - and the render stack it keeps resident - back. The
-        // next preview builds a cold window and opens a new session.
         _session.End();
 
+        // v5.6.3: in-process there is nothing left to give back - the managed heap is
+        // ~9 MB after a preview while the private bytes sit ~80 MB above the baseline,
+        // because the preview loaded native modules that cannot be unloaded while the
+        // process lives (ImageMagick ~23 MB, the GPU driver's shader compiler ~74 MB).
+        // Starting over is what actually returns the memory, so that is the release.
+        if (CanReleaseByRestarting())
+        {
+            ProcessHelper.WriteLog(
+                "Low memory mode: restarting to release the preview footprint");
+            TrayIconManager.GetInstance().Restart(args: "/autorun", forced: true);
+            return;
+        }
+
+        // Something is on screen (a panel, a dialog) - hand the parked window back and
+        // let the next preview open a new session.
         try
         {
             _viewerWindow?.Close();
@@ -415,6 +439,30 @@ private void InitNewViewerWindow()
         {
             ProcessHelper.WriteLog($"Releasing the warm preview window failed: {ex}");
         }
+    }
+
+    /// <summary>
+    /// v5.6.3: a restart is silent and quick, but it must never interrupt something the
+    /// user is looking at. The parked preview window is ours and is ignored; anything
+    /// else on screen (tray menu, plugin manager, a dialog, the update progress panel)
+    /// means "not now".
+    /// </summary>
+    private static bool CanReleaseByRestarting()
+    {
+        var application = System.Windows.Application.Current;
+        if (application is null)
+            return false;
+
+        foreach (System.Windows.Window window in application.Windows)
+        {
+            if (window is ViewerWindow)
+                continue;
+
+            if (window.IsVisible)
+                return false;
+        }
+
+        return true;
     }
 
     public static ViewWindowManager GetInstance()
