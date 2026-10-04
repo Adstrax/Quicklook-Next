@@ -16,6 +16,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLookNext.Helpers;
+using System;
+using System.IO;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace QuickLook.Tests;
 
@@ -147,5 +152,105 @@ internal class PluginCatalogTests
         Assert.False(PluginInstallService.IsValidNamespace("SomethingElse.Viewer"), "not a plugin namespace");
         Assert.False(PluginInstallService.IsValidNamespace("QuickLook.Plugin."), "prefix only");
         Assert.False(PluginInstallService.IsValidNamespace(null), "null");
+    }
+
+    public void ATruncatedDownloadIsRefused()
+    {
+        var file = WriteTemp("truncated.qlplugin", "not the whole package");
+        try
+        {
+            var hash = Hash(file);
+
+            Assert.Throws<InvalidDataException>(
+                () => PluginInstallService.VerifyDownload(file, 4096, hash),
+                "a short file must be refused even when its hash matches");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    public void AReplacedDownloadIsRefused()
+    {
+        var file = WriteTemp("replaced.qlplugin", "someone swapped this file");
+        try
+        {
+            var length = new FileInfo(file).Length;
+            var otherHash = new string('a', 64);
+
+            Assert.Throws<InvalidDataException>(
+                () => PluginInstallService.VerifyDownload(file, length, otherHash),
+                "a hash that does not match the catalogue must be refused");
+
+            // The honest file passes both checks.
+            PluginInstallService.VerifyDownload(file, length, Hash(file));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    public void TheInstallTargetComesFromThePackageItself()
+    {
+        var file = WriteTemp("QuickLook.Plugin.Example.qlplugin", null);
+        try
+        {
+            using (var zip = ZipFile.Open(file, ZipArchiveMode.Create))
+            {
+                var entry = zip.CreateEntry("QuickLook.Plugin.Metadata.config");
+                using var stream = entry.Open();
+                var xml = Encoding.UTF8.GetBytes(
+                    "<Metadata><Namespace>QuickLook.Plugin.Example</Namespace><Version>1.2.3</Version></Metadata>");
+                stream.Write(xml, 0, xml.Length);
+            }
+
+            var (ns, version) = PluginInstallService.ReadMetadata(file);
+
+            Assert.Equal("QuickLook.Plugin.Example", ns, "namespace");
+            Assert.Equal("1.2.3", version, "version");
+            Assert.True(PluginInstallService.IsValidNamespace(ns), "and it is a usable target");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    public void APackageWithoutMetadataIsRefused()
+    {
+        var file = WriteTemp("QuickLook.Plugin.Empty.qlplugin", null);
+        try
+        {
+            using (var zip = ZipFile.Open(file, ZipArchiveMode.Create))
+                zip.CreateEntry("readme.txt");
+
+            Assert.Throws<InvalidDataException>(
+                () => PluginInstallService.ReadMetadata(file),
+                "a zip with no plugin metadata is not a plugin");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    private static string WriteTemp(string name, string content)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "QuickLook.Tests", Guid.NewGuid().ToString("N"), name);
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+        if (content is not null)
+            File.WriteAllText(path, content);
+
+        return path;
+    }
+
+    private static string Hash(string path)
+    {
+        using var file = File.OpenRead(path);
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(file));
     }
 }

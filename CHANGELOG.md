@@ -7,6 +7,31 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.0
+
+### The plugin panel can browse and install third-party plugins now
+
+- The plugin manager has a second view. **Browse** lists the plugins the upstream wiki points at - 43
+  of them today - with their publisher, version, size and description, and installs one with a single
+  click. No more hunting for a `.qlplugin` in a browser and previewing the file to install it.
+- Nothing is mirrored here: every row points at the file its own author publishes. The catalogue is
+  one 30 KB JSON file in this repository (`plugins/index.json`), regenerated with
+  `Scripts/build-plugin-index.ps1` from the wiki plus the GitHub API.
+- **Every entry is pinned to exact bytes.** The catalogue records the size and SHA-256 of the release
+  asset; the download is checked against both before a single file is written, and a mismatch aborts
+  the install and deletes the download. An entry is dropped unless its URL is https on a GitHub host,
+  its size is plausible and its hash is complete. GitHub only reports a digest for assets uploaded
+  after it started doing so, so the generator downloads and hashes the older ones itself - 15 of the
+  43 needed that.
+- A package only ever installs into the folder its own metadata names, and that name has to be a
+  `QuickLook.Plugin.*` namespace, so a package cannot pick its own destination. Upgrading over a
+  plugin the app has loaded parks the old folder as `*.uninstalled`, exactly like an uninstall does.
+- The confirmation shows the publisher, the source repository and the size before anything is
+  downloaded, and offers a restart when the install finishes.
+- Hidden switch `/test-plugin-catalog` writes what the live list returns
+  (`<smokeDir>\plugin-catalog.txt`), and nine new unit tests cover the trust boundary: which entries
+  are allowed through and which folder an install may target.
+
 ## QuickLook-Next 5.5.1
 
 ### English-first repository, and English where a translation is missing

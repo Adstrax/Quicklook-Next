@@ -50,6 +50,7 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | all of those, plus a theme mode, the language list, the backdrop list, "hide top bar", "low memory mode", the plugin manager and the data & cache panel |
 | Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
 | Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin manager, which lists name, version and origin and has a search box |
+| Installing a plugin | download a `.qlplugin` from the wiki in a browser, then preview the file to install it | browse the list inside the panel and install in one click, with the size and SHA-256 verified before anything is written |
 | Office preview | the plugin renders through the system preview component | re-implemented in-house (OOXML parsed and rendered in WebView2), so no Office install is needed |
 | Image OCR | open upstream request [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | shipped, and the engine is picked per image |
 | Cache footprint | open upstream request [#1933](https://github.com/QL-Win/QuickLook/issues/1933) | data & cache panel, clearing only the rebuildable files |
@@ -143,6 +144,12 @@ existing plugins load without recompiling.
 - **Plugin manager (new)**: lists user and built-in plugins, uninstalls user
   plugins; the plugin contract stays `QuickLook.Common` / `QuickLook.Plugin.*`,
   so existing plugins load without recompiling.
+- **Plugin browser (new in 5.6.0)**: the same panel has a **Browse** view that
+  lists 43 third-party plugins — publisher, version, size, description — and
+  installs one in a click. Nothing is mirrored: every row downloads the file the
+  author publishes, and the catalogue pins each entry to its size and SHA-256,
+  verifies the download before writing anything, and only installs into the
+  `QuickLook.Plugin.*` folder the package's own metadata names.
 - **Built-in language switching**: follow-system + 30 languages in the tray menu
   (common languages first, names shown in their own language — Chinese displays
   as 简体中文 / 繁体中文), persisted.

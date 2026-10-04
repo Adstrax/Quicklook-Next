@@ -102,7 +102,7 @@ internal static class PluginInstallService
         {
             Directory.CreateDirectory(Path.GetDirectoryName(staging)!);
             Download(entry, staging, progress, cancellation);
-            Verify(entry, staging);
+            VerifyDownload(staging, entry.Size, entry.Sha256);
 
             var (ns, version) = ReadMetadata(staging);
             if (!IsValidNamespace(ns))
@@ -172,24 +172,30 @@ internal static class PluginInstallService
         }
     }
 
-    private static void Verify(PluginCatalogEntry entry, string path)
+    /// <summary>
+    /// The download is only accepted when both the length and the hash match
+    /// what the catalogue recorded, so a truncated, replaced or tampered file
+    /// never reaches the plugin folder.
+    /// </summary>
+    internal static void VerifyDownload(string path, long expectedSize, string expectedSha256)
     {
         var length = new FileInfo(path).Length;
-        if (length != entry.Size)
+        if (length != expectedSize)
         {
             throw new InvalidDataException(
-                $"Downloaded {length} bytes, the catalogue lists {entry.Size}.");
+                $"Downloaded {length} bytes, the catalogue lists {expectedSize}.");
         }
 
         using var file = File.OpenRead(path);
         using var sha = SHA256.Create();
         var hash = Convert.ToHexString(sha.ComputeHash(file));
 
-        if (!hash.Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase))
+        if (!hash.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The downloaded package does not match the recorded SHA-256.");
     }
 
-    private static (string Namespace, string Version) ReadMetadata(string path)
+    /// <summary>Reads the namespace and version a .qlplugin declares for itself.</summary>
+    internal static (string Namespace, string Version) ReadMetadata(string path)
     {
         using var zip = ZipFile.Open(path, ZipArchiveMode.Read);
         using var entry = zip.GetEntry(MetadataEntry)?.Open()
