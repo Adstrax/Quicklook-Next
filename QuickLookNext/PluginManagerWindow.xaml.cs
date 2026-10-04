@@ -23,6 +23,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -41,6 +43,19 @@ public partial class PluginManagerWindow : Window
     private readonly List<PluginEntry> _entries = [];
     private bool _accentApplied;
 
+    // v5.6.0: the panel has two views. "Installed" is the local list; "Browse"
+    // is the catalogue this repo publishes, which points at each plugin's own
+    // release asset.
+    private bool _browseMode;
+    private bool _catalogueLoading;
+    private bool _catalogueLoaded;
+    private bool _forceCatalogueRefresh;
+    private string _catalogueError = string.Empty;
+    private IReadOnlyList<PluginCatalogEntry> _catalogue = [];
+    private readonly HashSet<string> _installedFolders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _builtInFolders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _installedVersions = new(StringComparer.OrdinalIgnoreCase);
+
     public PluginManagerWindow()
     {
         InitializeComponent();
@@ -52,6 +67,8 @@ public partial class PluginManagerWindow : Window
         btnOpenFolder.Content = Tr("PM_OpenFolder", "Open Plugin Folder");
         btnRefresh.Content = Tr("PM_Refresh", "Refresh");
         btnClose.Content = Tr("PM_Close", "Close");
+        btnTabInstalled.Content = Tr("PM_TabInstalled", "Installed");
+        btnTabBrowse.Content = Tr("PM_TabBrowse", "Browse");
 
         // v5.3.0: the panel opens with the cursor in the search box - with 25 plugins the filter
         // is the first thing most people reach for.
@@ -116,6 +133,33 @@ public partial class PluginManagerWindow : Window
         _entries.Clear();
         _entries.AddRange(PluginManager.GetInstance().EnumerateInstalledPlugins());
 
+        // The catalogue identifies a plugin by the folder the installer creates
+        // for it, which is what tells "Install" apart from "Installed".
+        _installedFolders.Clear();
+        _builtInFolders.Clear();
+        _installedVersions.Clear();
+        foreach (var installed in _entries)
+        {
+            var folderName = Path.GetFileName(installed.Folder.TrimEnd('\\', '/'));
+            if (installed.IsUserPlugin)
+            {
+                _installedFolders.Add(folderName);
+                _installedVersions[folderName] = installed.Version ?? string.Empty;
+            }
+            else
+                _builtInFolders.Add(folderName);
+        }
+
+        UpdateTabVisuals();
+
+        if (_browseMode)
+            RefreshBrowse();
+        else
+            RefreshInstalled();
+    }
+
+    private void RefreshInstalled()
+    {
         // v5.3.0: 25 plugins are past the point where scrolling is a search interface.
         var filter = searchBox?.Text?.Trim() ?? string.Empty;
         var visible = string.IsNullOrEmpty(filter)
@@ -145,6 +189,197 @@ public partial class PluginManagerWindow : Window
         statusText.Text = userCount == 0
             ? Tr("PM_None", "No user-installed plugins yet. Preview a .qlplugin file to install one.")
             : string.Empty;
+    }
+
+    private void BtnTabInstalled_Click(object sender, RoutedEventArgs e) => SwitchTo(browse: false);
+
+    private void BtnTabBrowse_Click(object sender, RoutedEventArgs e) => SwitchTo(browse: true);
+
+    private void SwitchTo(bool browse)
+    {
+        if (_browseMode == browse)
+            return;
+
+        _browseMode = browse;
+        RefreshList();
+    }
+
+    private void UpdateTabVisuals()
+    {
+        var active = (Brush)Resources["BadgeBrush"];
+        var idle = Brushes.Transparent;
+
+        btnTabInstalled.Background = _browseMode ? idle : active;
+        btnTabBrowse.Background = _browseMode ? active : idle;
+    }
+
+    /// <summary>
+    /// v5.6.0: the catalogue view. It shows what the upstream wiki lists and
+    /// what each plugin's own repository currently publishes; the download is
+    /// always the author's own release asset, never a copy hosted here.
+    /// </summary>
+    private void RefreshBrowse()
+    {
+        var filter = searchBox?.Text?.Trim() ?? string.Empty;
+
+        if (!_catalogueLoaded)
+        {
+            headerText.Text = Tr("PM_BrowseHeader", "Available Plugins");
+            pluginList.Items.Clear();
+
+            if (_catalogueLoading)
+            {
+                statusText.Text = Tr("PM_LoadingList", "Loading the plugin list...");
+                return;
+            }
+
+            _catalogueLoading = true;
+            statusText.Text = Tr("PM_LoadingList", "Loading the plugin list...");
+
+            Task.Run(() =>
+            {
+                var list = PluginCatalog.Load(out var error, forceRefresh: _forceCatalogueRefresh);
+                return (List: list, Error: error);
+            }).ContinueWith(task => Dispatcher.BeginInvoke(() =>
+            {
+                _catalogue = task.Result.List;
+                _catalogueError = task.Result.Error;
+                _catalogueLoading = false;
+                _catalogueLoaded = true;
+                _forceCatalogueRefresh = false;
+
+                if (_browseMode)
+                    RefreshBrowse();
+            }));
+
+            return;
+        }
+
+        var visible = string.IsNullOrEmpty(filter)
+            ? _catalogue
+            : _catalogue.Where(e =>
+                e.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                e.Publisher.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                e.Description.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        headerText.Text = string.Format(
+            Tr("PM_BrowseHeaderCount", "Available Plugins ({0})"), _catalogue.Count);
+
+        pluginList.Items.Clear();
+        foreach (var entry in visible)
+            pluginList.Items.Add(BuildBrowseRow(entry));
+
+        if (!string.IsNullOrEmpty(_catalogueError))
+        {
+            statusText.Text = _catalogueError;
+            return;
+        }
+
+        statusText.Text = !string.IsNullOrEmpty(filter)
+            ? string.Format(Tr("PM_Matches", "{0} of {1} shown."), visible.Count, _catalogue.Count)
+            : Tr("PM_BrowseHint",
+                "These plugins come from their own authors. Installing one downloads its release file and checks it against a recorded hash.");
+    }
+
+    private Border BuildBrowseRow(PluginCatalogEntry entry)
+    {
+        // A user copy wins over a built-in one of the same name (PluginManager
+        // scans the user folder first), so "Installed" is reported first.
+        var isInstalled = _installedFolders.Contains(entry.Id);
+        var isBuiltIn = !isInstalled && _builtInFolders.Contains(entry.Id);
+        var canUpdate = isInstalled
+            && _installedVersions.TryGetValue(entry.Id, out var installedVersion)
+            && PluginCatalog.IsNewerThan(entry.Version, installedVersion);
+
+        var grid = BuildRowShell(GlyphFor(entry.Name), entry.Name, entry.Version, entry.Description,
+            $"{entry.SizeText} \u00b7 {entry.Publisher}");
+
+        if ((isInstalled && !canUpdate) || isBuiltIn)
+        {
+            var label = new TextBlock
+            {
+                Text = isInstalled
+                    ? Tr("PM_Installed", "Installed")
+                    : Tr("PM_BuiltIn", "Built-in"),
+                Foreground = (Brush)Resources["SecondaryTextBrush"],
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 0, 0),
+            };
+            Grid.SetColumn(label, 4);
+            ((Grid)grid.Child).Children.Add(label);
+            return grid;
+        }
+
+        var install = new Button
+        {
+            Content = canUpdate ? Tr("PM_Update", "Update") : Tr("PM_Install", "Install"),
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(10, 0, 0, 0),
+            Style = (Style)Resources["PanelButtonStyle"],
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            install, $"{(canUpdate ? Tr("PM_Update", "Update") : Tr("PM_Install", "Install"))} {entry.Name}");
+        install.Click += (_, _) => Install(entry, install);
+
+        Grid.SetColumn(install, 4);
+        ((Grid)grid.Child).Children.Add(install);
+
+        return grid;
+    }
+
+    private async void Install(PluginCatalogEntry entry, Button button)
+    {
+        var message = string.Format(
+            Tr("PM_ConfirmInstall",
+                "Install \"{0}\" {1} by {2}?\n\nSource: {3}\nSize: {4}\n\nThird-party plugins run with the same access as this app. Only install plugins you trust."),
+            entry.Name, entry.Version, entry.Publisher, entry.RepoUrl, entry.SizeText);
+
+        if (MessageBox.Show(this, message, Title,
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        button.IsEnabled = false;
+        var progress = new Progress<Updater.DownloadProgress>(p =>
+        {
+            statusText.Text = p.Total is > 0
+                ? string.Format(Tr("PM_Downloading", "Downloading {0}... {1:0}%"),
+                    entry.Name, 100d * p.Received / p.Total.Value)
+                : string.Format(Tr("PM_DownloadingUnknown", "Downloading {0}..."), entry.Name);
+        });
+
+        var result = await PluginInstallService.InstallAsync(entry, progress, CancellationToken.None);
+
+        switch (result.Status)
+        {
+            case PluginInstallStatus.Installed:
+                RefreshList();
+                statusText.Text = string.Format(
+                    Tr("PM_InstalledRestart", "{0} {1} installed. Restart to load it."),
+                    entry.Name, result.Version);
+
+                if (MessageBox.Show(this,
+                        string.Format(Tr("PM_RestartNow", "Restart QuickLook-Next now to load {0}?"), entry.Name),
+                        Title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                {
+                    TrayIconManager.GetInstance().Restart(forced: true);
+                }
+
+                break;
+
+            case PluginInstallStatus.Rejected:
+                button.IsEnabled = true;
+                statusText.Text = result.Message;
+                break;
+
+            default:
+                button.IsEnabled = true;
+                statusText.Text = string.Format(
+                    Tr("PM_InstallFailed", "Could not install {0}: {1}"), entry.Name, result.Message);
+                break;
+        }
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -220,63 +455,9 @@ public partial class PluginManagerWindow : Window
 
     private Border BuildRow(PluginEntry entry)
     {
-        // v3.7.0: a tinted plugin glyph makes each row read as a card instead
-        // of a bare text line.
-        var icon = new Border
-        {
-            Background = (Brush)Resources["ButtonBgBrush"],
-            CornerRadius = new CornerRadius(6),
-            Width = 28,
-            Height = 28,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
-            Child = new TextBlock
-            {
-                // v5.3.0: every row used the same puzzle glyph, which made 25 rows of a list
-                // unreadable at a glance. Each family now shows what it previews.
-                Text = GlyphFor(entry.Name),
-                FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                FontSize = 14,
-                Foreground = (Brush)Resources["SecondaryTextBrush"],
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
-        };
-
-        var name = new TextBlock
-        {
-            Text = entry.Name,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)Resources["TextBrush"],
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
         var versionText = ReadableVersion(entry.Version);
-
-        var version = new TextBlock
-        {
-            // v5.3.0: "0.0.0.0" is what a plugin without an AssemblyVersion reports - showing
-            // it looks like a defect in the panel, so an unknown version shows nothing.
-            Text = versionText,
-            Foreground = (Brush)Resources["SecondaryTextBrush"],
-            Margin = new Thickness(8, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = string.IsNullOrEmpty(versionText) ? Visibility.Collapsed : Visibility.Visible,
-        };
-
-        var namePanel = new StackPanel { Orientation = Orientation.Horizontal };
-        namePanel.Children.Add(name);
-        namePanel.Children.Add(version);
-
-        var description = new TextBlock
-        {
-            Text = entry.Description,
-            Foreground = (Brush)Resources["SecondaryTextBrush"],
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(16, 0, 16, 0),
-            MaxWidth = 280,
-        };
+        var row = BuildRowShell(GlyphFor(entry.Name), entry.Name, versionText, entry.Description, null);
+        var grid = (Grid)row.Child;
 
         // v5.3.0: the header already counts the built-in plugins ("0 user, 25 built-in"), so
         // repeating "Built-in" on every row was noise. Only the exceptions are marked.
@@ -294,20 +475,6 @@ public partial class PluginManagerWindow : Window
                 FontSize = 11,
             },
         };
-
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        Grid.SetColumn(icon, 0);
-        grid.Children.Add(icon);
-        Grid.SetColumn(namePanel, 1);
-        grid.Children.Add(namePanel);
-        Grid.SetColumn(description, 2);
-        grid.Children.Add(description);
         Grid.SetColumn(badge, 3);
         grid.Children.Add(badge);
 
@@ -331,6 +498,103 @@ public partial class PluginManagerWindow : Window
             grid.Children.Add(uninstall);
         }
 
+        row.ToolTip = entry.Folder;
+        return row;
+    }
+
+    /// <summary>
+    /// v5.6.0: the row both views share - glyph, name with its version, the
+    /// description and an optional second line under it. Columns 3 and 4 are
+    /// left for the caller (state badge and action).
+    /// </summary>
+    private Border BuildRowShell(string glyph, string name, string version, string description, string secondary)
+    {
+        // v3.7.0: a tinted plugin glyph makes each row read as a card instead
+        // of a bare text line.
+        var icon = new Border
+        {
+            Background = (Brush)Resources["ButtonBgBrush"],
+            CornerRadius = new CornerRadius(6),
+            Width = 28,
+            Height = 28,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+            Child = new TextBlock
+            {
+                // v5.3.0: every row used the same puzzle glyph, which made 25 rows of a list
+                // unreadable at a glance. Each family now shows what it previews.
+                Text = glyph,
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 14,
+                Foreground = (Brush)Resources["SecondaryTextBrush"],
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+
+        var nameBlock = new TextBlock
+        {
+            Text = name,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)Resources["TextBrush"],
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var versionBlock = new TextBlock
+        {
+            // v5.3.0: "0.0.0.0" is what a plugin without an AssemblyVersion reports - showing
+            // it looks like a defect in the panel, so an unknown version shows nothing.
+            Text = version,
+            Foreground = (Brush)Resources["SecondaryTextBrush"],
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = string.IsNullOrEmpty(version) ? Visibility.Collapsed : Visibility.Visible,
+        };
+
+        var namePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        namePanel.Children.Add(nameBlock);
+        namePanel.Children.Add(versionBlock);
+
+        var descriptionBlock = new TextBlock
+        {
+            Text = description,
+            Foreground = (Brush)Resources["SecondaryTextBrush"],
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 280,
+        };
+
+        var descriptionPanel = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(16, 0, 16, 0),
+        };
+        descriptionPanel.Children.Add(descriptionBlock);
+
+        if (!string.IsNullOrEmpty(secondary))
+        {
+            descriptionPanel.Children.Add(new TextBlock
+            {
+                Text = secondary,
+                Foreground = (Brush)Resources["SecondaryTextBrush"],
+                FontSize = 11,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        }
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        Grid.SetColumn(icon, 0);
+        grid.Children.Add(icon);
+        Grid.SetColumn(namePanel, 1);
+        grid.Children.Add(namePanel);
+        Grid.SetColumn(descriptionPanel, 2);
+        grid.Children.Add(descriptionPanel);
+
         var row = new Border
         {
             Child = grid,
@@ -338,7 +602,6 @@ public partial class PluginManagerWindow : Window
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 8, 10, 8),
             Margin = new Thickness(0, 0, 0, 6),
-            ToolTip = entry.Folder,
         };
         row.MouseEnter += (_, _) => row.Background = (Brush)Resources["RowHoverBrush"];
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
@@ -387,6 +650,15 @@ public partial class PluginManagerWindow : Window
 
     private void BtnRefresh_Click(object sender, RoutedEventArgs e)
     {
+        // In the catalogue view Refresh means "ask again", not "re-read the
+        // memoised copy" - a new plugin may have been published since.
+        if (_browseMode)
+        {
+            _catalogueLoaded = false;
+            _catalogueLoading = false;
+            _forceCatalogueRefresh = true;
+        }
+
         RefreshList();
     }
 

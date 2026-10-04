@@ -253,6 +253,26 @@ public partial class App : Application
             }
         }
 
+        // Hidden test hook (/test-plugin-catalog): fetch the published plugin
+        // catalogue and dump what came back, so the smoke test can check the
+        // network path and the entry validation without clicking the panel.
+        if (e.Args.Contains("/test-plugin-catalog"))
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    Directory.CreateDirectory(SmokeDir);
+                    File.WriteAllText(Path.Combine(SmokeDir, "plugin-catalog.txt"),
+                        Helpers.PluginCatalog.Diagnose());
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/test-plugin-catalog failed: {ex}");
+                }
+            });
+        }
+
         if (e.Args.Contains("/test-plugin-manager"))
         {
             Dispatcher.BeginInvoke(new Action(() =>

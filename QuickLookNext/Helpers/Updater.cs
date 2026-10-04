@@ -71,7 +71,9 @@ internal class Updater
 
     private static readonly HttpClient Http = CreateHttpClient(TimeSpan.FromSeconds(15));
 
-    private static HttpClient CreateHttpClient(TimeSpan timeout)
+    // internal: the plugin catalogue and the plugin installer reuse this client
+    // (and its User-Agent), so there is one place that talks to the network.
+    internal static HttpClient CreateHttpClient(TimeSpan timeout)
     {
         // v3.31.0: no UseDefaultCredentials - the release endpoints never need
         // Windows credentials, and an authentication challenge would otherwise
@@ -436,7 +438,8 @@ internal class Updater
         return Convert.ToHexString(sha.ComputeHash(package));
     }
 
-    private static void CopyWithLimit(Stream source, Stream destination, long limit,
+    // internal: reused by PluginInstallService for the plugin download.
+    internal static void CopyWithLimit(Stream source, Stream destination, long limit,
         long? declaredLength, IProgress<DownloadProgress> progress, CancellationToken cancellation)
     {
         var buffer = new byte[81920];

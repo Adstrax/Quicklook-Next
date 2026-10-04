@@ -122,6 +122,23 @@
                 </DockPanel>
             </Border>
 
+            <!-- v5.6.0: two views over the same list slot - what is installed, and what the
+                 catalogue offers. -->
+            <StackPanel x:Name="tabBar"
+                        DockPanel.Dock="Top"
+                        Orientation="Horizontal"
+                        Margin="0,0,0,10">
+                <Button x:Name="btnTabInstalled"
+                        Padding="12,5"
+                        Margin="0,0,6,0"
+                        Click="BtnTabInstalled_Click"
+                        Style="{DynamicResource PanelButtonStyle}" />
+                <Button x:Name="btnTabBrowse"
+                        Padding="12,5"
+                        Click="BtnTabBrowse_Click"
+                        Style="{DynamicResource PanelButtonStyle}" />
+            </StackPanel>
+
             <!-- v5.3.0: 25 plugins are past the point where scrolling is a search interface. -->
             <Border DockPanel.Dock="Top"
                     Background="{DynamicResource ButtonBgBrush}"
