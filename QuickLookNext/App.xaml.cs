@@ -833,5 +833,15 @@ public partial class App : Application
         ViewWindowManager.GetInstance();
         KeystrokeDispatcher.GetInstance();
         PipeServerManager.GetInstance();
+
+        // v5.6.1: keep the plugin catalogue fresh without waiting for someone to
+        // open the panel and press refresh - one ~30 KB request in the
+        // background, and a failure simply leaves the cached list in place.
+        // Skipped in the hidden test modes, which have to stay hermetic, and when
+        // the user turned automatic checks off, so nobody who asked for no
+        // background network traffic gets any.
+        var hiddenTestMode = e.Args.Any(a => a.StartsWith("/test-", StringComparison.OrdinalIgnoreCase));
+        if (!hiddenTestMode && !SettingHelper.Get("DisableAutoUpdateCheck", false))
+            _ = Task.Run(() => Helpers.PluginCatalog.Load(out _, forceRefresh: true));
     }
 }

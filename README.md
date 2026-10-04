@@ -149,7 +149,9 @@ existing plugins load without recompiling.
   installs one in a click. Nothing is mirrored: every row downloads the file the
   author publishes, and the catalogue pins each entry to its size and SHA-256,
   verifies the download before writing anything, and only installs into the
-  `QuickLook.Plugin.*` folder the package's own metadata names.
+  `QuickLook.Plugin.*` folder the package's own metadata names. The list is
+  refreshed once in the background at every start, and **Refresh Index** in the
+  panel re-reads it on demand.
 - **Built-in language switching**: follow-system + 30 languages in the tray menu
   (common languages first, names shown in their own language — Chinese displays
   as 简体中文 / 繁体中文), persisted.

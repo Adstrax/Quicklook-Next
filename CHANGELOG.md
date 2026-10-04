@@ -7,6 +7,18 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.1
+
+### The plugin list keeps itself current
+
+- The catalogue is refreshed once in the background on every start, so opening the panel shows the
+  current list rather than whatever was downloaded last time. It is one ~30 KB request; a failure
+  leaves the cached list untouched, the hidden test switches skip it (they stay hermetic), and turning
+  the automatic update check off turns this off with it.
+- In the Browse view the footer button says **Refresh Index** now and re-reads the published list -
+  the Installed view keeps "Refresh", which re-scans the plugin folders. The status line reports how
+  many entries came back, so a manual refresh is visibly a refresh and not a no-op.
+
 ## QuickLook-Next 5.6.0
 
 ### The plugin panel can browse and install third-party plugins now

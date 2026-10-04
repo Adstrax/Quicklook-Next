@@ -50,6 +50,8 @@ public partial class PluginManagerWindow : Window
     private bool _catalogueLoading;
     private bool _catalogueLoaded;
     private bool _forceCatalogueRefresh;
+    private bool _announceCatalogueRefresh;
+    private bool _catalogueUpdated;
     private string _catalogueError = string.Empty;
     private IReadOnlyList<PluginCatalogEntry> _catalogue = [];
     private readonly HashSet<string> _installedFolders = new(StringComparer.OrdinalIgnoreCase);
@@ -211,6 +213,12 @@ public partial class PluginManagerWindow : Window
 
         btnTabInstalled.Background = _browseMode ? idle : active;
         btnTabBrowse.Background = _browseMode ? active : idle;
+
+        // In the catalogue view the button re-reads the published list, so it
+        // says so; in the installed view it re-scans the plugin folders.
+        btnRefresh.Content = _browseMode
+            ? Tr("PM_RefreshIndex", "Refresh Index")
+            : Tr("PM_Refresh", "Refresh");
     }
 
     /// <summary>
@@ -248,6 +256,12 @@ public partial class PluginManagerWindow : Window
                 _catalogueLoaded = true;
                 _forceCatalogueRefresh = false;
 
+                if (_announceCatalogueRefresh)
+                {
+                    _announceCatalogueRefresh = false;
+                    _catalogueUpdated = string.IsNullOrEmpty(task.Result.Error);
+                }
+
                 if (_browseMode)
                     RefreshBrowse();
             }));
@@ -272,6 +286,14 @@ public partial class PluginManagerWindow : Window
         if (!string.IsNullOrEmpty(_catalogueError))
         {
             statusText.Text = _catalogueError;
+            return;
+        }
+
+        if (_catalogueUpdated)
+        {
+            _catalogueUpdated = false;
+            statusText.Text = string.Format(
+                Tr("PM_IndexUpdated", "Plugin list updated ({0} entries)."), _catalogue.Count);
             return;
         }
 
@@ -651,12 +673,14 @@ public partial class PluginManagerWindow : Window
     private void BtnRefresh_Click(object sender, RoutedEventArgs e)
     {
         // In the catalogue view Refresh means "ask again", not "re-read the
-        // memoised copy" - a new plugin may have been published since.
+        // memoised copy" - a new plugin may have been published since, and the
+        // list is also refreshed once at startup (see App.RunListener).
         if (_browseMode)
         {
             _catalogueLoaded = false;
             _catalogueLoading = false;
             _forceCatalogueRefresh = true;
+            _announceCatalogueRefresh = true;
         }
 
         RefreshList();
