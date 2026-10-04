@@ -4,8 +4,11 @@
   <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> 中文用户请点上面的「简体中文」 —— GitHub 不会按浏览器语言自动切换 README，
-> 中文说明在 [README.zh-CN.md](README.zh-CN.md)。
+> **中文用户看这里 → [简体中文 README](README.zh-CN.md)**（GitHub 不会按浏览器语言自动切换。）
+>
+> 一句话：Windows 上的空格键文件预览工具，QuickLook 的衍生版，免费开源。
+> 25 个内置插件覆盖图片 / 视频 / PDF / Office / 压缩包 / 字体 / 数据库 / 3D 等；
+> 毛玻璃 + Win11 原生圆角；解压双击即用，需先装 .NET 10 桌面运行时。
 
 > A **UI-polished and feature-complete** edition of [QuickLook](https://github.com/QL-Win/QuickLook)
 > (ported to .NET 10, based on the 4.5.0 codebase).
@@ -16,6 +19,25 @@ switching, auto-update — **more features, not fewer**.
 
 Named pipes and the mutex use the `QuickLookNext.App.*` prefix, so it can be installed
 side-by-side with the official build without conflicts.
+
+## Relationship with QuickLook
+
+**QuickLook-Next is a fork of [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook)** — it is not
+the official build and is not affiliated with it.
+
+- **Codebase**: upstream 4.5.0, ported to .NET 10 and then reworked.
+- **Licence**: GPL-3.0, the same licence as upstream; the licence text and the upstream copyright
+  notices are kept.
+- **Plugins**: the plugin contract is unchanged (`QuickLook.Common` / `QuickLook.Plugin.*`), so
+  plugins written for the original load without recompiling. The 25 built-in plugins come from that
+  ecosystem.
+- **Side by side**: named pipes and the mutex use the `QuickLookNext.App.*` prefix, so this build and
+  the official one can be installed at the same time without interfering.
+- **What is this fork's work**: the preview engine is upstream's. The UI layer (acrylic and rounded
+  corners, themes, tray menu, plugin manager, caption bar), the self-rendered Office previews, the
+  OCR wiring, and the performance, packaging and testing work are this fork's — everything listed
+  under [Highlights vs. the original](#highlights-vs-the-original) and
+  [New in the 5.x line](#new-in-the-5x-line).
 
 ## Screenshots
 
@@ -107,6 +129,44 @@ existing plugins load without recompiling.
   json / code previews scroll normally.
 - **Faster previews**: a second instance forwards through a named pipe without
   initializing WPF; the image decode pipeline is warmed in the background.
+
+### New in the 5.x line
+
+The 5.x releases are where most of the feature work landed. The upstream issue this
+fixes or implements is noted where there is one.
+
+- **Text recognition (OCR)** — *Extract text* sits on the preview toolbar; the result opens in a
+  selectable panel with one-click copy. It uses the OCR engine Windows already ships
+  (`Windows.Media.Ocr`), so there is nothing extra to download. The engine is picked per image, so a
+  Chinese picture is no longer handed to the English engine; small pictures are enlarged before
+  recognition, and a mixed-language page keeps both languages. (upstream #1608)
+- **Data & cache panel** — the tray menu shows what the app actually occupies (WebView2 caches,
+  leftover update files, settings, logs, the WebView2 profile) and clears only the rebuildable
+  parts: sign-in data, settings, statistics and logs survive. (upstream #1933)
+- **Low memory mode** — the two startup warm-ups become a switch. Measured idle memory on a single
+  200% screen: 64 MB with both off, 112–118 MB with the window only, 169–179 MB by default; the
+  warm-ups in exchange buy roughly 200 ms on the first preview.
+- **Huge-image protection** — a 40 MP decode cap, plus zoom and memory accounting in the coordinate
+  space the image was actually decoded in: a 64 MP image dropped from a 1705 MB peak to 1156 MB
+  without changing how it looks. (upstream #1054)
+- **Mixed-DPI multi-monitor fix** — the plugin and the viewer now measure against the *same* screen,
+  and every plugin-derived size is clamped to the screen the window lands on, so previewing a large
+  landscape image no longer makes the window span three monitors. A display-scaling change re-fits
+  the open preview too. (upstream #827; the re-fit also covers #1956)
+- **Video robustness** — a video that cannot be opened (damaged, 0-byte, missing decoder) now reports
+  that instead of taking the whole app down, verified against a 22-sample matrix of containers,
+  codecs and edge cases. (upstream #1768)
+- **←/→ between files** — with Explorer focused, the arrow keys move the selection and the preview
+  follows, just like macOS Quick Look. Once you click the preview window the arrows belong to the
+  plugin again (video seek, PDF paging), so the two never fight.
+- **Accessibility** — reduced motion is honoured (the caption fade, the content fade and the window
+  show transition follow the system setting), and icon-only buttons carry names for screen readers.
+- **Readability on any wallpaper** — the surfaces you actually read (plugin manager, update prompt,
+  download panel, data & cache, OCR) use a 45% panel tint over a content plate rather than the 30%
+  menu glass, and fall back to a solid surface when Windows transparency effects are switched off.
+- **Plugin manager search** — the panel opens with the caret already in the search box, filters name
+  and description as you type, and reports "3 of 25 shown"; Esc clears the filter first and closes
+  the panel second.
 
 ### Performance & size
 
