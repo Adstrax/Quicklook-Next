@@ -208,6 +208,12 @@ These keys are also stored in `QuickLookNext.config`.
   it is skipped whenever a panel, a dialog or an update prompt is on screen.
 - Measured with the default 90 s: 67 MB before a preview, 202 MB while previewing, 69 MB
   after the release.
+- **The release happens once per preview session, and nothing is scanned while the app is
+  idle.** The countdown exists only while a session is open, and every preview restarts it,
+  so it measures "time since the last preview", not a periodic timer. After the restart the
+  new process does nothing at all until you preview again; if the restart had to be skipped
+  (something was on screen) it is not retried in a loop either - the next preview starts a
+  new session. Reproduce with `Scripts/verify-lowmem-once.ps1`.
 
   The two warm-ups exist to make the first preview fast, and both keep memory resident
   for the life of the tray process. Measured on one machine (single 200% display,
