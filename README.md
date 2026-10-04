@@ -39,6 +39,29 @@ the official build and is not affiliated with it.
   under [Highlights vs. the original](#highlights-vs-the-original) and
   [New in the 5.x line](#new-in-the-5x-line).
 
+### Side by side with upstream
+
+Both are QuickLook; the difference is which layer the work went into. Upstream owns the preview
+engine and the plugin ecosystem, and this fork owns the layer above it.
+
+| | Upstream QuickLook | QuickLook-Next |
+|---|---|---|
+| Runtime | .NET Framework 4.6.2 | .NET 10 |
+| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | all of those, plus a theme mode, the language list, the backdrop list, "hide top bar", "low memory mode", the plugin manager and the data & cache panel |
+| Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
+| Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin manager, which lists name, version and origin and has a search box |
+| Office preview | the plugin renders through the system preview component | re-implemented in-house (OOXML parsed and rendered in WebView2), so no Office install is needed |
+| Image OCR | open upstream request [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | shipped, and the engine is picked per image |
+| Cache footprint | open upstream request [#1933](https://github.com/QL-Win/QuickLook/issues/1933) | data & cache panel, clearing only the rebuildable files |
+| Large images | open upstream request [#1054](https://github.com/QL-Win/QuickLook/issues/1054) | 40 MP decode cap plus decoded-space zoom accounting |
+| Mixed-DPI screens | open upstream request [#827](https://github.com/QL-Win/QuickLook/issues/827) | fixed, with a per-screen diagnostic to check on real hardware |
+| Unplayable video | open upstream request [#1768](https://github.com/QL-Win/QuickLook/issues/1768) | a message instead of taking the process down |
+| Distribution | Microsoft Store, installer, Scoop, nightly builds | portable zip |
+
+Upstream is ahead on distribution and on the size of its third-party plugin ecosystem, and it is
+still actively developed — this fork tracks it rather than replacing it. Where a feature is listed as
+new above, the upstream issue that asked for it is named, so the claim can be checked.
+
 ## Screenshots
 
 All screenshots below show the app running in real use.
@@ -156,9 +179,6 @@ fixes or implements is noted where there is one.
 - **Video robustness** — a video that cannot be opened (damaged, 0-byte, missing decoder) now reports
   that instead of taking the whole app down, verified against a 22-sample matrix of containers,
   codecs and edge cases. (upstream #1768)
-- **←/→ between files** — with Explorer focused, the arrow keys move the selection and the preview
-  follows, just like macOS Quick Look. Once you click the preview window the arrows belong to the
-  plugin again (video seek, PDF paging), so the two never fight.
 - **Accessibility** — reduced motion is honoured (the caption fade, the content fade and the window
   show transition follow the system setting), and icon-only buttons carry names for screen readers.
 - **Readability on any wallpaper** — the surfaces you actually read (plugin manager, update prompt,
