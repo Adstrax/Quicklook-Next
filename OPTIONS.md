@@ -182,9 +182,15 @@ These keys are also stored in `QuickLookNext.config`.
 ### `<LowMemoryMode>`
 - Default: `False`
 - Type: `Boolean`
-- Description: Turns both startup warm-ups off. The tray menu has the same switch
-  ("省内存模式 / Low memory mode"), and it takes effect from the next start, because
-  the warm-ups only run while the process starts.
+- Description: Turns the startup warm-ups off, so an app that has not previewed
+  anything sits at its ~66 MB baseline instead of ~169 MB. The tray menu has the same
+  switch ("省内存模式 / Low memory mode").
+- v5.6.2: the warm-ups no longer cost a slow preview each time. The window is rebuilt
+  on every close and its first `Show()` is what the window warm-up hides, so skipping
+  it made *every* preview pay ~200 ms. The warm-up now follows the preview session:
+  nothing is warmed before the first preview, every window rebuilt while you keep
+  previewing is warmed off-screen, and the parked window is released 90 s after the
+  last preview (measured: 325 ms per preview before, 117 ms after).
 
   The two warm-ups exist to make the first preview fast, and both keep memory resident
   for the life of the tray process. Measured on one machine (single 200% display,

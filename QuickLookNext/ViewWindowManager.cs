@@ -23,6 +23,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 
 namespace QuickLookNext;
 
@@ -32,6 +33,11 @@ public class ViewWindowManager : IDisposable
 
     private string _invokedPath = string.Empty;
     private ViewerWindow _viewerWindow;
+
+    // v5.6.2: which window gets warmed, and when the parked one is handed back -
+    // see PreviewSession for the measurements behind this.
+    private readonly PreviewSession _session = new();
+    private DispatcherTimer _sessionTimer;
 
     internal ViewWindowManager()
     {
@@ -300,6 +306,11 @@ public class ViewWindowManager : IDisposable
         if (App.IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Snapshot("preview-open");
 
+        // v5.6.2: from here on the low memory mode keeps a warm window around, so a
+        // folder full of files previews at the same speed as the normal mode does.
+        _session.Opened(Environment.TickCount64);
+        ArmSessionTimer();
+
         EnsureViewerWindow().UnloadPlugin();
 
         _viewerWindow.BeginShow(matchedPlugin, path, CurrentPluginFailed);
@@ -342,6 +353,7 @@ private void InitNewViewerWindow()
         // window closes so the next Space reopens the preview instead of
         // "closing" the off-screen warm window again.
         _invokedPath = string.Empty;
+        _session.Closed(Environment.TickCount64);
         StopFocusMonitor();
         InitNewViewerWindow();
     };
@@ -350,9 +362,60 @@ private void InitNewViewerWindow()
     // first preview appears instantly instead of waiting ~200 ms.
     // v5.2.0: skipped in the low memory mode - the window (and the rendering stack it
     // pulls in) is then created on the first preview instead, ~+51 MB idle either way.
-    if (Helpers.StartupWarmUp.IsEnabled)
+    // v5.6.2: but this runs on *every* close (the window is rebuilt here), so skipping
+    // it outright made every preview pay the first-Show cost. It now follows the
+    // session: nothing is warmed before the user previews anything, everything is
+    // warmed while they keep previewing, and the parked window is released after
+    // PreviewSession.IdleTimeout of no previews.
+    if (_session.ShouldWarm(Helpers.StartupWarmUp.IsLowMemoryMode))
         _viewerWindow.WarmUp();
+
+    ArmSessionTimer();
 }
+
+    /// <summary>
+    /// v5.6.2: restarts the idle countdown. Called on every preview open and close, so
+    /// it always measures "time since the user last previewed something".
+    /// </summary>
+    private void ArmSessionTimer()
+    {
+        // The normal mode keeps its window warm for the whole session - there is
+        // nothing to hand back, so no timer.
+        if (!Helpers.StartupWarmUp.IsLowMemoryMode || !_session.IsActive)
+            return;
+
+        _sessionTimer ??= new DispatcherTimer(
+            PreviewSession.IdleTimeout,
+            DispatcherPriority.Background,
+            OnSessionIdle,
+            System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher);
+
+        _sessionTimer.Stop();
+        _sessionTimer.Start();
+    }
+
+    private void OnSessionIdle(object sender, EventArgs e)
+    {
+        _sessionTimer?.Stop();
+
+        if (!_session.ShouldRelease(Environment.TickCount64,
+                Helpers.StartupWarmUp.IsLowMemoryMode, !string.IsNullOrEmpty(_invokedPath)))
+            return;
+
+        // Hand the parked window - and the render stack it keeps resident - back. The
+        // next preview builds a cold window and opens a new session.
+        _session.End();
+
+        try
+        {
+            _viewerWindow?.Close();
+            ProcessHelper.PerformAggressiveGC();
+        }
+        catch (Exception ex)
+        {
+            ProcessHelper.WriteLog($"Releasing the warm preview window failed: {ex}");
+        }
+    }
 
     public static ViewWindowManager GetInstance()
     {

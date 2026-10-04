@@ -33,10 +33,21 @@ namespace QuickLookNext.Helpers;
 ///   <item><description>plus the two most-used preview families: +51 MB (169 MB)</description></item>
 /// </list>
 /// <para>
-/// The window warm-up buys the first preview ~200 ms, the family warm-up 100-200 ms per
-/// family (text 289-&gt;96 ms, image 170-&gt;100 ms). Users who would rather have the
-/// memory back than those milliseconds turn this on and the app idles at the 61 MB
-/// baseline; the price is paid once, on the first preview of each kind.
+/// The window warm-up buys ~200 ms, the family warm-up 100-200 ms per family (text
+/// 289-&gt;96 ms, image 170-&gt;100 ms). Users who would rather have the memory back than
+/// those milliseconds turn this on and the app idles at the 61 MB baseline.
+///
+/// <para>
+/// v5.6.2: the older wording here said "the price is paid once, on the first preview of
+/// each kind", and that was wrong about the window half. The preview window is rebuilt
+/// on every close, so skipping its warm-up made <em>every</em> preview pay the
+/// first-Show cost - measured 325 ms per preview instead of 120 ms, on every preview
+/// after the first. The window warm-up now follows the preview session (see
+/// <see cref="PreviewSession"/>): nothing is warmed before the user previews something,
+/// everything is warmed while they keep previewing, and the parked window is released
+/// after 90 s of no previews. The family warm-up is still skipped outright - that one
+/// really is a per-session cost.
+/// </para>
 /// </para>
 /// </summary>
 internal static class StartupWarmUp

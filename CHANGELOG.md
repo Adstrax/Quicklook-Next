@@ -7,6 +7,32 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.2
+
+### Fixed: the low memory mode made every preview slow
+
+- The preview window is destroyed and rebuilt on every close, and the first `Show()` of a window costs
+  about 200 ms (HWND creation, layout, the DWM/WCA backdrop, the WPF render stack). The window warm-up
+  exists to pay that while nobody is waiting - and it runs *inside that rebuild*. The low memory mode
+  skipped it outright, so every window rebuilt after a close was cold and **every** preview paid the
+  cost. Measured on one machine, previewing the same image with each preview closed before the next:
+  **325 ms on every preview after the first**, against 120 ms with the warm-ups on. It never came down,
+  which is exactly "the second preview is slow and the rest never catch up".
+- The five-year-old claim in the code that this cost is "paid once, on the first preview of each kind"
+  was wrong about that half, and is corrected.
+- The window warm-up follows the preview session now: nothing is warmed until the user previews
+  something, so the mode still idles at its baseline; every window rebuilt while they keep previewing
+  is warmed off-screen; and 90 s after the last preview the parked window is released and a collection
+  is triggered.
+- Measured after the fix, same machine and same script: 751 / **117 / 117 / 115 / 120 ms** - from the
+  second preview on, the same as the normal mode.
+- The memory half was measured too, because a fast fix that keeps 50 MB forever would be no fix at
+  all: idle before any preview 66 MB, just after a preview 205 MB, and **148 MB** after the 90 s idle.
+  For comparison 5.6.1, which never releases its warm window, stayed at **202 MB**. The remaining
+  ~80 MB is the plugin assembly, its native library and the JIT work, which no mode gives back.
+- New `PreviewSession` holds the rules - pure, no clock, no UI - with nine unit tests. Unit tests
+  116/116.
+
 ## QuickLook-Next 5.6.1
 
 ### The plugin list keeps itself current
