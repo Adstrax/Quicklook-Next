@@ -248,8 +248,11 @@ internal sealed class TrayMenuWindow : Window
     {
         var panel = new StackPanel
         {
-            MinWidth = 232,
-            Margin = new Thickness(0, 4, 0, 4),
+            // v5.6.5: trimmed from 232/4 - the menu was reading as a panel rather than a
+            // context menu. Most of the width came from the group headers; the values they
+            // carry are short now (see LowMemoryMode's ShortName).
+            MinWidth = 208,
+            Margin = new Thickness(0, 3, 0, 3),
         };
 
         foreach (var entry in entries)
@@ -260,7 +263,7 @@ internal sealed class TrayMenuWindow : Window
                 {
                     Height = 1,
                     Background = _separatorBrush,
-                    Margin = new Thickness(12, 4, 12, 4),
+                    Margin = new Thickness(12, 3, 12, 3),
                 });
                 continue;
             }
@@ -298,20 +301,23 @@ internal sealed class TrayMenuWindow : Window
             FontWeight = entry.IsBold ? FontWeights.SemiBold : FontWeights.Normal,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(icon is null ? 12 : 8, 0, 12, 0),
+            Margin = new Thickness(icon is null ? 12 : 8, 0, 10, 0),
         };
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
 
         var check = new TextBlock
         {
-            Text = "\uE73B", // Segoe MDL2 Assets: CheckMark
+            // v5.6.5: \uE73B is not a checkmark in Segoe MDL2 Assets - it drew as the
+            // missing-glyph box (a light square) on every checked submenu row, e.g.
+            // "Follow System" in the theme flyout. \uE73E is the real CheckMark there.
+            Text = "\uE73E", // Segoe MDL2 Assets: CheckMark
             FontFamily = new FontFamily("Segoe MDL2 Assets"),
             FontSize = 11,
             Foreground = _checkBrush,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 0, 12, 0),
+            Margin = new Thickness(0, 0, 10, 0),
             Visibility = entry.IsChecked && !hasChildren ? Visibility.Visible : Visibility.Collapsed,
         };
         Grid.SetColumn(check, 2);
@@ -326,7 +332,7 @@ internal sealed class TrayMenuWindow : Window
             Foreground = _disabledTextBrush,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 0, 12, 0),
+            Margin = new Thickness(0, 0, 10, 0),
             Visibility = hasChildren ? Visibility.Visible : Visibility.Collapsed,
         };
         Grid.SetColumn(chevron, 2);
@@ -335,7 +341,9 @@ internal sealed class TrayMenuWindow : Window
         var item = new Border
         {
             Child = grid,
-            Height = 32,
+            // v5.6.5: 32 was a Win11-menu row height with none of the breathing room around
+            // it, which made twelve rows feel like a wall. 28 keeps the same type size.
+            Height = 28,
             Margin = new Thickness(4, 0, 4, 0),
             CornerRadius = new CornerRadius(4),
             Background = Brushes.Transparent,
@@ -405,7 +413,7 @@ internal sealed class TrayMenuWindow : Window
         // kept its own advance width, so the icon column (and with it the text) shifted a few
         // pixels between menu sections - visible as a ragged left edge.
         const double IconColumnWidth = 16d;
-        var iconMargin = new Thickness(14, 0, 10, 0);
+        var iconMargin = new Thickness(12, 0, 8, 0);
 
         if (icon is string glyph && !string.IsNullOrWhiteSpace(glyph))
         {

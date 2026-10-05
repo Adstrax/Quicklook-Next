@@ -60,18 +60,30 @@ internal static class LowMemoryMode
     /// <summary>
     /// One state of the mode: whether it is on, how long it waits before releasing, and
     /// the text that goes with it. <see cref="Seconds"/> is ignored when it is off.
+    /// <para>
+    /// <see cref="ShortName"/> is what the menu's group header shows ("Low memory mode:
+    /// 90 s"): the menu is sized to its content, and "Release after 90 seconds" there made
+    /// the whole menu noticeably wider than a Windows context menu.
+    /// </para>
     /// </summary>
-    internal readonly record struct Choice(bool Enabled, int Seconds, string Key, string Name);
+    internal readonly record struct Choice(
+        bool Enabled, int Seconds, string Key, string Name, string ShortKey, string ShortName);
 
     /// <summary>The states the tray menu offers, in the order it shows them.</summary>
     internal static readonly Choice[] Choices =
     [
-        new(false, 0, "Icon_LowMemory_Off", "Off (keep the startup warm-up)"),
-        new(true, 90, "Icon_Release_90s", "Release after 90 seconds"),
-        new(true, 300, "Icon_Release_5m", "Release after 5 minutes"),
-        new(true, 900, "Icon_Release_15m", "Release after 15 minutes"),
-        new(true, 3600, "Icon_Release_1h", "Release after 1 hour"),
-        new(true, 0, "Icon_Release_Never", "Never (normal mode after the first preview)"),
+        new(false, 0, "Icon_LowMemory_Off", "Off (keep warm-up)",
+            "Icon_LowMemory_Off_Short", "Off"),
+        new(true, 90, "Icon_Release_90s", "Release after 90 seconds",
+            "Icon_Release_90s_Short", "90 s"),
+        new(true, 300, "Icon_Release_5m", "Release after 5 minutes",
+            "Icon_Release_5m_Short", "5 min"),
+        new(true, 900, "Icon_Release_15m", "Release after 15 minutes",
+            "Icon_Release_15m_Short", "15 min"),
+        new(true, 3600, "Icon_Release_1h", "Release after 1 hour",
+            "Icon_Release_1h_Short", "1 h"),
+        new(true, 0, "Icon_Release_Never", "Never (like normal mode)",
+            "Icon_Release_Never_Short", "Never"),
     ];
 
     internal static int DefaultSeconds => 90;

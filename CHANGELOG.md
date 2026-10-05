@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.5
+
+### A tray menu that reads like a context menu, and a real checkmark
+
+- The menu is sized to its content, and the content had grown: the low memory group's header spelled out
+  "Release after 90 seconds", which on its own made the whole menu about 100 DIP wider than it needed to
+  be. Group headers carry a short value now ("Low memory mode: 90 s"), rows are 28 DIP instead of 32, and
+  the panel padding, icon column and text insets are a little tighter. Measured on the same machine:
+  **712x922 -> 510x730** pixels (356x461 -> 255x365 DIP), i.e. the range a Windows context menu lives in.
+- **Fixed a visual bug the screenshots turned up:** the tick on a checked submenu row - "Follow System"
+  in the theme flyout, the wait in the low memory flyout - was drawn as a light square, because `\uE73B`
+  is not a checkmark in Segoe MDL2 Assets. It uses the real CheckMark (`\uE73E`) now.
+- The way out to upstream's wiki moved from the end of the catalogue list to the top of the panel, on the
+  right of the tabs, so it is visible in both views: **More plugins ↗** (the arrow says the page opens in
+  the browser). Group entries were shortened to match - "Off (keep warm-up)", "Never (like normal mode)" -
+  so a flyout stays narrower than the menu that opens it.
+- Carries the fix from the branch that 5.6.4 did not include: the wiki link is offered even when the
+  catalogue came back empty, which is exactly the offline case where it is the only way to find a plugin.
+- Unit tests 124/124. The built menu, its flyout and the panel were captured and inspected - the square
+  tick above was found that way.
+
 ## QuickLook-Next 5.6.4
 
 ### A shorter tray menu

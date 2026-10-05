@@ -151,9 +151,9 @@ existing plugins load without recompiling.
   verifies the download before writing anything, and only installs into the
   `QuickLook.Plugin.*` folder the package's own metadata names. The list is
   refreshed once in the background at every start, and **Refresh Index** in the
-  panel re-reads it on demand; the same view links to the upstream wiki for the plugins
-  the catalogue does not carry, which is where the tray menu's old "find new plugins"
-  entry went.
+  panel re-reads it on demand; **More plugins ↗** next to the tabs opens the upstream wiki
+  in the browser for the plugins the catalogue does not carry, which is where the tray
+  menu's old "find new plugins" entry went.
 - **Built-in language switching**: follow-system + 30 languages in the tray menu
   (common languages first, names shown in their own language — Chinese displays
   as 简体中文 / 繁体中文), persisted.

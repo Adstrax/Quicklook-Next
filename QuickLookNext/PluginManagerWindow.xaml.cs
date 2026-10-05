@@ -74,6 +74,10 @@ public partial class PluginManagerWindow : Window
         btnClose.Content = Tr("PM_Close", "Close");
         btnTabInstalled.Content = Tr("PM_TabInstalled", "Installed");
         btnTabBrowse.Content = Tr("PM_TabBrowse", "Browse");
+        // v5.6.5: the arrow says the page opens outside the app.
+        btnMorePlugins.Content = Tr("PM_MorePlugins", "More plugins") + " \u2197";
+        System.Windows.Automation.AutomationProperties.SetName(
+            btnMorePlugins, Tr("PM_MorePlugins", "More plugins"));
 
         // v5.3.0: the panel opens with the cursor in the search box - with 25 plugins the filter
         // is the first thing most people reach for.
@@ -285,13 +289,6 @@ public partial class PluginManagerWindow : Window
         pluginList.Items.Clear();
         foreach (var entry in visible)
             pluginList.Items.Add(BuildBrowseRow(entry));
-
-        // v5.6.4: the catalogue lists what its authors publish as .qlplugin; upstream's
-        // wiki still has the older and rarer ones, so it stays one click away - here
-        // rather than as a second tray menu entry that opened a browser. It is added
-        // even when the list came back empty, because that is the offline case where
-        // the wiki is the only way left to find a plugin.
-        pluginList.Items.Add(BuildWikiRow());
 
         if (!string.IsNullOrEmpty(_catalogueError))
         {
@@ -539,37 +536,13 @@ public partial class PluginManagerWindow : Window
     /// description and an optional second line under it. Columns 3 and 4 are
     /// left for the caller (state badge and action).
     /// </summary>
+    private void BtnMorePlugins_Click(object sender, RoutedEventArgs e) => OpenPluginWiki();
+
     /// <summary>
-    /// v5.6.4: the row that closes the catalogue view. Upstream's wiki lists plugins the
-    /// generator does not pick up (older ones, ones whose release has no .qlplugin), and
-    /// this is where the tray menu's old "find new plugins" entry went.
+    /// v5.6.4: upstream's wiki lists the plugins the catalogue does not carry (older ones,
+    /// ones whose release has no .qlplugin), and this is where the tray menu's old "find
+    /// new plugins" entry went.
     /// </summary>
-    private Border BuildWikiRow()
-    {
-        var link = new TextBlock
-        {
-            Text = Tr("PM_BrowseAllOnWeb", "Browse all plugins on the web (upstream wiki)"),
-            Foreground = (Brush)Resources["BadgeTextBrush"],
-            TextDecorations = TextDecorations.Underline,
-            VerticalAlignment = VerticalAlignment.Center,
-            Cursor = Cursors.Hand,
-        };
-        link.MouseLeftButtonUp += (_, _) => OpenPluginWiki();
-
-        var row = new Border
-        {
-            Child = link,
-            Background = Brushes.Transparent,
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(10, 8, 10, 8),
-            Margin = new Thickness(0, 0, 0, 6),
-        };
-        row.MouseEnter += (_, _) => row.Background = (Brush)Resources["RowHoverBrush"];
-        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
-
-        return row;
-    }
-
     private void OpenPluginWiki()
     {
         try

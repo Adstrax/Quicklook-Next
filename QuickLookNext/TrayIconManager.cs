@@ -119,7 +119,7 @@ internal partial class TrayIconManager : IDisposable
         var lowMemoryChoice = Helpers.LowMemoryMode.Current;
         var lowMemoryLabel =
             $"{TranslationHelper.Get("Icon_LowMemoryMode", failsafe: "Low memory mode")}：" +
-            TranslationHelper.Get(lowMemoryChoice.Key, failsafe: lowMemoryChoice.Name);
+            TranslationHelper.Get(lowMemoryChoice.ShortKey, failsafe: lowMemoryChoice.ShortName);
 
         return
         [
