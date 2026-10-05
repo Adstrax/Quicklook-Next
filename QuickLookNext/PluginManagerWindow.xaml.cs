@@ -288,9 +288,10 @@ public partial class PluginManagerWindow : Window
 
         // v5.6.4: the catalogue lists what its authors publish as .qlplugin; upstream's
         // wiki still has the older and rarer ones, so it stays one click away - here
-        // rather than as a second tray menu entry that opened a browser.
-        if (visible.Count > 0)
-            pluginList.Items.Add(BuildWikiRow());
+        // rather than as a second tray menu entry that opened a browser. It is added
+        // even when the list came back empty, because that is the offline case where
+        // the wiki is the only way left to find a plugin.
+        pluginList.Items.Add(BuildWikiRow());
 
         if (!string.IsNullOrEmpty(_catalogueError))
         {
