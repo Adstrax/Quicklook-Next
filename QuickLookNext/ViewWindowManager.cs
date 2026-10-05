@@ -384,9 +384,9 @@ private void InitNewViewerWindow()
         if (!Helpers.StartupWarmUp.IsLowMemoryMode || !_session.IsActive)
             return;
 
-        // v5.6.3: the wait is the user's choice (tray menu -> Options -> Release
-        // memory); 0 means they never want the release.
-        var seconds = Helpers.LowMemoryRelease.Seconds;
+        // v5.6.3: the wait is the user's choice (tray menu -> Low memory mode); 0 means
+        // they never want the release.
+        var seconds = Helpers.LowMemoryMode.Seconds;
         if (seconds <= 0)
             return;
 
@@ -410,7 +410,7 @@ private void InitNewViewerWindow()
 
         if (!_session.ShouldRelease(Environment.TickCount64,
                 Helpers.StartupWarmUp.IsLowMemoryMode, !string.IsNullOrEmpty(_invokedPath),
-                (long)TimeSpan.FromSeconds(Helpers.LowMemoryRelease.Seconds).TotalMilliseconds))
+                (long)TimeSpan.FromSeconds(Helpers.LowMemoryMode.Seconds).TotalMilliseconds))
             return;
 
         _session.End();

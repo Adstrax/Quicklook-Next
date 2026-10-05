@@ -7,6 +7,29 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.4
+
+### A shorter tray menu
+
+- **The low memory mode is one control now.** It used to be two items that depended on each other - a
+  checkbox in Options and a separate "release memory" group - which meant the second was meaningless
+  while the first was off. The menu group "Low memory mode" carries the whole state in its header
+  ("Low memory mode: Release after 90 seconds") and offers the alternatives in its flyout: off,
+  release after 90 seconds / 5 minutes / 15 minutes / 1 hour, or never.
+- **"Never" is still there, and it is not the off state.** The startup warm-up stays off, but because
+  the parked preview window is kept, previews are warm from the first one onwards - from the second
+  preview on the mode behaves like the normal mode, with the memory the normal mode keeps. The setting
+  pair behind the menu is unchanged, so existing choices keep working and nothing is migrated.
+- **"Find new plugins" is gone from the tray menu.** Since 5.6.0 the plugin manager's Browse view lists
+  43 plugins and installs them in a click, so the tray entry that opened a browser was a second, worse
+  version of it. What is left of it - the older and rarer plugins on upstream's wiki that the catalogue
+  does not carry - is now a link at the end of that list: "Browse all plugins on the web (upstream
+  wiki)". The tray menu keeps one entry, "Manage Plugins...".
+- The notification when the mode is switched on now depends on what was chosen: the wait variant says
+  the memory comes back after the wait, the "never" variant says the parked window is kept and previews
+  stay warm.
+- Unit tests 124/124.
+
 ## QuickLook-Next 5.6.3
 
 ### The low memory mode finally gives the memory back

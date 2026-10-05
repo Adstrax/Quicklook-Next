@@ -39,6 +39,9 @@ namespace QuickLookNext;
 /// </summary>
 public partial class PluginManagerWindow : Window
 {
+    /// <summary>v5.6.4: the wiki the catalogue is generated from, for the long tail.</summary>
+    private const string PluginWikiUrl = "https://github.com/QL-Win/QuickLook/wiki/Available-Plugins";
+
     private readonly bool _isDark;
     private readonly List<PluginEntry> _entries = [];
     private bool _accentApplied;
@@ -282,6 +285,12 @@ public partial class PluginManagerWindow : Window
         pluginList.Items.Clear();
         foreach (var entry in visible)
             pluginList.Items.Add(BuildBrowseRow(entry));
+
+        // v5.6.4: the catalogue lists what its authors publish as .qlplugin; upstream's
+        // wiki still has the older and rarer ones, so it stays one click away - here
+        // rather than as a second tray menu entry that opened a browser.
+        if (visible.Count > 0)
+            pluginList.Items.Add(BuildWikiRow());
 
         if (!string.IsNullOrEmpty(_catalogueError))
         {
@@ -529,6 +538,51 @@ public partial class PluginManagerWindow : Window
     /// description and an optional second line under it. Columns 3 and 4 are
     /// left for the caller (state badge and action).
     /// </summary>
+    /// <summary>
+    /// v5.6.4: the row that closes the catalogue view. Upstream's wiki lists plugins the
+    /// generator does not pick up (older ones, ones whose release has no .qlplugin), and
+    /// this is where the tray menu's old "find new plugins" entry went.
+    /// </summary>
+    private Border BuildWikiRow()
+    {
+        var link = new TextBlock
+        {
+            Text = Tr("PM_BrowseAllOnWeb", "Browse all plugins on the web (upstream wiki)"),
+            Foreground = (Brush)Resources["BadgeTextBrush"],
+            TextDecorations = TextDecorations.Underline,
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = Cursors.Hand,
+        };
+        link.MouseLeftButtonUp += (_, _) => OpenPluginWiki();
+
+        var row = new Border
+        {
+            Child = link,
+            Background = Brushes.Transparent,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        row.MouseEnter += (_, _) => row.Background = (Brush)Resources["RowHoverBrush"];
+        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+
+        return row;
+    }
+
+    private void OpenPluginWiki()
+    {
+        try
+        {
+            // A bare Process.Start(url) throws once .NET no longer shells out by itself,
+            // so UseShellExecute hands the URL to the default browser.
+            Process.Start(new ProcessStartInfo(PluginWikiUrl) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            statusText.Text = ex.Message;
+        }
+    }
+
     private Border BuildRowShell(string glyph, string name, string version, string description, string secondary)
     {
         // v3.7.0: a tinted plugin glyph makes each row read as a card instead

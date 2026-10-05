@@ -114,11 +114,12 @@ internal partial class TrayIconManager : IDisposable
                 ? TranslationHelper.Get("Icon_Language_FollowSystem", failsafe: "Follow System")
                 : LanguageDisplayName(currentLanguage));
 
-        // v5.6.3: the current wait before the low memory mode hands its memory back.
-        var releaseGroupLabel =
-            $"{TranslationHelper.Get("Icon_LowMemoryRelease", failsafe: "Release memory")}：" +
-            TranslationHelper.Get(Helpers.LowMemoryRelease.Current.Key,
-                failsafe: Helpers.LowMemoryRelease.Current.Name);
+        // v5.6.4: one control for the whole mode - on or off, plus how long it waits before
+        // it hands its memory back (see LowMemoryMode).
+        var lowMemoryChoice = Helpers.LowMemoryMode.Current;
+        var lowMemoryLabel =
+            $"{TranslationHelper.Get("Icon_LowMemoryMode", failsafe: "Low memory mode")}：" +
+            TranslationHelper.Get(lowMemoryChoice.Key, failsafe: lowMemoryChoice.Name);
 
         return
         [
@@ -219,33 +220,16 @@ internal partial class TrayIconManager : IDisposable
                         Command = ToggleHideTopBarByDefault,
                         IsChecked = SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"),
                     },
-                    // v5.2.0: trade the startup warm-ups for ~100 MB of idle memory.
-                    new TrayMenuEntry
-                    {
-                        Header = TranslationHelper.Get("Icon_LowMemoryMode", failsafe: "Low memory mode"),
-                        Icon = FontSymbols.Leaf,
-                        Command = ToggleLowMemoryMode,
-                        IsChecked = Helpers.StartupWarmUp.IsLowMemoryMode,
-                    },
                 ],
             },
-            // v5.6.3: the low memory mode releases its memory by restarting the tray
-            // process once the user has stopped previewing; this is how long it waits.
-            // Same shape as the theme / backdrop / language groups: the header carries
-            // the current choice and the flyout carries the alternatives.
+            // v5.6.4: the mode and its release wait are one control. Same shape as the
+            // theme / backdrop / language groups: the header carries the current state and
+            // the flyout carries the alternatives.
             new TrayMenuEntry
             {
-                Header = releaseGroupLabel,
-                Icon = FontSymbols.Sync,
-                Children =
-                [
-                    ..Helpers.LowMemoryRelease.Options.Select(option => new TrayMenuEntry
-                    {
-                        Header = TranslationHelper.Get(option.Key, failsafe: option.Name),
-                        Command = () => SetLowMemoryRelease(option.Seconds),
-                        IsChecked = Helpers.LowMemoryRelease.Seconds == option.Seconds,
-                    }),
-                ],
+                Header = lowMemoryLabel,
+                Icon = FontSymbols.Leaf,
+                Children = BuildLowMemoryEntries(lowMemoryChoice),
             },
             TrayMenuEntry.Separator,
             new TrayMenuEntry
@@ -253,15 +237,6 @@ internal partial class TrayIconManager : IDisposable
                 Header = TranslationHelper.Get("Icon_CheckUpdate"),
                 Icon = FontSymbols.Download,
                 Command = () => Updater.CheckForUpdates(),
-            },
-            new TrayMenuEntry
-            {
-                Header = TranslationHelper.Get("Icon_GetPlugin"),
-                Icon = FontSymbols.CloudDownload,
-                // v1.3.9: .NET Core no longer shells out by default, so a
-                // bare Process.Start(url) throws; UseShellExecute opens the
-                // default browser instead.
-                Command = () => OpenUrl("https://github.com/QL-Win/QuickLook/wiki/Available-Plugins"),
             },
             new TrayMenuEntry
             {
@@ -448,30 +423,53 @@ internal partial class TrayIconManager : IDisposable
     }
 
     /// <summary>
-    /// v5.2.0: the low memory mode turns both startup warm-ups off. They only run while the
-    /// process starts, so the switch explains that it takes effect on the next start instead
-    /// of leaving the user wondering why nothing changed right away.
+    /// v5.6.4: the mode's states as menu entries - "off" first, then the waits, with a
+    /// separator between the two kinds so the flyout does not read as six equivalent
+    /// choices.
     /// </summary>
-    private static void ToggleLowMemoryMode()
+    private static List<TrayMenuEntry> BuildLowMemoryEntries(Helpers.LowMemoryMode.Choice current)
     {
-        Helpers.StartupWarmUp.Toggle();
+        var entries = new List<TrayMenuEntry>();
 
-        var on = Helpers.StartupWarmUp.IsLowMemoryMode;
-        ShowNotification(string.Empty,
-            TranslationHelper.Get(on ? "Icon_LowMemoryModeOn" : "Icon_LowMemoryModeOff",
-                failsafe: on
-                    ? "Low memory mode is on - the startup warm-up stays off, and the memory comes back after the wait set under \"Release memory\"."
-                    : "Low memory mode is off - the startup warm-up is back from the next start."));
+        foreach (var choice in Helpers.LowMemoryMode.Choices)
+        {
+            // The first entry is the off state; everything after it waits for a while.
+            if (entries.Count == 1)
+                entries.Add(TrayMenuEntry.Separator);
+
+            entries.Add(new TrayMenuEntry
+            {
+                Header = TranslationHelper.Get(choice.Key, failsafe: choice.Name),
+                Command = () => SetLowMemoryMode(choice),
+                IsChecked = choice == current,
+            });
+        }
+
+        return entries;
     }
 
     /// <summary>
-    /// v5.6.3: how long the low memory mode waits after the last preview before it
-    /// releases its memory (by restarting). Takes effect with the next preview: the
-    /// session timer reads the setting every time it is armed.
+    /// v5.6.4: applies one of the mode's states. Only a change of the mode itself is worth a
+    /// notification - a different wait is already visible in the menu.
     /// </summary>
-    private static void SetLowMemoryRelease(int seconds)
+    private static void SetLowMemoryMode(Helpers.LowMemoryMode.Choice choice)
     {
-        Helpers.LowMemoryRelease.Set(seconds);
+        var wasOn = Helpers.StartupWarmUp.IsLowMemoryMode;
+        Helpers.LowMemoryMode.Apply(choice);
+
+        if (wasOn == choice.Enabled)
+            return;
+
+        var (key, failsafe) = !choice.Enabled
+            ? ("Icon_LowMemoryModeOff",
+                "Low memory mode is off - the startup warm-up is back from the next start.")
+            : choice.Seconds > 0
+                ? ("Icon_LowMemoryModeOn",
+                    "Low memory mode is on - the memory comes back after the wait you set.")
+                : ("Icon_LowMemoryModeOnNever",
+                    "Low memory mode is on - the parked window is kept, so previews stay warm (normal mode from the second preview on).");
+
+        ShowNotification(string.Empty, TranslationHelper.Get(key, failsafe: failsafe));
     }
 
     internal static bool IsDarkTheme()

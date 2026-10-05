@@ -39,7 +39,7 @@ namespace QuickLookNext.Helpers;
 /// actually previewed something (the idle footprint of the low memory mode is
 /// unchanged), every window rebuilt while they keep previewing is warmed as usual,
 /// and once they have stopped the parked window is released - after the wait the user
-/// picked in <see cref="LowMemoryRelease"/>, which is what that setting controls.
+/// picked in <see cref="LowMemoryMode"/>, which is what that setting controls.
 /// </para>
 ///
 /// <para>

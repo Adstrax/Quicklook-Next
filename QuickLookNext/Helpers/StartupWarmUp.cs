@@ -67,4 +67,13 @@ internal static class StartupWarmUp
     {
         SettingHelper.Set(Setting, !IsLowMemoryMode, "QuickLookNext");
     }
+
+    /// <summary>
+    /// v5.6.4: the menu picks a complete mode state rather than toggling a checkbox, so it
+    /// sets the flag directly.
+    /// </summary>
+    internal static void Set(bool on)
+    {
+        SettingHelper.Set(Setting, on, "QuickLookNext");
+    }
 }

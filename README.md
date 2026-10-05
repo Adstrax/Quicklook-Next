@@ -47,7 +47,7 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | | Upstream QuickLook | QuickLook-Next |
 |---|---|---|
 | Runtime | .NET Framework 4.6.2 | .NET 10 |
-| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | all of those, plus a theme mode, the language list, the backdrop list, "hide top bar", "low memory mode", the plugin manager and the data & cache panel |
+| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the same, plus a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 1 h / never), the plugin manager and the data & cache panel — "find plugins" moved into the plugin manager's Browse view |
 | Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
 | Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin manager, which lists name, version and origin and has a search box |
 | Installing a plugin | download a `.qlplugin` from the wiki in a browser, then preview the file to install it | browse the list inside the panel and install in one click, with the size and SHA-256 verified before anything is written |
@@ -151,7 +151,9 @@ existing plugins load without recompiling.
   verifies the download before writing anything, and only installs into the
   `QuickLook.Plugin.*` folder the package's own metadata names. The list is
   refreshed once in the background at every start, and **Refresh Index** in the
-  panel re-reads it on demand.
+  panel re-reads it on demand; the same view links to the upstream wiki for the plugins
+  the catalogue does not carry, which is where the tray menu's old "find new plugins"
+  entry went.
 - **Built-in language switching**: follow-system + 30 languages in the tray menu
   (common languages first, names shown in their own language — Chinese displays
   as 简体中文 / 繁体中文), persisted.
@@ -180,7 +182,7 @@ fixes or implements is noted where there is one.
   warm-ups in exchange buy roughly 200 ms per preview. Since 5.6.2 the mode does not slow previewing
   down: the window warm-up follows the preview session, so consecutive previews stay at ~120 ms.
   Since 5.6.3 the memory also really comes back — the tray process restarts itself once you have
-  stopped previewing, after a wait you choose under *Release memory* (90 seconds by default, up to
+  stopped previewing, after a wait you choose in the *Low memory mode* group (90 seconds by default,
   "never"); measured 67 MB idle before a preview and 69 MB after the release.
 - **Huge-image protection** — a 40 MP decode cap, plus zoom and memory accounting in the coordinate
   space the image was actually decoded in: a 64 MP image dropped from a 1705 MB peak to 1156 MB
