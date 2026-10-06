@@ -7,6 +7,26 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.6
+
+### Switching between differently sized files glides instead of snapping
+
+- Browsing with the arrow keys across files of different sizes or orientations moved the window's size
+  *and* position in a single frame. The preview itself was never the slow part - measured with the
+  preview closed first, a switch takes ~110 ms for a 12 MP image and ~130 ms for a 40 MP one, because the
+  first frame comes from the thumbnail path - but the old image stays on screen until that frame is
+  ready, and then the window teleported to the new geometry. That snap is what reads as slow.
+- The switch glides now: the window is interpolated from its current rectangle to the new one over
+  150 ms with an ease-out curve, stepped on the render dispatcher. The first preview of a session still
+  lands on its geometry directly, and a newer switch stops the glide in flight rather than queueing
+  behind it.
+- It follows the app's motion rules: the system's "animation effects" setting and
+  `<ShowWindowTransition>` both have to allow it, and a maximized window is never moved.
+- Measured by sampling the window rectangle every 10 ms across a landscape -> portrait switch:
+  **5 intermediate geometries** with the glide on (2052x1540 -> 1687 -> 1292 -> 1185 -> 1156x1540), and
+  **one step** with `<ShowWindowTransition>False</ShowWindowTransition>`.
+- Unit tests 124/124.
+
 ## QuickLook-Next 5.6.5
 
 ### A tray menu that reads like a context menu, and a real checkmark

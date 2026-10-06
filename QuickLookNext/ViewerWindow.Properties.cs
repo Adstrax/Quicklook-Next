@@ -131,7 +131,9 @@ public partial class ViewerWindow : INotifyPropertyChanged
                 if (ContextObject.DeferResizeUntilReady)
                 {
                     ContextObject.DeferResizeUntilReady = false;
-                    PositionWindow(ComputeWindowSize(clampToDesktop: true));
+                    // v5.6.6: this is always a switch (the resize was deferred because a
+                    // previous preview is on screen), so it glides to the new geometry.
+                    PositionWindow(ComputeWindowSize(clampToDesktop: true), animate: true);
                 }
 
                 // v1.2.14: force the layout synchronously so the just-swapped
