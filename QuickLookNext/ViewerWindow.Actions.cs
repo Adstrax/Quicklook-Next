@@ -164,24 +164,7 @@ public partial class ViewerWindow
         }
     }
 
-    /// <summary>How long the switch glide lasts: long enough to read as motion, short enough not to lag.</summary>
-    private const double GlideDurationMs = 150d;
-
-    /// <summary>The glide in flight, so a newer switch can stop it instead of queueing behind it.</summary>
-    private DispatcherTimer _geometryAnimation;
-
-    private void PositionWindow(Size size) => PositionWindow(size, animate: false);
-
-    /// <summary>
-    /// v5.6.6: moves the window to <paramref name="size"/> and the position the placement rule
-    /// picks for it. <paramref name="animate"/> glides it there over ~150 ms instead of
-    /// teleporting: switching between files of different sizes changes the window's size and
-    /// position, and doing that in a single frame reads as a stutter however fast the preview
-    /// itself is (measured: the switch is ~110 ms either way, but snapping is what people
-    /// notice). Skipped when motion is off - the system's animation setting or the app's
-    /// ShowWindowTransition option - and when the window is already where it should be.
-    /// </summary>
-    private void PositionWindow(Size size, bool animate)
+    private void PositionWindow(Size size)
     {
         // If the window is now maximized, do not move it
         if (WindowState == WindowState.Maximized)
@@ -196,65 +179,9 @@ public partial class ViewerWindow
             ? ResizeAndCentreExistingWindow(size)
             : ResizeAndCentreNewWindow(size);
 
-        if (animate && IsVisible && Motion.WindowTransitionsEnabled)
-            GlideWindowTo(newRect);
-        else
-            MoveWindowNow(newRect);
+        this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
 
         WriteWindowRectDiag(size, DesktopSizeForNextPlacement());
-    }
-
-    private void MoveWindowNow(Rect rect)
-        => this.MoveWindow(rect.Left, rect.Top, rect.Width, rect.Height);
-
-    /// <summary>
-    /// v5.6.6: the glide itself - an ease-out interpolation of left, top, width and height,
-    /// stepped on the dispatcher at roughly display rate.
-    /// </summary>
-    private void GlideWindowTo(Rect target)
-    {
-        _geometryAnimation?.Stop();
-
-        var from = new Rect(Left, Top, ActualWidth, ActualHeight);
-        if (double.IsNaN(from.Width) || from.Width <= 0 || double.IsNaN(from.Height) || from.Height <= 0)
-            from = target;
-
-        // Sub-pixel moves, or a window that is already there, do not need 150 ms of animation.
-        if (Math.Abs(from.Left - target.Left) < 2 && Math.Abs(from.Top - target.Top) < 2 &&
-            Math.Abs(from.Width - target.Width) < 2 && Math.Abs(from.Height - target.Height) < 2)
-        {
-            _geometryAnimation = null;
-            MoveWindowNow(target);
-            return;
-        }
-
-        var watch = Stopwatch.StartNew();
-        var timer = new DispatcherTimer(DispatcherPriority.Render)
-        {
-            Interval = TimeSpan.FromMilliseconds(15),
-        };
-
-        timer.Tick += (_, _) =>
-        {
-            var progress = Math.Min(1d, watch.ElapsedMilliseconds / GlideDurationMs);
-            var eased = 1d - Math.Pow(1d - progress, 3d);
-
-            MoveWindowNow(new Rect(
-                from.Left + (target.Left - from.Left) * eased,
-                from.Top + (target.Top - from.Top) * eased,
-                from.Width + (target.Width - from.Width) * eased,
-                from.Height + (target.Height - from.Height) * eased));
-
-            if (progress >= 1d)
-            {
-                timer.Stop();
-                if (ReferenceEquals(_geometryAnimation, timer))
-                    _geometryAnimation = null;
-            }
-        };
-
-        _geometryAnimation = timer;
-        timer.Start();
     }
 
     /// <summary>
@@ -691,9 +618,7 @@ public partial class ViewerWindow
         var deferResize = ContextObject.DeferResizeUntilReady && _staleViewerContent != null;
         if (!deferResize)
         {
-            // v5.6.6: a switch between differently sized files glides to the new geometry;
-            // the first preview of a session still lands on it directly.
-            PositionWindow(newSize, animate: _staleViewerContent != null);
+            PositionWindow(newSize);
             ContextObject.DeferResizeUntilReady = false;
         }
 

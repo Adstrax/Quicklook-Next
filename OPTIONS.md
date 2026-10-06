@@ -113,8 +113,6 @@ Example:
 - Default: `True`
 - Type: `Boolean`
 - Description: Control the window show animation (transition) when the preview window appears. When set to `False`, uses `DWMWA_TRANSITIONS_FORCEDISABLED` to suppress the animation, then restores the default behavior immediately after the window is shown.
-- v5.6.6: this also covers the glide when switching between files of different sizes while browsing
-  with the arrow keys. With it off, the window jumps to the new geometry in one step, as it used to.
 - Example:
   - `<ShowWindowTransition>False</ShowWindowTransition>` to disable the show animation.
 
