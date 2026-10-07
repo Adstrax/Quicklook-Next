@@ -49,7 +49,14 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     private Uri _imageSource;
     private bool _isZoomFactorFirstSet = true;
     private DateTime _lastZoomTime = DateTime.MinValue;
-    private double _maxZoomFactor = 3d;
+    /// <summary>
+    /// v5.6.6: the wheel can magnify up to 8x now. It used to stop at 3x of the *decoded*
+    /// pixels - and because a large image is decoded below its real size (see
+    /// <c>DecodePixelLimit</c>) and the badge reports the zoom against the file, what the user
+    /// saw was lower still (150% for an 8100x8100 photo). 8x is also about the point past
+    /// which magnifying a screen-resolution photo stops adding information.
+    /// </summary>
+    private double _maxZoomFactor = 8d;
     private MetaProvider _meta;
     private double _minZoomFactor = 0.1d;
     private BitmapScalingMode _renderMode = BitmapScalingMode.Linear;
