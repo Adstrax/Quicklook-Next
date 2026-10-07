@@ -48,6 +48,13 @@ internal static class QuickLookNext
     // SHGetNameFromIDList: the display name of an item, without going through the data object.
     private const int SIGDN_NORMALDISPLAY = 0x0;
 
+    /// <summary>
+    /// v5.6.7: "parent relative parsing" - the item's own name, extension included. The display name
+    /// above is what Explorer shows, and Explorer hides known extensions by default, so "photo.jpg"
+    /// comes back as "photo" and never matches the file being previewed.
+    /// </summary>
+    private const int SIGDN_PARENTRELATIVEPARSING = unchecked((int)0x80018001);
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SHGetNameFromIDList(IntPtr pidl, int sigdnName, out IntPtr ppszName);
 
@@ -156,7 +163,7 @@ internal static class QuickLookNext
 
             var index = -1;
             if (folderView.GetFocusedItem(out var focused) == S_OK && focused >= 0 && focused < count &&
-                string.Equals(ItemName(folderView, focused), name, StringComparison.OrdinalIgnoreCase))
+                NameMatches(ItemName(folderView, focused), name))
             {
                 index = focused;
             }
@@ -166,12 +173,27 @@ internal static class QuickLookNext
             }
             else
             {
+                // An exact name first, then the display name (which Explorer returns without the
+                // extension) - a folder holding both "photo.jpg" and "photo.png" must not be guessed.
                 for (var i = 0; i < count; i++)
                 {
-                    if (string.Equals(ItemName(folderView, i), name, StringComparison.OrdinalIgnoreCase))
+                    var itemName = ItemName(folderView, i);
+                    if (string.Equals(itemName, name, StringComparison.OrdinalIgnoreCase))
                     {
                         index = i;
                         break;
+                    }
+                }
+
+                if (index < 0)
+                {
+                    for (var i = 0; i < count; i++)
+                    {
+                        if (NameMatches(ItemName(folderView, i), name))
+                        {
+                            index = i;
+                            break;
+                        }
                     }
                 }
             }
@@ -198,6 +220,10 @@ internal static class QuickLookNext
         }
     }
 
+    /// <summary>
+    /// The item's name, with its extension when the shell can give one (the display name drops it
+    /// when Explorer is set to hide known extensions, which is the default).
+    /// </summary>
     private static string ItemName(IFolderView folderView, int index)
     {
         if (folderView.Item(index, out var pidl) != S_OK || pidl == IntPtr.Zero)
@@ -205,14 +231,40 @@ internal static class QuickLookNext
 
         try
         {
-            return SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, out var namePtr) == S_OK
-                ? Marshal.PtrToStringUni(namePtr) ?? string.Empty
-                : string.Empty;
+            foreach (var kind in new[] { SIGDN_PARENTRELATIVEPARSING, SIGDN_NORMALDISPLAY })
+            {
+                if (SHGetNameFromIDList(pidl, kind, out var namePtr) == S_OK && namePtr != IntPtr.Zero)
+                {
+                    var value = Marshal.PtrToStringUni(namePtr);
+                    if (!string.IsNullOrEmpty(value))
+                        return value;
+                }
+            }
+
+            return string.Empty;
         }
         finally
         {
             ILFree(pidl);
         }
+    }
+
+    /// <summary>
+    /// Whether an item is the file being previewed. The second test covers the display name the shell
+    /// gives when Explorer hides extensions ("photo" for "photo.jpg").
+    /// </summary>
+    private static bool NameMatches(string itemName, string fileName)
+    {
+        if (string.IsNullOrEmpty(itemName))
+            return false;
+
+        if (string.Equals(itemName, fileName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return string.Equals(
+            Path.GetFileNameWithoutExtension(itemName),
+            Path.GetFileNameWithoutExtension(fileName),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
