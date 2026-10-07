@@ -28,22 +28,18 @@
   fit and scroll stay where they were). It writes `Image detail decode: ...` to the log, so a bug
   report can say whether it ran.
 
-### The mouse's back/forward buttons step through the folder
-
-- While the cursor is over the preview, the mouse's back/forward buttons move to the previous/next
-  file. The step goes through Explorer's selection (`IFolderView::SelectItem`, the path
-  `Scripts/probe-explorer-selection.ps1` validated), so the highlight in the folder window follows
-  and the preview switches through the same "follow the selection" route the arrow keys use. The
-  Shell does not wrap around, so the ends are ends.
-- It has to be read from the low-level mouse hook: the preview window never takes focus, so Windows
-  would hand those buttons to Explorer - whose own back/forward would navigate the folder instead.
-  When the step happens the press is consumed, so the folder window does not see it too.
-
 ### Verification
 
 - Unit tests **133/133** (nine new ones for the zoom rules); build clean, 0 warnings.
-- The zoom cap and the uniform stepping were checked on real wheel input locally; the re-decode and
-  the mouse buttons are logged so their first real run is easy to confirm.
+- The zoom cap and the uniform stepping were checked on real wheel input locally; the detail decode
+  logs `Image detail decode: ...`, so its first real run is easy to confirm.
+
+### Not in this release
+
+- Stepping through the folder with the mouse's back/forward buttons was implemented and then
+  withdrawn before the release: reading the buttons needs a low-level mouse hook, and doing shell COM
+  work inside that hook stalls mouse input for the whole desktop. The queued redesign is being
+  verified before it is enabled.
 
 ## QuickLook-Next 5.6.5
 
