@@ -870,6 +870,8 @@ public partial class ViewerWindow : Window
     private const int WH_MOUSE_LL = 14;
     private const uint WM_MOUSEWHEEL = 0x020A;
     private const uint WM_MOUSEHWHEEL = 0x020E;
+    private const uint WM_XBUTTONDOWN = 0x020B;
+    private const uint WM_XBUTTONUP = 0x020C;
 
     private delegate nint LowLevelMouseProc(int nCode, nint wParam, nint lParam);
 
@@ -923,6 +925,32 @@ public partial class ViewerWindow : Window
                         User32.PostMessage(targetHwnd, message, (nint)wp, (nint)lp);
                         return (nint)1; // consumed: the preview window is the only recipient
                     }
+                }
+            }
+
+            // v5.6.6: the mouse's back/forward buttons step through the folder while the cursor is
+            // over the preview. This has to happen here rather than in the preview window itself:
+            // the window never takes focus, so Explorer is the one Windows would give the buttons
+            // to - and then its own back/forward would navigate the folder instead. The press is
+            // consumed when the step happened, so the folder window does not see it as well.
+            if (message is WM_XBUTTONDOWN or WM_XBUTTONUP &&
+                TryGetWheelTarget(data.pt.X, data.pt.Y, out _))
+            {
+                var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
+
+                if (message == WM_XBUTTONDOWN && button is 1 or 2)
+                {
+                    var delta = button == 1 ? -1 : 1;
+                    if (NativeMethods.QuickLookNext.TryMoveSelection(delta))
+                    {
+                        ProcessHelper.WriteLog(
+                            $"Mouse button: stepping to the {(delta < 0 ? "previous" : "next")} file");
+                        return (nint)1;
+                    }
+                }
+                else if (message == WM_XBUTTONUP)
+                {
+                    return (nint)1;
                 }
             }
         }

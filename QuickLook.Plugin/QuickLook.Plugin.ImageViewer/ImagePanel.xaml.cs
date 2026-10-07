@@ -75,6 +75,15 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     private bool _contentReadyFired;
     private DispatcherTimer _readyTimer;
 
+    /// <summary>v5.6.6: the size the file's pixels were last decoded at (device pixels).</summary>
+    private Size _decodedAt;
+
+    /// <summary>
+    /// v5.6.6: waits for the zoom to settle before asking for more detail, so a flick of the wheel
+    /// does not decode the file once per notch.
+    /// </summary>
+    private DispatcherTimer _detailTimer;
+
     public ImagePanel()
     {
         InitializeComponent();
@@ -96,6 +105,15 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
         SizeChanged += ImagePanel_SizeChanged;
         viewPanelImage.DoZoomToFit += (sender, e) => DoZoomToFit();
+        _detailTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(250),
+        };
+        _detailTimer.Tick += (_, _) =>
+        {
+            _detailTimer.Stop();
+            RequestMoreDetailIfNeeded();
+        };
         viewPanelImage.ImageLoaded += (sender, e) =>
         {
             // v1.2.14: signal content readiness BEFORE IsBusy flips so the
@@ -139,6 +157,9 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     internal ImagePanel(ContextObject context, MetaProvider meta) : this()
     {
         ContextObject = context;
+        // v5.6.6: the first decode happens at the size the window asked for; remember it so the
+        // zoom can tell when it is magnifying pixels that were never decoded (see Zoom).
+        _decodedAt = context?.PreferredSize ?? default;
         Meta = meta;
 
         _ = meta.GetSize();
@@ -593,8 +614,9 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
             return;
         }
 
-        // otherwise, perform normal zooming
-        var newZoom = ZoomFactor + ZoomFactor * e.Delta / 120 * 0.1;
+        // otherwise, perform normal zooming: a relative step, so one notch is the same change
+        // at 10% and at 800%, and fractional deltas (high-resolution wheels, touchpads) count.
+        var newZoom = ImageZoom.Step(ZoomFactor, e.Delta / 120d);
 
         Zoom(newZoom);
     }
@@ -650,32 +672,29 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
     public void Zoom(double factor, bool suppressEvent = false, bool isToFit = false)
     {
-        if (viewPanelImage?.Source == null)
+        // A nonsense factor (a driver sending a NaN delta, say) must not reach the ScaleTransform:
+        // a NaN scale makes the image disappear and every later zoom stay broken.
+        if (viewPanelImage?.Source == null || double.IsNaN(factor))
             return;
 
-        // pause when fit width
-        if (ZoomFactor < ZoomToFitFactor && factor > ZoomToFitFactor
-            || ZoomFactor > ZoomToFitFactor && factor < ZoomToFitFactor)
-        {
-            factor = ZoomToFitFactor;
-            ZoomToFit = true;
-        }
-        // pause when 100%
-        else if (ZoomFactor < 1 && factor > 1 || ZoomFactor > 1 && factor < 1)
-        {
-            factor = 1;
-            ZoomToFit = false;
-        }
-        else
-        {
-            if (!isToFit)
-                ZoomToFit = false;
-        }
+        // v5.6.6: the two landmarks - fit-to-window and 1:1 - used to snap the factor straight
+        // onto them, so a single wheel notch could jump several times: from a large image whose
+        // fit factor is 0.3 the first notch went all the way to 100%, while a small image that
+        // already sits near 1:1 barely moved. That is why zooming felt different from picture to
+        // picture. A notch now steps towards a landmark and lands on it only when it was heading
+        // there anyway, which keeps 100% and "exactly fit" reachable without the jump.
+        factor = ImageZoom.LandOnLandmark(ZoomFactor, factor, ZoomToFitFactor);
+        factor = ImageZoom.LandOnLandmark(ZoomFactor, factor, 1d);
 
         factor = Math.Max(factor, MinZoomFactor);
         factor = Math.Min(factor, MaxZoomFactor);
 
         ZoomFactor = factor;
+        ZoomToFit = isToFit || Math.Abs(factor - ZoomToFitFactor) < 0.001d;
+
+        // v5.6.6: magnifying past the detail that was decoded asks the file again (debounced).
+        _detailTimer?.Stop();
+        _detailTimer?.Start();
 
         // v1.2.14: only show the zoom percentage badge for manual zooming
         // (wheel/pinch); automatic fit-to-window during previews/switches
@@ -703,6 +722,36 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
         if (!suppressEvent)
             FireZoomChangedEvent();
+    }
+
+    /// <summary>
+    /// v5.6.6: the zoom has settled - if it is magnifying pixels that were never decoded, decode
+    /// the file again at the size being looked at. The placeholder is scaled to the same capped
+    /// target either way, so the geometry (zoom, fit, scroll) is untouched and only the detail
+    /// changes; the file's own size is the ceiling, because no decode can add detail that is not
+    /// in the file.
+    /// </summary>
+    private void RequestMoreDetailIfNeeded()
+    {
+        var real = _meta?.GetSize() ?? default;
+        if (viewPanelImage?.Source == null || real.IsEmpty)
+            return;
+
+        var dpi = VisualTreeHelper.GetDpi(this);
+
+        var needed = ImageZoom.NeededDetailSize(
+            new Size(viewPanel.ActualWidth, viewPanel.ActualHeight),
+            ZoomFactor, dpi.DpiScaleX, dpi.DpiScaleY, real, _decodedAt);
+
+        if (needed is not { } size)
+            return;
+
+        _decodedAt = size;
+        // Rare enough to be worth a line: it is the difference between a soft and a sharp
+        // magnification, and the only way to tell from a bug report whether it happened.
+        ProcessHelper.WriteLog(
+            $"Image detail decode: {size.Width:F0}x{size.Height:F0} at zoom {ZoomFactor:F2}");
+        viewPanelImage.ReloadAt(size);
     }
 
     private void FireZoomChangedEvent()

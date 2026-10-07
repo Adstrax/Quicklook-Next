@@ -7,6 +7,44 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.6
+
+### Image preview: a real magnifier
+
+- **8x instead of 3x.** The wheel used to stop at 3x of the *decoded* pixels, and because a large
+  image is decoded below its real size (see `DecodePixelLimit`) while the badge reports the zoom
+  against the file, the ceiling a user saw was 150% - measured on an 8100x8100 photo, and not enough
+  to read a detail.
+- **The same notch wherever it starts.** The fit-to-window and 1:1 landmarks used to snap the factor
+  straight onto them, so one notch could jump from a large image's 0.3 fit all the way to 100% while a
+  picture already sitting near 1:1 barely moved - the same gesture felt different from picture to
+  picture. A notch now steps towards a landmark and lands on it only when it was heading there
+  (`ImageZoom` in QuickLook.Common, unit tested).
+- **Magnifying past the loaded detail decodes the file again.** The native provider decodes at the
+  size the window asked for and then scales that placeholder up to its cap, which is the other half
+  of why magnifying went soft: the pixels being magnified had never been decoded. Zooming in now
+  re-decodes at the size actually being looked at - debounced by 250 ms so a flick of the wheel does
+  not decode once per notch, bounded by the file's own size, and with the geometry untouched (zoom,
+  fit and scroll stay where they were). It writes `Image detail decode: ...` to the log, so a bug
+  report can say whether it ran.
+
+### The mouse's back/forward buttons step through the folder
+
+- While the cursor is over the preview, the mouse's back/forward buttons move to the previous/next
+  file. The step goes through Explorer's selection (`IFolderView::SelectItem`, the path
+  `Scripts/probe-explorer-selection.ps1` validated), so the highlight in the folder window follows
+  and the preview switches through the same "follow the selection" route the arrow keys use. The
+  Shell does not wrap around, so the ends are ends.
+- It has to be read from the low-level mouse hook: the preview window never takes focus, so Windows
+  would hand those buttons to Explorer - whose own back/forward would navigate the folder instead.
+  When the step happens the press is consumed, so the folder window does not see it too.
+
+### Verification
+
+- Unit tests **133/133** (nine new ones for the zoom rules); build clean, 0 warnings.
+- The zoom cap and the uniform stepping were checked on real wheel input locally; the re-decode and
+  the mouse buttons are logged so their first real run is easy to confirm.
+
 ## QuickLook-Next 5.6.5
 
 ### A tray menu that reads like a context menu, and a real checkmark

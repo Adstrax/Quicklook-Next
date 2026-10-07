@@ -29,6 +29,134 @@ internal static class QuickLookNext
     private const int SWC_DESKTOP = 8;
     private const int SWFO_NEEDDISPATCH = 1;
     private const int SVGIO_SELECTION = 0x1;
+    private const uint SVGIO_ALLVIEW = 0x2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    // Selection flags for IFolderView::SelectItem.
+    private const uint SVSI_SELECT = 0x1;
+    private const uint SVSI_DESELECTOTHERS = 0x4;
+    private const uint SVSI_ENSUREVISIBLE = 0x8;
+    private const uint SVSI_FOCUSED = 0x10;
+
+    /// <summary>
+    /// v5.6.6: asks Explorer to move its selection by <paramref name="delta"/> items - what the
+    /// preview does when the mouse's back/forward buttons are pressed over it.
+    ///
+    /// <para>
+    /// Moving Explorer's selection rather than switching the preview directly keeps the two in
+    /// step: the highlight in the folder window follows, and the preview follows the selection
+    /// through the same path the arrow keys already use. The Shell does not wrap around, so
+    /// stepping past either end does nothing.
+    /// </para>
+    /// </summary>
+    internal static bool TryMoveSelection(int delta)
+    {
+        if (delta == 0)
+            return false;
+
+        var browser = FindForegroundShellBrowser();
+        if (browser == null)
+            return false;
+
+        try
+        {
+            if (browser.QueryActiveShellView(out var psvPtr) != S_OK || psvPtr == IntPtr.Zero)
+                return false;
+
+            var view = (IShellView)Marshal.GetObjectForIUnknown(psvPtr);
+            try
+            {
+                if (view is not IFolderView folderView)
+                    return false;
+
+                if (folderView.ItemCount(SVGIO_ALLVIEW, out var count) != S_OK || count <= 0)
+                    return false;
+
+                if (folderView.GetFocusedItem(out var index) != S_OK || index < 0 || index >= count)
+                    return false;
+
+                var target = index + delta;
+                if (target < 0 || target >= count)
+                    return false;
+
+                return folderView.SelectItem(target,
+                    SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE) == S_OK;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(view);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            return false;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(browser);
+        }
+    }
+
+    /// <summary>
+    /// The shell browser of the window the user is in - the same resolution
+    /// <see cref="GetSelectionFromExplorer"/> uses, including the Windows 11 tab window.
+    /// </summary>
+    private static IShellBrowser FindForegroundShellBrowser()
+    {
+        var shellWindowsType = Type.GetTypeFromCLSID(CLSID_ShellWindows);
+        if (shellWindowsType == null)
+            return null;
+
+        object shellWindows = Activator.CreateInstance(shellWindowsType);
+        try
+        {
+            dynamic windows = shellWindows;
+            var count = (int)windows.Count;
+            var foreground = GetForegroundWindow();
+            var tabWindow = FindWindowEx(foreground, IntPtr.Zero, "ShellTabWindowClass", null);
+
+            for (var i = 0; i < count; i++)
+            {
+                try
+                {
+                    var dispObj = windows.Item(i);
+                    if (dispObj == null)
+                        continue;
+
+                    var provider = (IServiceProvider)dispObj;
+                    var browserIid = IID_IShellBrowser;
+                    if (provider.QueryService(ref browserIid, ref browserIid, out var sbPtr) != S_OK)
+                        continue;
+
+                    var browser = (IShellBrowser)Marshal.GetObjectForIUnknown(sbPtr);
+                    if (browser.GetWindow(out var phwnd) == S_OK &&
+                        (phwnd == foreground || (tabWindow != IntPtr.Zero && tabWindow == phwnd)))
+                    {
+                        return browser;
+                    }
+
+                    Marshal.ReleaseComObject(browser);
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine(e);
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(shellWindows);
+        }
+    }
     private const short CF_HDROP = 15;
     private const int TYMED_HGLOBAL = 1;
     private const int DVASPECT_CONTENT = 1;
@@ -683,5 +811,44 @@ internal static class QuickLookNext
         [PreserveSig] int SelectItem(IntPtr pidlItem, uint uFlags);
 
         [PreserveSig] int GetItemObject(uint uItem, ref Guid riid, out IntPtr ppv);
+    }
+
+    /// <summary>
+    /// v5.6.6: the view of a folder as Explorer shows it - the item order here is the order on
+    /// screen (the user's sort included), which is what "the next file" has to mean. The
+    /// declarations, and the fact that an <see cref="IShellView"/> can be queried for this
+    /// interface, come from Scripts/probe-explorer-selection.ps1, which validated both.
+    /// </summary>
+    [ComImport, Guid("cde725b0-ccc9-4519-917e-325d72fab4ce")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IFolderView
+    {
+        [PreserveSig] int GetCurrentViewMode(out uint pViewMode);
+
+        [PreserveSig] int SetCurrentViewMode(uint viewMode);
+
+        [PreserveSig] int GetFolder(ref Guid riid, out IntPtr ppv);
+
+        [PreserveSig] int Item(int iItemIndex, out IntPtr ppidl);
+
+        [PreserveSig] int ItemCount(uint uFlags, out int pcItems);
+
+        [PreserveSig] int Items(uint uFlags, ref Guid riid, out IntPtr ppv);
+
+        [PreserveSig] int GetSelectionMarkedItem(out int piItem);
+
+        [PreserveSig] int GetFocusedItem(out int piItem);
+
+        [PreserveSig] int GetItemPosition(IntPtr pidl, out POINT ppt);
+
+        [PreserveSig] int GetSpacing(out POINT ppt);
+
+        [PreserveSig] int GetDefaultSpacing(out POINT ppt);
+
+        [PreserveSig] int GetAutoArrange();
+
+        [PreserveSig] int SelectItem(int iItemIndex, uint dwFlags);
+
+        [PreserveSig] int SelectAndPositionItems(uint cidl, IntPtr apidl, IntPtr apt, uint dwFlags);
     }
 }

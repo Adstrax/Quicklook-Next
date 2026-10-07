@@ -106,9 +106,18 @@ public class AnimatedImage : Image, IDisposable
         ShowThumbnailAndStartAnimation(instance);
     }
 
-    private static void ShowThumbnailAndStartAnimation(AnimatedImage instance)
+    /// <summary>
+    /// v5.6.6: re-decodes the frame at a larger size without touching the view. Used when the user
+    /// zooms past the detail the first decode had. Unlike the initial load this must not refit the
+    /// zoom or re-fire ImageLoaded - the placeholder is always scaled to the same capped target
+    /// size, so the geometry is unchanged and only the detail improves.
+    /// </summary>
+    public void ReloadAt(Size renderSize) => ShowThumbnailAndStartAnimation(this, renderSize, keepView: true);
+
+    private static void ShowThumbnailAndStartAnimation(AnimatedImage instance, Size? renderSize = null,
+        bool keepView = false)
     {
-        var task = instance._animation.GetThumbnail(instance.ContextObject.PreferredSize);
+        var task = instance._animation.GetThumbnail(renderSize ?? instance.ContextObject.PreferredSize);
         if (task == null) return;
 
         task.ContinueWith(_ => instance.Dispatcher.Invoke(() =>
@@ -118,13 +127,15 @@ public class AnimatedImage : Image, IDisposable
 
             instance.Source = _.Result;
 
-            if (_.Result != null)
+            if (_.Result != null && !keepView)
             {
                 instance.DoZoomToFit?.Invoke(instance, EventArgs.Empty);
                 instance.ImageLoaded?.Invoke(instance, EventArgs.Empty);
             }
 
-            instance.BeginAnimation(AnimationFrameIndexProperty, instance._animation?.Animator);
+            // A detail reload keeps the running frame animation rather than restarting it.
+            if (!keepView)
+                instance.BeginAnimation(AnimationFrameIndexProperty, instance._animation?.Animator);
         }));
         task.Start();
     }
