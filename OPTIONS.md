@@ -116,6 +116,17 @@ Example:
 - Example:
   - `<ShowWindowTransition>False</ShowWindowTransition>` to disable the show animation.
 
+### `<MouseButtonNavigation>`
+- Default: `True`
+- Type: `Boolean`
+- Description: The mouse's back/forward buttons step to the previous/next file while the cursor is
+  over the preview window. Reading them needs a low-level mouse hook (the preview never takes focus,
+  so Windows would hand those buttons to the folder window and its own back/forward would navigate
+  instead), and the press is consumed when the step happens. Set to `False` to leave the buttons to
+  the folder window.
+- Example:
+  - `<MouseButtonNavigation>False</MouseButtonNavigation>`
+
 ### `<DisableAutoUpdateCheck>`
 - Default: `False`
 - Type: `Boolean`

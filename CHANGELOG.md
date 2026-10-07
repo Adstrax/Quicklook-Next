@@ -7,6 +7,31 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.7
+
+### The mouse's back/forward buttons step through the folder - this time without the stall
+
+- The feature tried to ship in 5.6.6 and was withdrawn before that release. Reading those buttons needs
+  a low-level mouse hook, and a low-level mouse hook is called on the input thread of **the whole
+  desktop**. The first version did the shell work (finding the folder view, moving its selection) and a
+  log write right there, so every application's mouse felt heavy and the app itself hung. That is what
+  the 5.6.6 test build showed, and it was my mistake, not a limitation of the idea.
+- The hook now only decides: a few field reads, and the step is handed to a pool thread - the same
+  place the selection reader already uses shell COM from. Its body is also wrapped so it can never
+  throw into the OS, and consuming the press is the only thing it does that anything else can observe.
+- With that in place the hook is installed for every preview again, because the preview window never
+  takes focus: without it Windows hands the buttons to the folder window, whose own back/forward then
+  navigates instead.
+- Connection: the step goes through Explorer's selection (`IFolderView::SelectItem`, the path
+  `Scripts/probe-explorer-selection.ps1` validated), so the highlight in the folder window follows and
+  the preview switches through the same "follow the selection" route the arrow keys use. The Shell does
+  not wrap around, so the ends are ends.
+- `<MouseButtonNavigation>` (`True` by default) turns the feature off on its own, without touching
+  anything else.
+- Verified: the app stays responsive while the buttons are pressed over a live preview (five presses,
+  no stall), the preview diagnostic reports `hook=True layered=False`, and the step logs
+  `Mouse button: stepping to the previous/next file`.
+
 ## QuickLook-Next 5.6.6
 
 ### Image preview: a real magnifier

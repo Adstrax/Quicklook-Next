@@ -24,6 +24,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -330,12 +331,12 @@ public partial class ViewerWindow : Window
 
         ApplyWindowBackgroundEffects();
 
-        // v5.6.6: back to the layered-only hook. Installing a low-level mouse hook for every
-        // preview made the whole desktop's mouse input pass through this app, and the side-button
-        // work in it (shell COM + logging) stalled it - reported as a system-wide stutter, then a
-        // hang. The side-button feature needs a queued design before it can be enabled again.
-        if (_layeredAcrylic)
-            InstallMouseHook();
+        // v5.6.7: every preview installs the hook now, because it is also what reads the mouse's
+        // back/forward buttons - and the preview never takes focus, so Windows would otherwise hand
+        // those to the folder window. The hook body itself is trivial and the step it triggers runs
+        // on a pool thread: an earlier version did shell COM inside the hook, which runs on the
+        // input thread of the whole desktop and stalled every application's mouse.
+        InstallMouseHook();
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             StartTopBarPolling();
 
@@ -911,65 +912,81 @@ public partial class ViewerWindow : Window
 
     private nint MouseHookProc(int nCode, nint wParam, nint lParam)
     {
-        if (nCode >= 0 && IsVisible)
+        try
         {
-            var message = (uint)wParam.ToInt64();
-            var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-
-            if (message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL && _layeredAcrylic)
+            if (nCode >= 0 && IsVisible)
             {
-                if (TryGetWheelTarget(data.pt.X, data.pt.Y, out var targetHwnd))
+                var message = (uint)wParam.ToInt64();
+
+                if (message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL or WM_XBUTTONDOWN or WM_XBUTTONUP)
                 {
-                    var delta = (short)((data.mouseData >> 16) & 0xFFFF);
-                    if (delta != 0)
+                    var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+
+                    if (message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL && _layeredAcrylic)
                     {
-                        var wp = (GetWheelKeyState() << 16) | ((uint)delta & 0xFFFF);
-                        var lp = ((uint)(data.pt.Y & 0xFFFF) << 16) | ((uint)data.pt.X & 0xFFFF);
-                        User32.PostMessage(targetHwnd, message, (nint)wp, (nint)lp);
-                        return (nint)1; // consumed: the preview window is the only recipient
+                        if (TryGetWheelTarget(data.pt.X, data.pt.Y, out var targetHwnd))
+                        {
+                            var delta = (short)((data.mouseData >> 16) & 0xFFFF);
+                            if (delta != 0)
+                            {
+                                var wp = (GetWheelKeyState() << 16) | ((uint)delta & 0xFFFF);
+                                var lp = ((uint)(data.pt.Y & 0xFFFF) << 16) | ((uint)data.pt.X & 0xFFFF);
+                                User32.PostMessage(targetHwnd, message, (nint)wp, (nint)lp);
+                                return (nint)1; // consumed: the preview window is the only recipient
+                            }
+                        }
+                    }
+
+                    // v5.6.7: the mouse's back/forward buttons step through the folder while the
+                    // cursor is over the preview. Nothing but the decision happens here: this hook
+                    // runs on the input thread of the whole desktop, so the shell work and the log
+                    // write are handed to a pool thread. The press itself is consumed, so the
+                    // folder window's own back/forward does not act as well.
+                    if (message is WM_XBUTTONDOWN or WM_XBUTTONUP &&
+                        SettingHelper.Get("MouseButtonNavigation", true, "QuickLookNext") &&
+                        TryGetWheelTarget(data.pt.X, data.pt.Y, out _))
+                    {
+                        var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
+
+                        if (message == WM_XBUTTONDOWN && button is 1 or 2)
+                        {
+                            var delta = button == 1 ? -1 : 1;
+                            _ = Task.Run(() => StepToAdjacentFile(delta));
+                            return (nint)1;
+                        }
+
+                        if (message == WM_XBUTTONUP)
+                            return (nint)1;
                     }
                 }
             }
-
-            // v5.6.6: the mouse's back/forward buttons step through the folder while the cursor is
-            // over the preview. It has to be read here - the preview never takes focus, so Windows
-            // would hand the buttons to the folder window, whose own back/forward would navigate -
-            // and the hook body has to stay trivial: it runs on the input thread for the whole
-            // desktop, so shell COM or a log write in here stalls every mouse in every application.
-            // The step is therefore only queued; the press is still consumed so the folder window
-            // does not act as well.
-            if (message is WM_XBUTTONDOWN or WM_XBUTTONUP &&
-                TryGetWheelTarget(data.pt.X, data.pt.Y, out _))
-            {
-                var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
-
-                if (message == WM_XBUTTONDOWN && button is 1 or 2)
-                {
-                    var delta = button == 1 ? -1 : 1;
-
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        try
-                        {
-                            ProcessHelper.WriteLog(NativeMethods.QuickLookNext.TryMoveSelection(delta)
-                                ? $"Mouse button: stepping to the {(delta < 0 ? "previous" : "next")} file"
-                                : $"Mouse button: no file to step to ({delta})");
-                        }
-                        catch (Exception e)
-                        {
-                            ProcessHelper.WriteLog($"Mouse button step failed: {e.Message}");
-                        }
-                    }), DispatcherPriority.Input);
-
-                    return (nint)1;
-                }
-
-                if (message == WM_XBUTTONUP)
-                    return (nint)1;
-            }
+        }
+        catch (Exception e)
+        {
+            // A hook that throws can take the process with it, and this one runs inside every
+            // application's input path - so it never throws.
+            Debug.WriteLine(e);
         }
 
         return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
+
+    /// <summary>
+    /// v5.6.7: the half that must not run in the hook. Runs on a pool thread (the same place the
+    /// selection reader already uses shell COM from), so a slow shell call can never hold up input.
+    /// </summary>
+    private static void StepToAdjacentFile(int delta)
+    {
+        try
+        {
+            ProcessHelper.WriteLog(NativeMethods.QuickLookNext.TryMoveSelection(delta)
+                ? $"Mouse button: stepping to the {(delta < 0 ? "previous" : "next")} file"
+                : $"Mouse button: nothing to step to ({delta})");
+        }
+        catch (Exception e)
+        {
+            ProcessHelper.WriteLog($"Mouse button step failed: {e.Message}");
+        }
     }
 
     /// <summary>
