@@ -24,6 +24,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -70,6 +71,10 @@ public partial class ViewerWindow : Window
     //   hook watches the cursor and reveals the bar when it enters the zone.
     private LowLevelMouseProc _mouseProc;
     private nint _mouseHook;
+    // v5.6.7: read once when the hook is installed. The hook runs on the input thread of the whole
+    // desktop, so it must not reach into the settings cache (which takes a lock and stats the file
+    // once a second) while it is deciding.
+    private bool _mouseButtonNavigation;
     // v1.3.6: polls the cursor while the preview is open so the top bar can be
     // revealed when the cursor enters the top caption zone (the zone is the
     // draggable WindowChrome region, so WPF gets no MouseMove there and a
@@ -894,6 +899,8 @@ public partial class ViewerWindow : Window
         if (_mouseHook != IntPtr.Zero)
             return;
 
+        _mouseButtonNavigation = SettingHelper.Get("MouseButtonNavigation", true, "QuickLookNext");
+
         _mouseProc = MouseHookProc;
         var hMod = Kernel32.LoadLibrary("user32.dll");
         _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, hMod, 0);
@@ -937,27 +944,39 @@ public partial class ViewerWindow : Window
                         }
                     }
 
-                    // v5.6.7: the mouse's back/forward buttons step through the folder while the
-                    // cursor is over the preview. Nothing but the decision happens here: this hook
-                    // runs on the input thread of the whole desktop, so the shell work and the log
-                    // write are handed to a pool thread. The press itself is consumed, so the
-                    // folder window's own back/forward does not act as well.
+                    // v5.6.7: the mouse's back/forward buttons step through the folder while a
+                    // preview is open. Nothing but the decision happens here: this hook runs on the
+                    // input thread of the whole desktop, so the shell work and the log write are
+                    // handed to a pool thread. The press is consumed, so the folder window's own
+                    // back/forward does not act as well.
                     if (message is WM_XBUTTONDOWN or WM_XBUTTONUP)
                     {
                         var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
-                        var overPreview = TryGetWheelTarget(data.pt.X, data.pt.Y, out _);
-                        var enabled = SettingHelper.Get("MouseButtonNavigation", true, "QuickLookNext");
+                        var enabled = _mouseButtonNavigation;
 
-                        if (enabled && overPreview)
+                        // Where the press lands decides who owns it: the preview window itself, or the
+                        // folder window the preview was opened from. The second test is what stops the
+                        // folder window from navigating its own history when the cursor was over it
+                        // instead of over the preview ("it still controls the file manager").
+                        var underCursor = enabled
+                            ? User32.WindowFromPoint(new User32.POINT(data.pt.X, data.pt.Y))
+                            : IntPtr.Zero;
+                        var overPreview = enabled && IsOwnWindow(underCursor);
+                        var overFolder = enabled && !overPreview && IsFolderWindow(underCursor);
+
+                        if (enabled && (overPreview || overFolder) && button is 1 or 2)
                         {
-                            if (message == WM_XBUTTONDOWN && button is 1 or 2)
+                            if (message == WM_XBUTTONDOWN)
                             {
-                                var delta = button == 1 ? -1 : 1;
+                                // The user asked for these to be crossed over: back walks forward
+                                // through the folder, forward walks back.
+                                var delta = button == 1 ? 1 : -1;
                                 var path = _path;
-                                _ = Task.Run(() => StepToAdjacentFile(delta, path));
+                                var landedOn = underCursor;
+                                _ = Task.Run(() => StepToAdjacentFile(delta, path, landedOn));
                             }
 
-                            return (nint)1;
+                            return (nint)1; // consumed: this press belongs to the preview
                         }
 
                         // Queued diagnostic: a button press that reached the hook but was not acted
@@ -965,8 +984,9 @@ public partial class ViewerWindow : Window
                         // anything - it cannot log, or do anything else slow, in place.
                         if (message == WM_XBUTTONDOWN)
                         {
-                            var detail = $"button={button} overPreview={overPreview} enabled={enabled}";
-                            _ = Task.Run(() => ProcessHelper.WriteLog($"Mouse button ignored: {detail}"));
+                            var detail = $"button={button} overPreview={overPreview} overFolder={overFolder} enabled={enabled}";
+                            var landedOn = underCursor;
+                            _ = Task.Run(() => ProcessHelper.WriteLog($"Mouse button ignored: {detail} under={DescribeWindow(landedOn)}"));
                         }
                     }
                 }
@@ -986,12 +1006,14 @@ public partial class ViewerWindow : Window
     /// v5.6.7: the half that must not run in the hook. Runs on a pool thread (the same place the
     /// selection reader already uses shell COM from), so a slow shell call can never hold up input.
     /// </summary>
-    private static void StepToAdjacentFile(int delta, string path)
+    private static void StepToAdjacentFile(int delta, string path, nint landedOn)
     {
         try
         {
             NativeMethods.QuickLookNext.TryMoveSelection(delta, path, out var report);
-            ProcessHelper.WriteLog($"Mouse button: {report}");
+            // The window the press landed on is in the line on purpose: it says which of the two
+            // ownership tests matched, so an issue report can be answered without a rebuild.
+            ProcessHelper.WriteLog($"Mouse button: {report} under={DescribeWindow(landedOn)}");
         }
         catch (Exception e)
         {
@@ -1132,6 +1154,79 @@ public partial class ViewerWindow : Window
 
         targetHwnd = underCursor;
         return true;
+    }
+
+    /// <summary>
+    /// v5.6.7: whether the window a press landed on is this preview - either the window itself, one of
+    /// its children (a WebView2 host, say), or a popup it owns (a tooltip over the preview).
+    /// </summary>
+    private bool IsOwnWindow(nint underCursor)
+    {
+        if (underCursor == IntPtr.Zero)
+            return false;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        return underCursor == hwnd ||
+               User32.GetAncestor(underCursor, User32.GA_ROOT) == hwnd ||
+               User32.GetAncestor(underCursor, User32.GA_ROOTOWNER) == hwnd;
+    }
+
+    /// <summary>
+    /// v5.6.7: whether the window a press landed on is a folder window (Explorer's file list, possibly
+    /// inside a tab). While a preview is open the side buttons belong to the preview, so a press over
+    /// the folder window must not also navigate Explorer's own history.
+    /// </summary>
+    private static bool IsFolderWindow(nint underCursor)
+    {
+        if (underCursor == IntPtr.Zero)
+            return false;
+
+        var root = User32.GetAncestor(underCursor, User32.GA_ROOT);
+        if (root == IntPtr.Zero)
+            root = underCursor;
+
+        return WindowClass(root) is "CabinetWClass" or "ExploreWClass" or "ShellTabWindowClass";
+    }
+
+    /// <summary>
+    /// v5.6.7: names the window a press landed on, for the diagnostic line. It runs on a pool thread
+    /// (a window can be gone by the time the line is written), so every part of it is allowed to fail.
+    /// </summary>
+    private static string DescribeWindow(nint hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return "none";
+
+        try
+        {
+            User32.GetWindowThreadProcessId(hwnd, out var processId);
+
+            string process;
+            try
+            {
+                process = Process.GetProcessById((int)processId).ProcessName;
+            }
+            catch
+            {
+                process = "?";
+            }
+
+            return $"{WindowClass(hwnd)}/{process}";
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    private static string WindowClass(nint hwnd)
+    {
+        var buffer = new StringBuilder(64);
+        User32.GetClassName(hwnd, buffer, buffer.Capacity);
+        return buffer.ToString();
     }
 
     private static uint GetWheelKeyState()

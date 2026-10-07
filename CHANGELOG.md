@@ -22,6 +22,13 @@
 - With that in place the hook is installed for every preview again, because the preview window never
   takes focus: without it Windows hands the buttons to the folder window, whose own back/forward then
   navigates instead.
+- The press now belongs to the preview wherever it is: over the preview window itself, or over the
+  folder window the preview came from (a low-level hook sees the press either way, so a press that
+  reached the hook undecided was simply being handed on - and the folder window navigated). A press
+  over anything else keeps its own back/forward.
+- The buttons are crossed over on purpose, by request: **back steps to the next file, forward to the
+  previous one**. The step itself still goes through the folder's selection, so the highlight in the
+  folder window follows.
 - Connection: the step goes through Explorer's selection (`IFolderView::SelectItem`, the path
   `Scripts/probe-explorer-selection.ps1` validated), so the highlight in the folder window follows and
   the preview switches through the same "follow the selection" route the arrow keys use. The Shell does
@@ -29,8 +36,9 @@
 - `<MouseButtonNavigation>` (`True` by default) turns the feature off on its own, without touching
   anything else.
 - Verified: the app stays responsive while the buttons are pressed over a live preview (five presses,
-  no stall), the preview diagnostic reports `hook=True layered=False`, and the step logs
-  `Mouse button: stepping to the previous/next file`.
+  no stall), the press over the preview steps and the press over the folder window steps too - the
+  folder window itself stays where it was - while a press over the desktop is let through and logged
+  with the window it landed on (`ql-smoke/verify-mouse-buttons.ps1`).
 
 ## QuickLook-Next 5.6.6
 
