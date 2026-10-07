@@ -13,6 +13,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -44,6 +45,15 @@ internal static class QuickLookNext
     private const uint SVSI_ENSUREVISIBLE = 0x8;
     private const uint SVSI_FOCUSED = 0x10;
 
+    // SHGetNameFromIDList: the display name of an item, without going through the data object.
+    private const int SIGDN_NORMALDISPLAY = 0x0;
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHGetNameFromIDList(IntPtr pidl, int sigdnName, out IntPtr ppszName);
+
+    [DllImport("shell32.dll")]
+    private static extern void ILFree(IntPtr pidl);
+
     /// <summary>
     /// v5.6.6: asks Explorer to move its selection by <paramref name="delta"/> items - what the
     /// preview does when the mouse's back/forward buttons are pressed over it.
@@ -55,43 +65,126 @@ internal static class QuickLookNext
     /// stepping past either end does nothing.
     /// </para>
     /// </summary>
-    internal static bool TryMoveSelection(int delta)
+    /// <summary>
+    /// v5.6.7: asks Explorer to move its selection by <paramref name="delta"/> items - what the
+    /// preview does when the mouse's back/forward buttons are pressed over it.
+    ///
+    /// <para>
+    /// Moving Explorer's selection rather than switching the preview directly keeps the two in step:
+    /// the highlight in the folder window follows, and the preview follows the selection through the
+    /// same path the arrow keys already use.
+    /// </para>
+    ///
+    /// <para>
+    /// <paramref name="currentFile"/> is how the right folder window is found. The first pass only
+    /// accepts a window whose *focused* item is that file - which is the window the preview came from
+    /// - and only if none matches does the second pass look through every window's items by name. The
+    /// foreground window is not relied on: it is the folder window only while the user is in it, and
+    /// the preview is under the cursor when these buttons are pressed.
+    /// </para>
+    /// </summary>
+    internal static bool TryMoveSelection(int delta, string currentFile, out string report)
     {
-        if (delta == 0)
-            return false;
+        report = string.Empty;
 
-        var browser = FindForegroundShellBrowser();
-        if (browser == null)
+        if (delta == 0 || string.IsNullOrEmpty(currentFile))
+        {
+            report = "no file to step from";
             return false;
+        }
+
+        var name = Path.GetFileName(currentFile);
+        var browsers = FindShellBrowsers(out var searched);
+        try
+        {
+            foreach (var browser in browsers)
+            {
+                // Fast path: the window whose focused item is the file being previewed.
+                if (TryMoveInView(browser, delta, name, mustMatchFocus: true))
+                {
+                    report = $"stepped to the {(delta < 0 ? "previous" : "next")} file";
+                    return true;
+                }
+            }
+
+            foreach (var browser in browsers)
+            {
+                if (TryMoveInView(browser, delta, name, mustMatchFocus: false))
+                {
+                    report = $"stepped to the {(delta < 0 ? "previous" : "next")} file (by name)";
+                    return true;
+                }
+            }
+
+            report = $"nothing to step to (windows={browsers.Count}, considered={searched}, file={name})";
+            return false;
+        }
+        catch (Exception e)
+        {
+            report = $"step failed: {e.Message}";
+            Debug.WriteLine(e);
+            return false;
+        }
+        finally
+        {
+            foreach (var browser in browsers)
+                Marshal.ReleaseComObject(browser);
+        }
+    }
+
+    /// <summary>
+    /// Moves the selection inside one folder view. <paramref name="mustMatchFocus"/> restricts it to
+    /// views whose focused item is <paramref name="name"/>, which is what makes the first pass pick
+    /// the right window instead of a random one showing a file with the same name.
+    /// </summary>
+    private static bool TryMoveInView(IShellBrowser browser, int delta, string name, bool mustMatchFocus)
+    {
+        IntPtr psvPtr = IntPtr.Zero;
+        IShellView view = null;
 
         try
         {
-            if (browser.QueryActiveShellView(out var psvPtr) != S_OK || psvPtr == IntPtr.Zero)
+            if (browser.QueryActiveShellView(out psvPtr) != S_OK || psvPtr == IntPtr.Zero)
                 return false;
 
-            var view = (IShellView)Marshal.GetObjectForIUnknown(psvPtr);
-            try
+            view = (IShellView)Marshal.GetObjectForIUnknown(psvPtr);
+            if (view is not IFolderView folderView)
+                return false;
+
+            if (folderView.ItemCount(SVGIO_ALLVIEW, out var count) != S_OK || count <= 0)
+                return false;
+
+            var index = -1;
+            if (folderView.GetFocusedItem(out var focused) == S_OK && focused >= 0 && focused < count &&
+                string.Equals(ItemName(folderView, focused), name, StringComparison.OrdinalIgnoreCase))
             {
-                if (view is not IFolderView folderView)
-                    return false;
-
-                if (folderView.ItemCount(SVGIO_ALLVIEW, out var count) != S_OK || count <= 0)
-                    return false;
-
-                if (folderView.GetFocusedItem(out var index) != S_OK || index < 0 || index >= count)
-                    return false;
-
-                var target = index + delta;
-                if (target < 0 || target >= count)
-                    return false;
-
-                return folderView.SelectItem(target,
-                    SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE) == S_OK;
+                index = focused;
             }
-            finally
+            else if (mustMatchFocus)
             {
-                Marshal.ReleaseComObject(view);
+                return false;
             }
+            else
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    if (string.Equals(ItemName(folderView, i), name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+            }
+
+            if (index < 0)
+                return false;
+
+            var target = index + delta;
+            if (target < 0 || target >= count)
+                return false;
+
+            return folderView.SelectItem(target,
+                SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE) == S_OK;
         }
         catch (Exception e)
         {
@@ -100,19 +193,40 @@ internal static class QuickLookNext
         }
         finally
         {
-            Marshal.ReleaseComObject(browser);
+            if (view != null)
+                Marshal.ReleaseComObject(view);
+        }
+    }
+
+    private static string ItemName(IFolderView folderView, int index)
+    {
+        if (folderView.Item(index, out var pidl) != S_OK || pidl == IntPtr.Zero)
+            return string.Empty;
+
+        try
+        {
+            return SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, out var namePtr) == S_OK
+                ? Marshal.PtrToStringUni(namePtr) ?? string.Empty
+                : string.Empty;
+        }
+        finally
+        {
+            ILFree(pidl);
         }
     }
 
     /// <summary>
-    /// The shell browser of the window the user is in - the same resolution
-    /// <see cref="GetSelectionFromExplorer"/> uses, including the Windows 11 tab window.
+    /// Every folder window's shell browser, foreground first. The order matters: the first pass
+    /// wants the window the user is working in.
     /// </summary>
-    private static IShellBrowser FindForegroundShellBrowser()
+    private static List<IShellBrowser> FindShellBrowsers(out int searched)
     {
+        var browsers = new List<IShellBrowser>();
+        searched = 0;
+
         var shellWindowsType = Type.GetTypeFromCLSID(CLSID_ShellWindows);
         if (shellWindowsType == null)
-            return null;
+            return browsers;
 
         object shellWindows = Activator.CreateInstance(shellWindowsType);
         try
@@ -136,13 +250,17 @@ internal static class QuickLookNext
                         continue;
 
                     var browser = (IShellBrowser)Marshal.GetObjectForIUnknown(sbPtr);
+                    searched++;
+
                     if (browser.GetWindow(out var phwnd) == S_OK &&
                         (phwnd == foreground || (tabWindow != IntPtr.Zero && tabWindow == phwnd)))
                     {
-                        return browser;
+                        browsers.Insert(0, browser);
                     }
-
-                    Marshal.ReleaseComObject(browser);
+                    else
+                    {
+                        browsers.Add(browser);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -150,7 +268,7 @@ internal static class QuickLookNext
                 }
             }
 
-            return null;
+            return browsers;
         }
         finally
         {

@@ -942,21 +942,32 @@ public partial class ViewerWindow : Window
                     // runs on the input thread of the whole desktop, so the shell work and the log
                     // write are handed to a pool thread. The press itself is consumed, so the
                     // folder window's own back/forward does not act as well.
-                    if (message is WM_XBUTTONDOWN or WM_XBUTTONUP &&
-                        SettingHelper.Get("MouseButtonNavigation", true, "QuickLookNext") &&
-                        TryGetWheelTarget(data.pt.X, data.pt.Y, out _))
+                    if (message is WM_XBUTTONDOWN or WM_XBUTTONUP)
                     {
                         var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
+                        var overPreview = TryGetWheelTarget(data.pt.X, data.pt.Y, out _);
+                        var enabled = SettingHelper.Get("MouseButtonNavigation", true, "QuickLookNext");
 
-                        if (message == WM_XBUTTONDOWN && button is 1 or 2)
+                        if (enabled && overPreview)
                         {
-                            var delta = button == 1 ? -1 : 1;
-                            _ = Task.Run(() => StepToAdjacentFile(delta));
+                            if (message == WM_XBUTTONDOWN && button is 1 or 2)
+                            {
+                                var delta = button == 1 ? -1 : 1;
+                                var path = _path;
+                                _ = Task.Run(() => StepToAdjacentFile(delta, path));
+                            }
+
                             return (nint)1;
                         }
 
-                        if (message == WM_XBUTTONUP)
-                            return (nint)1;
+                        // Queued diagnostic: a button press that reached the hook but was not acted
+                        // on. One line per press keeps a report answerable without costing the hook
+                        // anything - it cannot log, or do anything else slow, in place.
+                        if (message == WM_XBUTTONDOWN)
+                        {
+                            var detail = $"button={button} overPreview={overPreview} enabled={enabled}";
+                            _ = Task.Run(() => ProcessHelper.WriteLog($"Mouse button ignored: {detail}"));
+                        }
                     }
                 }
             }
@@ -975,13 +986,12 @@ public partial class ViewerWindow : Window
     /// v5.6.7: the half that must not run in the hook. Runs on a pool thread (the same place the
     /// selection reader already uses shell COM from), so a slow shell call can never hold up input.
     /// </summary>
-    private static void StepToAdjacentFile(int delta)
+    private static void StepToAdjacentFile(int delta, string path)
     {
         try
         {
-            ProcessHelper.WriteLog(NativeMethods.QuickLookNext.TryMoveSelection(delta)
-                ? $"Mouse button: stepping to the {(delta < 0 ? "previous" : "next")} file"
-                : $"Mouse button: nothing to step to ({delta})");
+            NativeMethods.QuickLookNext.TryMoveSelection(delta, path, out var report);
+            ProcessHelper.WriteLog($"Mouse button: {report}");
         }
         catch (Exception e)
         {
