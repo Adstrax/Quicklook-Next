@@ -953,18 +953,25 @@ public partial class ViewerWindow : Window
                     {
                         var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
                         var enabled = _mouseButtonNavigation;
+                        // v5.6.7: a preview has to be on screen for the buttons to be ours. The
+                        // warm-up window is shown off-screen at startup and after every preview is
+                        // closed, and it counts as "visible" for the whole session - taking the
+                        // buttons for it left the folder window unable to navigate at all while
+                        // nothing was being previewed. _path is the file being shown, and it is
+                        // cleared when the preview is unloaded (see UnloadPlugin).
+                        var showingPreview = !string.IsNullOrEmpty(_path);
 
                         // Where the press lands decides who owns it: the preview window itself, or the
                         // folder window the preview was opened from. The second test is what stops the
                         // folder window from navigating its own history when the cursor was over it
                         // instead of over the preview ("it still controls the file manager").
-                        var underCursor = enabled
+                        var underCursor = enabled && showingPreview
                             ? User32.WindowFromPoint(new User32.POINT(data.pt.X, data.pt.Y))
                             : IntPtr.Zero;
-                        var overPreview = enabled && IsOwnWindow(underCursor);
-                        var overFolder = enabled && !overPreview && IsFolderWindow(underCursor);
+                        var overPreview = enabled && showingPreview && IsOwnWindow(underCursor);
+                        var overFolder = enabled && showingPreview && !overPreview && IsFolderWindow(underCursor);
 
-                        if (enabled && (overPreview || overFolder) && button is 1 or 2)
+                        if (enabled && showingPreview && (overPreview || overFolder) && button is 1 or 2)
                         {
                             if (message == WM_XBUTTONDOWN)
                             {
@@ -982,7 +989,7 @@ public partial class ViewerWindow : Window
                         // Queued diagnostic: a button press that reached the hook but was not acted
                         // on. One line per press keeps a report answerable without costing the hook
                         // anything - it cannot log, or do anything else slow, in place.
-                        if (message == WM_XBUTTONDOWN)
+                        if (message == WM_XBUTTONDOWN && showingPreview)
                         {
                             var detail = $"button={button} overPreview={overPreview} overFolder={overFolder} enabled={enabled}";
                             var landedOn = underCursor;

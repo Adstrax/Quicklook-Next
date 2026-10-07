@@ -7,6 +7,23 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.8
+
+### The folder window navigates again while nothing is being previewed
+
+- 5.6.7 took the mouse's side buttons whenever the cursor was over a folder window, which is what
+  stopped the folder window from navigating its own history while a preview was open - but the test
+  for "a preview is open" was the window's visibility, and the preview window is never really
+  invisible: after the first preview the app parks a warm window off-screen (`-32000,-32000`) and
+  keeps it shown for the session. That parked window therefore took the buttons with nothing being
+  previewed at all, and the folder window's back/forward did nothing.
+- The buttons are now only the preview's while a file is actually being shown (`_path` is set while a
+  preview is loaded and cleared when it is unloaded). With nothing being previewed the hook leaves the
+  press alone and the folder window navigates as it always did.
+- Verified with the parked warm window in place: no preview - the press goes to the folder window; a
+  preview open - a press over the preview or over the folder window steps the preview, and a press
+  over the desktop is still let through.
+
 ## QuickLook-Next 5.6.7
 
 ### The mouse's back/forward buttons step through the folder - this time without the stall

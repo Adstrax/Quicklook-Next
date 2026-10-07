@@ -120,11 +120,12 @@ Example:
 - Default: `True`
 - Type: `Boolean`
 - Description: The mouse's back/forward buttons step the preview through the folder - **back moves to
-  the next file, forward moves to the previous one**. The press counts while the cursor is over the
-  preview window or over the folder window the preview was opened from, and it is consumed, so the
-  folder window does not also navigate its own history. Reading the buttons needs a low-level mouse
-  hook because the preview never takes focus: Windows would otherwise hand them to the folder window.
-  Set to `False` to leave the buttons to the folder window.
+  the next file, forward moves to the previous one**. While a preview is open the press counts when the
+  cursor is over the preview window or over the folder window the preview was opened from, and it is
+  consumed, so the folder window does not also navigate its own history. With nothing being previewed
+  the buttons are left alone entirely. Reading the buttons needs a low-level mouse hook because the
+  preview never takes focus: Windows would otherwise hand them to the folder window. Set to `False` to
+  leave the buttons to the folder window.
 - Example:
   - `<MouseButtonNavigation>False</MouseButtonNavigation>`
 
