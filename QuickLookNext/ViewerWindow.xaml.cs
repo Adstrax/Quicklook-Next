@@ -330,12 +330,12 @@ public partial class ViewerWindow : Window
 
         ApplyWindowBackgroundEffects();
 
-        // v5.6.6: the hook used to be installed only for the layered fallback, because the wheel
-        // was the only thing it was needed for there. It now also reads the mouse's back/forward
-        // buttons - the preview never takes focus, so Windows would hand those to the folder window
-        // and it would navigate instead - which has to work for every preview, not just layered
-        // ones. The wheel re-delivery inside it stays conditional on _layeredAcrylic.
-        InstallMouseHook();
+        // v5.6.6: back to the layered-only hook. Installing a low-level mouse hook for every
+        // preview made the whole desktop's mouse input pass through this app, and the side-button
+        // work in it (shell COM + logging) stalled it - reported as a system-wide stutter, then a
+        // hang. The side-button feature needs a queued design before it can be enabled again.
+        if (_layeredAcrylic)
+            InstallMouseHook();
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             StartTopBarPolling();
 
@@ -932,10 +932,12 @@ public partial class ViewerWindow : Window
             }
 
             // v5.6.6: the mouse's back/forward buttons step through the folder while the cursor is
-            // over the preview. This has to happen here rather than in the preview window itself:
-            // the window never takes focus, so Explorer is the one Windows would give the buttons
-            // to - and then its own back/forward would navigate the folder instead. The press is
-            // consumed when the step happened, so the folder window does not see it as well.
+            // over the preview. It has to be read here - the preview never takes focus, so Windows
+            // would hand the buttons to the folder window, whose own back/forward would navigate -
+            // and the hook body has to stay trivial: it runs on the input thread for the whole
+            // desktop, so shell COM or a log write in here stalls every mouse in every application.
+            // The step is therefore only queued; the press is still consumed so the folder window
+            // does not act as well.
             if (message is WM_XBUTTONDOWN or WM_XBUTTONUP &&
                 TryGetWheelTarget(data.pt.X, data.pt.Y, out _))
             {
@@ -944,17 +946,26 @@ public partial class ViewerWindow : Window
                 if (message == WM_XBUTTONDOWN && button is 1 or 2)
                 {
                     var delta = button == 1 ? -1 : 1;
-                    if (NativeMethods.QuickLookNext.TryMoveSelection(delta))
+
+                    Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        ProcessHelper.WriteLog(
-                            $"Mouse button: stepping to the {(delta < 0 ? "previous" : "next")} file");
-                        return (nint)1;
-                    }
-                }
-                else if (message == WM_XBUTTONUP)
-                {
+                        try
+                        {
+                            ProcessHelper.WriteLog(NativeMethods.QuickLookNext.TryMoveSelection(delta)
+                                ? $"Mouse button: stepping to the {(delta < 0 ? "previous" : "next")} file"
+                                : $"Mouse button: no file to step to ({delta})");
+                        }
+                        catch (Exception e)
+                        {
+                            ProcessHelper.WriteLog($"Mouse button step failed: {e.Message}");
+                        }
+                    }), DispatcherPriority.Input);
+
                     return (nint)1;
                 }
+
+                if (message == WM_XBUTTONUP)
+                    return (nint)1;
             }
         }
 
