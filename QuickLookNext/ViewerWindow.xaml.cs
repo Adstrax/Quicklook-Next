@@ -330,8 +330,12 @@ public partial class ViewerWindow : Window
 
         ApplyWindowBackgroundEffects();
 
-        if (_layeredAcrylic)
-            InstallMouseHook();
+        // v5.6.6: the hook used to be installed only for the layered fallback, because the wheel
+        // was the only thing it was needed for there. It now also reads the mouse's back/forward
+        // buttons - the preview never takes focus, so Windows would hand those to the folder window
+        // and it would navigate instead - which has to work for every preview, not just layered
+        // ones. The wheel re-delivery inside it stays conditional on _layeredAcrylic.
+        InstallMouseHook();
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             StartTopBarPolling();
 
@@ -851,8 +855,7 @@ public partial class ViewerWindow : Window
         else
         {
             StopTopBarPolling();
-            if (!_layeredAcrylic)
-                UninstallMouseHook();
+            // The hook stays: the back/forward buttons still need it when the top bar is visible.
         }
     }
 
