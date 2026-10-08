@@ -53,6 +53,19 @@ public class ViewWindowManager : IDisposable
 
     internal ViewerWindow CurrentViewerWindow => _viewerWindow;
 
+    /// <summary>
+    /// v5.6.9: the file being previewed, empty when nothing is. The mouse hook asks this instead of the
+    /// preview window's visibility, because the parked warm window is always "visible" off-screen.
+    /// </summary>
+    internal string PreviewedPath => _invokedPath;
+
+    /// <summary>
+    /// v5.6.9: the preview window's handle for the mouse hook, or zero when the window has never been
+    /// shown - a handle that does not exist cannot be under the cursor.
+    /// </summary>
+    internal nint PreviewWindowHandle =>
+        _viewerWindow == null ? IntPtr.Zero : new System.Windows.Interop.WindowInteropHelper(_viewerWindow).Handle;
+
     private ViewerWindow EnsureViewerWindow()
     {
         if (_viewerWindow == null)

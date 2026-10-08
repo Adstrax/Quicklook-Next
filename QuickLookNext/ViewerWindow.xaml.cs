@@ -24,7 +24,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -60,21 +59,6 @@ public partial class ViewerWindow : Window
     // backdrop is an acrylic material on Win11, so the WCA acrylic renders
     // from the very first frame (see ShouldUseLayeredAcrylic).
     private readonly bool _layeredAcrylic;
-    // v1.3.6: one low-level mouse hook serves two jobs:
-    // - 1.3.5 fallback: layered windows never receive the WM_MOUSEWHEEL that
-    //   Windows forwards from the focus window to the window under the cursor,
-    //   so the hook re-delivers wheel input to the preview window (only while
-    //   the window is layered; the non-layered acrylic path keeps the native
-    //   routing).
-    // - 1.3.6: "HideTopBarByDefault" (Icon_HideTopBarByDefault) - the top caption zone is the draggable
-    //   WindowChrome region (HTCAPTION), so WPF gets no MouseMove there; the
-    //   hook watches the cursor and reveals the bar when it enters the zone.
-    private LowLevelMouseProc _mouseProc;
-    private nint _mouseHook;
-    // v5.6.7: read once when the hook is installed. The hook runs on the input thread of the whole
-    // desktop, so it must not reach into the settings cache (which takes a lock and stats the file
-    // once a second) while it is deciding.
-    private bool _mouseButtonNavigation;
     // v1.3.6: polls the cursor while the preview is open so the top bar can be
     // revealed when the cursor enters the top caption zone (the zone is the
     // draggable WindowChrome region, so WPF gets no MouseMove there and a
@@ -165,7 +149,6 @@ public partial class ViewerWindow : Window
         {
             // v5.2.0: SystemEvents is process wide - the window must let go of it.
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
-            UninstallMouseHook();
             StopTopBarPolling();
             StopTopBarHideWatch();
         };
@@ -336,16 +319,10 @@ public partial class ViewerWindow : Window
 
         ApplyWindowBackgroundEffects();
 
-        // v5.6.7: every preview installs the hook now, because it is also what reads the mouse's
-        // back/forward buttons - and the preview never takes focus, so Windows would otherwise hand
-        // those to the folder window. The hook body itself is trivial and the step it triggers runs
-        // on a pool thread: an earlier version did shell COM inside the hook, which runs on the
-        // input thread of the whole desktop and stalled every application's mouse.
-        InstallMouseHook();
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             StartTopBarPolling();
 
-        WriteTopBarDiag($"source-init hook={(_mouseHook != IntPtr.Zero)} layered={_layeredAcrylic} " +
+        WriteTopBarDiag($"source-init hook={QuickLookNext.Helpers.PreviewMouseHook.GetInstance().IsInstalled} layered={_layeredAcrylic} " +
             $"setting={SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext")} polling={_topBarPollTimer != null}");
     }
 
@@ -644,7 +621,7 @@ public partial class ViewerWindow : Window
     /// The 1.3.2 layered path remains in the code as a fallback (flip this to
     /// true) with a low-level mouse hook re-delivering wheel input.
     /// </summary>
-    private static bool ShouldUseLayeredAcrylic() => false;
+    internal static bool ShouldUseLayeredAcrylic() => false;
 
     private void SaveWindowSizeOnSizeChanged(object sender, SizeChangedEventArgs e)
     {
@@ -865,168 +842,7 @@ public partial class ViewerWindow : Window
         }
     }
 
-    // ---- v1.3.5: mouse-wheel forwarding for the layered fallback ----------
-    // Windows sends WM_MOUSEWHEEL to the focus window first, and only forwards
-    // it to the window under the cursor when the focus window chain does not
-    // handle it. Layered windows are skipped by that forwarding, so a layered
-    // preview never scrolls. The low-level mouse hook below re-delivers wheel
-    // input straight to the window under the cursor when it belongs to the
-    // preview, and consumes the original message so it does not reach the
-    // focused window (e.g. an Explorer list behind the preview).
-    // ---- v1.3.6: the same hook reveals the top bar when the cursor enters
-    // the top caption zone while "HideTopBarByDefault" is enabled.
 
-    private const int WH_MOUSE_LL = 14;
-    private const uint WM_MOUSEWHEEL = 0x020A;
-    private const uint WM_MOUSEHWHEEL = 0x020E;
-    private const uint WM_XBUTTONDOWN = 0x020B;
-    private const uint WM_XBUTTONUP = 0x020C;
-
-    private delegate nint LowLevelMouseProc(int nCode, nint wParam, nint lParam);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSLLHOOKSTRUCT
-    {
-        public POINT pt;
-        public uint mouseData;
-        public uint flags;
-        public uint time;
-        public nint dwExtraInfo;
-    }
-
-    private void InstallMouseHook()
-    {
-        if (_mouseHook != IntPtr.Zero)
-            return;
-
-        _mouseButtonNavigation = SettingHelper.Get("MouseButtonNavigation", true, "QuickLookNext");
-
-        _mouseProc = MouseHookProc;
-        var hMod = Kernel32.LoadLibrary("user32.dll");
-        _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, hMod, 0);
-    }
-
-    private void UninstallMouseHook()
-    {
-        if (_mouseHook != IntPtr.Zero)
-        {
-            UnhookWindowsHookEx(_mouseHook);
-            _mouseHook = IntPtr.Zero;
-        }
-
-        _mouseProc = null;
-    }
-
-    private nint MouseHookProc(int nCode, nint wParam, nint lParam)
-    {
-        try
-        {
-            if (nCode >= 0 && IsVisible)
-            {
-                var message = (uint)wParam.ToInt64();
-
-                if (message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL or WM_XBUTTONDOWN or WM_XBUTTONUP)
-                {
-                    var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-
-                    if (message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL && _layeredAcrylic)
-                    {
-                        if (TryGetWheelTarget(data.pt.X, data.pt.Y, out var targetHwnd))
-                        {
-                            var delta = (short)((data.mouseData >> 16) & 0xFFFF);
-                            if (delta != 0)
-                            {
-                                var wp = (GetWheelKeyState() << 16) | ((uint)delta & 0xFFFF);
-                                var lp = ((uint)(data.pt.Y & 0xFFFF) << 16) | ((uint)data.pt.X & 0xFFFF);
-                                User32.PostMessage(targetHwnd, message, (nint)wp, (nint)lp);
-                                return (nint)1; // consumed: the preview window is the only recipient
-                            }
-                        }
-                    }
-
-                    // v5.6.7: the mouse's back/forward buttons step through the folder while a
-                    // preview is open. Nothing but the decision happens here: this hook runs on the
-                    // input thread of the whole desktop, so the shell work and the log write are
-                    // handed to a pool thread. The press is consumed, so the folder window's own
-                    // back/forward does not act as well.
-                    if (message is WM_XBUTTONDOWN or WM_XBUTTONUP)
-                    {
-                        var button = (data.mouseData >> 16) & 0xFFFF; // XBUTTON1 = back, XBUTTON2 = forward
-                        var enabled = _mouseButtonNavigation;
-                        // v5.6.7: a preview has to be on screen for the buttons to be ours. The
-                        // warm-up window is shown off-screen at startup and after every preview is
-                        // closed, and it counts as "visible" for the whole session - taking the
-                        // buttons for it left the folder window unable to navigate at all while
-                        // nothing was being previewed. _path is the file being shown, and it is
-                        // cleared when the preview is unloaded (see UnloadPlugin).
-                        var showingPreview = !string.IsNullOrEmpty(_path);
-
-                        // Where the press lands decides who owns it: the preview window itself, or the
-                        // folder window the preview was opened from. The second test is what stops the
-                        // folder window from navigating its own history when the cursor was over it
-                        // instead of over the preview ("it still controls the file manager").
-                        var underCursor = enabled && showingPreview
-                            ? User32.WindowFromPoint(new User32.POINT(data.pt.X, data.pt.Y))
-                            : IntPtr.Zero;
-                        var overPreview = enabled && showingPreview && IsOwnWindow(underCursor);
-                        var overFolder = enabled && showingPreview && !overPreview && IsFolderWindow(underCursor);
-
-                        if (enabled && showingPreview && (overPreview || overFolder) && button is 1 or 2)
-                        {
-                            if (message == WM_XBUTTONDOWN)
-                            {
-                                // The user asked for these to be crossed over: back walks forward
-                                // through the folder, forward walks back.
-                                var delta = button == 1 ? 1 : -1;
-                                var path = _path;
-                                var landedOn = underCursor;
-                                _ = Task.Run(() => StepToAdjacentFile(delta, path, landedOn));
-                            }
-
-                            return (nint)1; // consumed: this press belongs to the preview
-                        }
-
-                        // Queued diagnostic: a button press that reached the hook but was not acted
-                        // on. One line per press keeps a report answerable without costing the hook
-                        // anything - it cannot log, or do anything else slow, in place.
-                        if (message == WM_XBUTTONDOWN && showingPreview)
-                        {
-                            var detail = $"button={button} overPreview={overPreview} overFolder={overFolder} enabled={enabled}";
-                            var landedOn = underCursor;
-                            _ = Task.Run(() => ProcessHelper.WriteLog($"Mouse button ignored: {detail} under={DescribeWindow(landedOn)}"));
-                        }
-                    }
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            // A hook that throws can take the process with it, and this one runs inside every
-            // application's input path - so it never throws.
-            Debug.WriteLine(e);
-        }
-
-        return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
-    }
-
-    /// <summary>
-    /// v5.6.7: the half that must not run in the hook. Runs on a pool thread (the same place the
-    /// selection reader already uses shell COM from), so a slow shell call can never hold up input.
-    /// </summary>
-    private static void StepToAdjacentFile(int delta, string path, nint landedOn)
-    {
-        try
-        {
-            NativeMethods.QuickLookNext.TryMoveSelection(delta, path, out var report);
-            // The window the press landed on is in the line on purpose: it says which of the two
-            // ownership tests matched, so an issue report can be answered without a rebuild.
-            ProcessHelper.WriteLog($"Mouse button: {report} under={DescribeWindow(landedOn)}");
-        }
-        catch (Exception e)
-        {
-            ProcessHelper.WriteLog($"Mouse button step failed: {e.Message}");
-        }
-    }
 
     /// <summary>
     /// v1.3.6: start polling the cursor so the top bar can reveal when the
@@ -1141,121 +957,7 @@ public partial class ViewerWindow : Window
         return y <= rect.Top + zoneHeight;
     }
 
-    private bool TryGetWheelTarget(int x, int y, out nint targetHwnd)
-    {
-        targetHwnd = IntPtr.Zero;
 
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd == IntPtr.Zero)
-            return false;
-
-        var underCursor = User32.WindowFromPoint(new User32.POINT(x, y));
-        if (underCursor == IntPtr.Zero)
-            return false;
-
-        // Only forward when the pointer is over this preview window (or one of
-        // its child windows, e.g. a WebView2 host). Other top-level windows
-        // such as the tray menu keep their normal wheel routing.
-        if (User32.GetAncestor(underCursor, User32.GA_ROOT) != hwnd)
-            return false;
-
-        targetHwnd = underCursor;
-        return true;
-    }
-
-    /// <summary>
-    /// v5.6.7: whether the window a press landed on is this preview - either the window itself, one of
-    /// its children (a WebView2 host, say), or a popup it owns (a tooltip over the preview).
-    /// </summary>
-    private bool IsOwnWindow(nint underCursor)
-    {
-        if (underCursor == IntPtr.Zero)
-            return false;
-
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd == IntPtr.Zero)
-            return false;
-
-        return underCursor == hwnd ||
-               User32.GetAncestor(underCursor, User32.GA_ROOT) == hwnd ||
-               User32.GetAncestor(underCursor, User32.GA_ROOTOWNER) == hwnd;
-    }
-
-    /// <summary>
-    /// v5.6.7: whether the window a press landed on is a folder window (Explorer's file list, possibly
-    /// inside a tab). While a preview is open the side buttons belong to the preview, so a press over
-    /// the folder window must not also navigate Explorer's own history.
-    /// </summary>
-    private static bool IsFolderWindow(nint underCursor)
-    {
-        if (underCursor == IntPtr.Zero)
-            return false;
-
-        var root = User32.GetAncestor(underCursor, User32.GA_ROOT);
-        if (root == IntPtr.Zero)
-            root = underCursor;
-
-        return WindowClass(root) is "CabinetWClass" or "ExploreWClass" or "ShellTabWindowClass";
-    }
-
-    /// <summary>
-    /// v5.6.7: names the window a press landed on, for the diagnostic line. It runs on a pool thread
-    /// (a window can be gone by the time the line is written), so every part of it is allowed to fail.
-    /// </summary>
-    private static string DescribeWindow(nint hwnd)
-    {
-        if (hwnd == IntPtr.Zero)
-            return "none";
-
-        try
-        {
-            User32.GetWindowThreadProcessId(hwnd, out var processId);
-
-            string process;
-            try
-            {
-                process = Process.GetProcessById((int)processId).ProcessName;
-            }
-            catch
-            {
-                process = "?";
-            }
-
-            return $"{WindowClass(hwnd)}/{process}";
-        }
-        catch
-        {
-            return "unknown";
-        }
-    }
-
-    private static string WindowClass(nint hwnd)
-    {
-        var buffer = new StringBuilder(64);
-        User32.GetClassName(hwnd, buffer, buffer.Capacity);
-        return buffer.ToString();
-    }
-
-    private static uint GetWheelKeyState()
-    {
-        uint flags = 0;
-        if ((GetKeyState(0x11) & 0x8000) != 0) flags |= 0x0008; // MK_CONTROL
-        if ((GetKeyState(0x10) & 0x8000) != 0) flags |= 0x0004; // MK_SHIFT
-        if ((GetKeyState(0x12) & 0x8000) != 0) flags |= 0x0020; // MK_MENU
-        return flags;
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern nint SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, nint hMod, uint dwThreadId);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UnhookWindowsHookEx(nint hhk);
-
-    [DllImport("user32.dll")]
-    private static extern nint CallNextHookEx(nint hhk, int nCode, nint wParam, nint lParam);
-
-    [DllImport("user32.dll")]
-    private static extern short GetKeyState(int nVirtKey);
 
     /// <summary>
     /// v1.3.5: test hook - reports the backdrop render path used by the last

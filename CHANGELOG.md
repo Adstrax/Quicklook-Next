@@ -7,6 +7,36 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.9
+
+### The mouse's middle button previews the file it points at
+
+- Press the middle button on a file in a folder window and that file is previewed, and selected in the
+  folder so the highlight follows. Press it again on the file being previewed and the preview closes;
+  press it on the preview window itself and the preview closes as well. Together with the side buttons
+  stepping through a folder, previews can now be opened, switched and closed without the keyboard.
+- **How the file under the cursor is found.** UI Automation (falling back to MSAA) names the item under
+  the pointer, and the shell view of the folder window under the pointer turns that name into the item,
+  its index and its path - the same view the side buttons already step through. Only folder windows are
+  taken over, so a browser's middle click (a link in a new tab) is untouched.
+- **The mouse hook belongs to the process now.** Until 5.6.8 it was installed by the preview window,
+  which only exists once something has been previewed - so it could never see the press that would open
+  the first preview. It is installed next to the keyboard hook at startup (see
+  `Helpers/PreviewMouseHook.cs`), which also means the side buttons work before the first preview of a
+  session. It is the same trivial hook body as before: decide, hand the work to a pool thread.
+- The handle of the preview window is only asked for while a preview is showing, so a machine that has
+  not previewed anything does not pay for the window (or its rendering stack) just because this feature
+  is on.
+- `<MiddleClickPreviews>` (`True` by default) turns it off; then the middle button is Explorer's again.
+- Fixed on the way: `IFolderView.Item` hands out a PIDL relative to the folder being shown, and asking
+  that PIDL for a filesystem path answered against the wrong parent - it resolved "img2.jpg" as a file
+  on the desktop. The item is now built against its folder with `SHCreateItemWithParent`.
+- Verified with real middle-button input over a parked folder window: nothing open - the preview opens
+  on the file under the cursor; a preview open - it switches; the same file again - it closes; the
+  preview window - it closes; and the side buttons, including the "no preview, leave the folder window
+  alone" case, were re-checked after the hook moved (`ql-smoke/verify-middle-click.ps1`,
+  `probe-folder-press.ps1`, `probe-idle-side-buttons.ps1`).
+
 ## QuickLook-Next 5.6.8
 
 ### The folder window navigates again while nothing is being previewed

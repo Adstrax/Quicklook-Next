@@ -55,11 +55,22 @@ internal static class QuickLookNext
     /// </summary>
     private const int SIGDN_PARENTRELATIVEPARSING = unchecked((int)0x80018001);
 
+    /// <summary>
+    /// v5.6.9: the item's full path. The mouse's middle button previews the item it is pointing at,
+    /// and the preview needs the path, not the name.
+    /// </summary>
+    private const int SIGDN_FILESYSPATH = unchecked((int)0x80058000);
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SHGetNameFromIDList(IntPtr pidl, int sigdnName, out IntPtr ppszName);
 
     [DllImport("shell32.dll")]
     private static extern void ILFree(IntPtr pidl);
+
+    /// <summary>v5.6.9: builds the item of a folder-relative PIDL, so its real path can be asked for.</summary>
+    [DllImport("shell32.dll")]
+    private static extern int SHCreateItemWithParent(IntPtr pidlParent, IntPtr psfParent, IntPtr pidl,
+        ref Guid riid, out IntPtr ppvItem);
 
     /// <summary>
     /// v5.6.6: asks Explorer to move its selection by <paramref name="delta"/> items - what the
@@ -94,7 +105,7 @@ internal static class QuickLookNext
     {
         report = string.Empty;
 
-        if (delta == 0 || string.IsNullOrEmpty(currentFile))
+        if (string.IsNullOrEmpty(currentFile))
         {
             report = "no file to step from";
             return false;
@@ -109,7 +120,7 @@ internal static class QuickLookNext
                 // Fast path: the window whose focused item is the file being previewed.
                 if (TryMoveInView(browser, delta, name, mustMatchFocus: true))
                 {
-                    report = $"stepped to the {(delta < 0 ? "previous" : "next")} file";
+                    report = MoveReport(delta);
                     return true;
                 }
             }
@@ -118,7 +129,7 @@ internal static class QuickLookNext
             {
                 if (TryMoveInView(browser, delta, name, mustMatchFocus: false))
                 {
-                    report = $"stepped to the {(delta < 0 ? "previous" : "next")} file (by name)";
+                    report = $"{MoveReport(delta)} (by name)";
                     return true;
                 }
             }
@@ -138,6 +149,19 @@ internal static class QuickLookNext
                 Marshal.ReleaseComObject(browser);
         }
     }
+
+    private static string MoveReport(int delta) => delta switch
+    {
+        0 => "selected the file",
+        > 0 => "stepped to the next file",
+        _ => "stepped to the previous file",
+    };
+
+    /// <summary>
+    /// v5.6.9: select a file in its folder window, so the highlight follows a preview the mouse opened.
+    /// The same walk as <see cref="TryMoveSelection"/>, with the step set to zero.
+    /// </summary>
+    internal static bool TrySelectFile(string path, out string report) => TryMoveSelection(0, path, out report);
 
     /// <summary>
     /// Moves the selection inside one folder view. <paramref name="mustMatchFocus"/> restricts it to
@@ -334,6 +358,8 @@ internal static class QuickLookNext
     private static readonly Guid IID_IDataObject = new("0000010E-0000-0000-C000-000000000046");
     private static readonly Guid IID_IShellBrowser = new("000214E2-0000-0000-C000-000000000046");
     private static readonly Guid IID_IServiceProvider = new("6D5140C1-7436-11CE-8034-00AA006009FA");
+    private static readonly Guid IID_IShellFolder = new("000214E6-0000-0000-C000-000000000046");
+    private static readonly Guid IID_IShellItem = new("43826D1E-E718-42EE-BC55-A1E261C37BFE");
     private static readonly Guid CLSID_ShellWindows = new("9BA05972-F6A8-11CF-A442-00A0C90A8F39");
 
     internal enum FocusedWindowType
@@ -396,13 +422,54 @@ internal static class QuickLookNext
     // call (FocusMonitor polls selection every 500 ms). No WPF Dispatcher here:
     // a plain STA worker + blocking queue matches the previously working
     // thread-per-call behaviour most closely.
-    private static readonly BlockingCollection<SelectionRequest> SelectionQueue = [];
+    private static readonly BlockingCollection<ShellRequest> ShellQueue = [];
     private static readonly Thread SelectionWorker = CreateSelectionWorker();
 
-    private sealed class SelectionRequest
+    // v5.6.9: the same worker also answers "which item is under this screen point" for the mouse's
+    // middle button, so the queue carries both kinds of request.
+    private abstract class ShellRequest
+    {
+        public readonly ManualResetEventSlim Done = new(false);
+
+        public abstract void Run();
+
+        public void Complete()
+        {
+            try
+            {
+                Run();
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e);
+            }
+            finally
+            {
+                Done.Set();
+            }
+        }
+    }
+
+    private sealed class SelectionRequest : ShellRequest
     {
         public string Result;
-        public readonly ManualResetEventSlim Done = new(false);
+
+        public override void Run() => Result = ReadSelectionCore();
+    }
+
+    private sealed class ItemAtPointRequest : ShellRequest
+    {
+        public int X;
+        public int Y;
+        public IntPtr UnderCursor;
+        public string Path;
+        public string Report;
+
+        public override void Run()
+        {
+            Path = ReadItemAtPointCore(X, Y, UnderCursor, out var report);
+            Report = report;
+        }
     }
 
     private static Thread CreateSelectionWorker()
@@ -419,28 +486,14 @@ internal static class QuickLookNext
 
     private static void SelectionWorkerLoop()
     {
-        foreach (var request in SelectionQueue.GetConsumingEnumerable())
-        {
-            try
-            {
-                request.Result = ReadSelectionCore();
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine(e);
-                request.Result = string.Empty;
-            }
-            finally
-            {
-                request.Done.Set();
-            }
-        }
+        foreach (var request in ShellQueue.GetConsumingEnumerable())
+            request.Complete();
     }
 
     internal static string GetCurrentSelection()
     {
         var request = new SelectionRequest();
-        SelectionQueue.Add(request);
+        ShellQueue.Add(request);
         request.Done.Wait();
 
         var result = request.Result ?? string.Empty;
@@ -450,6 +503,370 @@ internal static class QuickLookNext
         }
 
         return ResolveShortcut(result);
+    }
+
+    /// <summary>
+    /// v5.6.9: the full path of the folder item under a screen point - what the mouse's middle button
+    /// previews. The point is resolved through the folder view of the window under the cursor, so two
+    /// folder windows showing the same names cannot be confused. <paramref name="underCursor"/> is the
+    /// window the hook already found under the cursor.
+    /// </summary>
+    internal static bool TryGetItemPathAt(int x, int y, IntPtr underCursor, out string path, out string report)
+    {
+        var request = new ItemAtPointRequest { X = x, Y = y, UnderCursor = underCursor };
+        ShellQueue.Add(request);
+        request.Done.Wait();
+
+        path = request.Path ?? string.Empty;
+        report = request.Report ?? string.Empty;
+        return !string.IsNullOrEmpty(path);
+    }
+
+    private static string ReadItemAtPointCore(int x, int y, IntPtr underCursor, out string report)
+    {
+        report = string.Empty;
+
+        var hitName = HitTestName(x, y, out var how);
+        if (string.IsNullOrEmpty(hitName))
+        {
+            report = how;
+            return string.Empty;
+        }
+
+        var root = GetAncestor(underCursor, GA_ROOT);
+        if (root == IntPtr.Zero)
+            root = underCursor;
+
+        var browsers = FindShellBrowsers(out _);
+        try
+        {
+            foreach (var browser in browsers)
+            {
+                if (browser.GetWindow(out var phwnd) != S_OK || !IsWindowUnderPoint(phwnd, root))
+                    continue;
+
+                var path = ReadItemPathByName(browser, hitName, out var items, out var folderPath);
+                report = string.IsNullOrEmpty(path)
+                    ? $"no item called \"{hitName}\" in \"{folderPath}\" ({how}, items={items})"
+                    : $"hit=\"{hitName}\" in \"{folderPath}\" ({how}, items={items})";
+                return path;
+            }
+
+            report = $"no folder view for the window under the cursor (hit=\"{hitName}\", {how})";
+            return string.Empty;
+        }
+        finally
+        {
+            foreach (var browser in browsers)
+                Marshal.ReleaseComObject(browser);
+        }
+    }
+
+    /// <summary>
+    /// Whether a shell browser is the folder window the point was over. A tabbed Explorer window hosts
+    /// the view in a child shell tab window, which is the window ShellWindows reports.
+    /// </summary>
+    private static bool IsWindowUnderPoint(IntPtr browserWindow, IntPtr root)
+    {
+        // A shell browser with no window of its own (the desktop, or a window that is going away) must
+        // not match: comparing its zero against "this window has no shell tab child" matched the
+        // desktop and resolved the file in the wrong folder.
+        if (browserWindow == IntPtr.Zero || root == IntPtr.Zero)
+            return false;
+
+        if (browserWindow == root)
+            return true;
+
+        var tabWindow = FindWindowEx(root, IntPtr.Zero, "ShellTabWindowClass", null);
+        return tabWindow != IntPtr.Zero && tabWindow == browserWindow;
+    }
+
+    private static string ReadItemPathByName(IShellBrowser browser, string hitName, out int itemCount,
+        out string folderPath)
+    {
+        itemCount = 0;
+        folderPath = string.Empty;
+        IntPtr psvPtr = IntPtr.Zero;
+        IShellView view = null;
+
+        try
+        {
+            if (browser.QueryActiveShellView(out psvPtr) != S_OK || psvPtr == IntPtr.Zero)
+                return string.Empty;
+
+            view = (IShellView)Marshal.GetObjectForIUnknown(psvPtr);
+            if (view is not IFolderView folderView)
+                return string.Empty;
+
+            if (folderView.ItemCount(SVGIO_ALLVIEW, out itemCount) != S_OK || itemCount <= 0)
+                return string.Empty;
+
+            folderPath = FolderPath(folderView);
+            var index = FindItemByName(folderView, hitName, itemCount);
+            return index < 0 ? string.Empty : ItemFileSystemPath(folderView, index);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            return string.Empty;
+        }
+        finally
+        {
+            if (view != null)
+                Marshal.ReleaseComObject(view);
+        }
+    }
+
+    /// <summary>
+    /// The item an accessible name belongs to. The name is exact when the view reports the file name,
+    /// and a whole row ("img3.jpg   2026-10-07 10:31   PNG image") in the details view, which is what
+    /// the last test covers.
+    /// </summary>
+    private static int FindItemByName(IFolderView folderView, string hitName, int count)
+    {
+        var displayName = -1;
+        var rowPrefix = -1;
+
+        for (var i = 0; i < count; i++)
+        {
+            var itemName = ItemName(folderView, i);
+            if (string.IsNullOrEmpty(itemName))
+                continue;
+
+            if (string.Equals(itemName, hitName, StringComparison.OrdinalIgnoreCase))
+                return i;
+
+            if (displayName < 0 && NameMatches(itemName, hitName))
+                displayName = i;
+
+            if (rowPrefix < 0 && hitName.Length > itemName.Length &&
+                hitName.StartsWith(itemName, StringComparison.OrdinalIgnoreCase) &&
+                !char.IsLetterOrDigit(hitName[itemName.Length]))
+            {
+                rowPrefix = i;
+            }
+        }
+
+        return displayName >= 0 ? displayName : rowPrefix;
+    }
+
+    /// <summary>
+    /// The folder path of a view, for the log line and for the sanity check below.
+    /// </summary>
+    private static string FolderPath(IFolderView folderView)
+    {
+        var iid = IID_IShellItem;
+        if (folderView.GetFolder(ref iid, out var folderItem) != S_OK || folderItem == IntPtr.Zero)
+            return string.Empty;
+
+        try
+        {
+            return ShellItemPath(folderItem);
+        }
+        finally
+        {
+            Marshal.Release(folderItem);
+        }
+    }
+
+    /// <summary>
+    /// v5.6.9: the item's real path.
+    ///
+    /// <para>
+    /// The PIDL <see cref="IFolderView.Item"/> hands out is relative to the folder being shown, so
+    /// asking that PIDL for a filesystem path answers a different question - it resolved "img2.jpg"
+    /// against the desktop folder and produced "&lt;desktop&gt;\img2.jpg". The item is therefore built
+    /// against its folder with <c>SHCreateItemWithParent</c>, which is what that API is for.
+    /// </para>
+    /// </summary>
+    private static string ItemFileSystemPath(IFolderView folderView, int index)
+    {
+        if (folderView.Item(index, out var pidl) != S_OK || pidl == IntPtr.Zero)
+            return string.Empty;
+
+        try
+        {
+            var folderIid = IID_IShellFolder;
+            if (folderView.GetFolder(ref folderIid, out var shellFolder) != S_OK || shellFolder == IntPtr.Zero)
+                return string.Empty;
+
+            try
+            {
+                var itemIid = IID_IShellItem;
+                if (SHCreateItemWithParent(IntPtr.Zero, shellFolder, pidl, ref itemIid, out var item) != S_OK ||
+                    item == IntPtr.Zero)
+                {
+                    return string.Empty;
+                }
+
+                try
+                {
+                    return ShellItemPath(item);
+                }
+                finally
+                {
+                    Marshal.Release(item);
+                }
+            }
+            finally
+            {
+                Marshal.Release(shellFolder);
+            }
+        }
+        finally
+        {
+            ILFree(pidl);
+        }
+    }
+
+    private static string ShellItemPath(IntPtr shellItem)
+    {
+        try
+        {
+            var item = (IShellItem)Marshal.GetObjectForIUnknown(shellItem);
+            if (item.GetDisplayName(SIGDN_FILESYSPATH, out var namePtr) != S_OK || namePtr == IntPtr.Zero)
+                return string.Empty;
+
+            return Marshal.PtrToStringUni(namePtr) ?? string.Empty;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// The accessible name of whatever is under a screen point: UI Automation first (the interface
+    /// Windows 11's Explorer implements natively), MSAA second. Only the name is taken from here - the
+    /// shell view remains the source of the path.
+    /// </summary>
+    private static string HitTestName(int x, int y, out string how)
+    {
+        var name = HitTestNameViaUia(x, y, out how);
+        if (!string.IsNullOrEmpty(name))
+            return name;
+
+        var msaaName = HitTestNameViaMsaa(x, y, out var msaaHow);
+        how = $"{how}; {msaaHow}";
+        return msaaName;
+    }
+
+    private static string HitTestNameViaUia(int x, int y, out string how)
+    {
+        try
+        {
+            var element = System.Windows.Automation.AutomationElement.FromPoint(new System.Windows.Point(x, y));
+            if (element == null)
+            {
+                how = "uia: nothing at the point";
+                return string.Empty;
+            }
+
+            var name = string.Empty;
+            var controlType = string.Empty;
+
+            // The element under the cursor is usually the item's caption or a cell inside it; the list
+            // item above it carries the name of the file.
+            for (var level = 0; level < 6 && element != null; level++)
+            {
+                var currentName = element.Current.Name;
+                var currentType = element.Current.ControlType;
+                if (currentType != null)
+                    controlType = currentType.ProgrammaticName;
+
+                if (!string.IsNullOrEmpty(currentName))
+                {
+                    name = currentName;
+                    if (currentType == System.Windows.Automation.ControlType.ListItem)
+                        break;
+                }
+
+                element = System.Windows.Automation.TreeWalker.ControlViewWalker.GetParent(element);
+            }
+
+            how = $"uia: {controlType} name=\"{name}\"";
+            return name;
+        }
+        catch (Exception e)
+        {
+            how = $"uia failed: {e.Message}";
+            return string.Empty;
+        }
+    }
+
+    private static string HitTestNameViaMsaa(int x, int y, out string how)
+    {
+        how = "msaa: unavailable";
+
+        try
+        {
+            var point = new POINT { X = x, Y = y };
+            object child = null;
+            if (AccessibleObjectFromPoint(point, out var accessibleObject, ref child) != S_OK ||
+                accessibleObject is not Accessibility.IAccessible accessible)
+            {
+                how = "msaa: nothing at the point";
+                return string.Empty;
+            }
+
+            for (var level = 0; level < 4 && accessible != null; level++)
+            {
+                var childId = level == 0 ? child : 0;
+                var name = AccessibleName(accessible, childId);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    how = $"msaa: role={AccessibleRole(accessible, childId)} name=\"{name}\"";
+                    return name;
+                }
+
+                accessible = AccessibleParent(accessible);
+            }
+
+            how = "msaa: no name";
+            return string.Empty;
+        }
+        catch (Exception e)
+        {
+            how = $"msaa failed: {e.Message}";
+            return string.Empty;
+        }
+    }
+
+    private static string AccessibleName(Accessibility.IAccessible accessible, object child)
+    {
+        try
+        {
+            return accessible.get_accName(child) ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string AccessibleRole(Accessibility.IAccessible accessible, object child)
+    {
+        try
+        {
+            return accessible.get_accRole(child)?.ToString() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static Accessibility.IAccessible AccessibleParent(Accessibility.IAccessible accessible)
+    {
+        try
+        {
+            return accessible.accParent as Accessibility.IAccessible;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string ReadSelectionCore()
@@ -766,6 +1183,20 @@ internal static class QuickLookNext
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
+    /// <summary>v5.6.9: the root window of a window, so a child under the cursor can be matched to its
+    /// folder window.</summary>
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+    private const uint GA_ROOT = 2;
+
+    /// <summary>v5.6.9: the accessible object under a screen point, the input to the middle-click
+    /// hit test (UI Automation is tried first).</summary>
+    [DllImport("oleacc.dll")]
+    private static extern int AccessibleObjectFromPoint(POINT ptScreen,
+        [MarshalAs(UnmanagedType.Interface)] out object ppacc,
+        [In, Out, MarshalAs(UnmanagedType.Struct)] ref object pvarChild);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, [Out] char[] lpClassName, int nMaxCount);
 
@@ -981,6 +1412,25 @@ internal static class QuickLookNext
         [PreserveSig] int SelectItem(IntPtr pidlItem, uint uFlags);
 
         [PreserveSig] int GetItemObject(uint uItem, ref Guid riid, out IntPtr ppv);
+    }
+
+    /// <summary>
+    /// v5.6.9: an item of the shell, used to turn the folder-relative PIDL that the folder view hands
+    /// out into a real path (see ItemFileSystemPath).
+    /// </summary>
+    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellItem
+    {
+        [PreserveSig] int BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+
+        [PreserveSig] int GetParent(out IntPtr ppsi);
+
+        [PreserveSig] int GetDisplayName(int sigdnName, out IntPtr ppszName);
+
+        [PreserveSig] int GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+
+        [PreserveSig] int Compare(IntPtr psi, uint hint, out int piOrder);
     }
 
     /// <summary>

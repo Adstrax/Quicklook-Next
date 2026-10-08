@@ -129,6 +129,19 @@ Example:
 - Example:
   - `<MouseButtonNavigation>False</MouseButtonNavigation>`
 
+### `<MiddleClickPreviews>`
+- Default: `True`
+- Type: `Boolean`
+- Description: The mouse's middle button previews the file it is pointing at: press it on a file in a
+  folder window and that file is previewed (and selected in the folder), press it on the file that is
+  already being previewed and the preview closes, press it on the preview window itself to dismiss it.
+  This works with or without the quick preview key. Only folder windows are taken over, so a browser's
+  middle click (a link in a new tab) is untouched - but inside a folder window the middle button no
+  longer does Explorer's own middle click (opening a folder in a new tab, or panning the list). Set to
+  `False` to leave the middle button entirely to Explorer.
+- Example:
+  - `<MiddleClickPreviews>False</MiddleClickPreviews>`
+
 ### `<DisableAutoUpdateCheck>`
 - Default: `False`
 - Type: `Boolean`

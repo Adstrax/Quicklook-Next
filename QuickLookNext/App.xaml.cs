@@ -702,6 +702,7 @@ public partial class App : Application
         PipeServerManager.GetInstance().Dispose();
         TrayIconManager.GetInstance().Dispose();
         KeystrokeDispatcher.GetInstance().Dispose();
+        Helpers.PreviewMouseHook.GetInstance().Dispose();
         ViewWindowManager.GetInstance().Dispose();
     }
 
@@ -832,6 +833,10 @@ public partial class App : Application
         PluginManager.GetInstance();
         ViewWindowManager.GetInstance();
         KeystrokeDispatcher.GetInstance();
+        // v5.6.9: the mouse hook belongs to the process, not to the preview window - the middle button
+        // has to work before anything has been previewed, and the window only exists after that (see
+        // PreviewMouseHook).
+        Helpers.PreviewMouseHook.GetInstance();
         PipeServerManager.GetInstance();
 
         // v5.6.1: keep the plugin catalogue fresh without waiting for someone to
