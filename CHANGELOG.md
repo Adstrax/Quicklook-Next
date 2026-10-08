@@ -19,6 +19,10 @@
   the pointer, and the shell view of the folder window under the pointer turns that name into the item,
   its index and its path - the same view the side buttons already step through. Only folder windows are
   taken over, so a browser's middle click (a link in a new tab) is untouched.
+- **Only the file items are taken.** A middle click in the navigation pane, on a toolbar or on the
+  empty space of the list is given straight back to Explorer as real input, so its own middle click
+  still opens a folder in a new tab and the list still pans with it. Taking the whole window was the
+  first cut, and it silently swallowed the navigation pane's middle click.
 - **The mouse hook belongs to the process now.** Until 5.6.8 it was installed by the preview window,
   which only exists once something has been previewed - so it could never see the press that would open
   the first preview. It is installed next to the keyboard hook at startup (see
@@ -31,11 +35,19 @@
 - Fixed on the way: `IFolderView.Item` hands out a PIDL relative to the folder being shown, and asking
   that PIDL for a filesystem path answered against the wrong parent - it resolved "img2.jpg" as a file
   on the desktop. The item is now built against its folder with `SHCreateItemWithParent`.
+- Fixed on the way: the middle button's message ids were wrong (`0x0201`/`0x0202` are the *left*
+  button; the middle button is `0x0207`-`0x0209`), so a left click inside a folder window was swallowed
+  and ran the middle-click path - clicking a folder, or the window's close button, did nothing.
 - Verified with real middle-button input over a parked folder window: nothing open - the preview opens
   on the file under the cursor; a preview open - it switches; the same file again - it closes; the
   preview window - it closes; and the side buttons, including the "no preview, leave the folder window
   alone" case, were re-checked after the hook moved (`ql-smoke/verify-middle-click.ps1`,
   `probe-folder-press.ps1`, `probe-idle-side-buttons.ps1`).
+- And with a real Explorer window: a middle click on a file previews it, while a middle click on a
+  folder in the navigation pane opens it in a new tab (the window's title grows "and 1 more tab") and
+  the press is logged as given back (`ql-smoke/verify-navpane-middle-click.ps1`). A left click on the
+  preview window now does nothing to the preview (it used to close it), while a middle click on it
+  still closes it (`ql-smoke/probe-left-click.ps1`).
 
 ## QuickLook-Next 5.6.8
 

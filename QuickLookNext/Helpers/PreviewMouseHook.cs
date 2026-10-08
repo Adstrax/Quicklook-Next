@@ -64,6 +64,13 @@ internal class PreviewMouseHook : IDisposable
 
     private static PreviewMouseHook _instance;
 
+    /// <summary>
+    /// Marks the middle click this hook sends back to the system when the press was not a file of the
+    /// folder, so the hook does not take its own replay for a user press (the keyboard hook uses the
+    /// same idea for its hotkey replays).
+    /// </summary>
+    private static readonly nint ReplayTag = unchecked((nint)0x514C4D42); // "QLMB"
+
     private nint _hook;
     private LowLevelMouseProc _proc;
     private bool _mouseButtonNavigation;
@@ -140,6 +147,11 @@ internal class PreviewMouseHook : IDisposable
                 ReadSettings();
 
             var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+
+            // Our own replay, coming back around: let it through untouched.
+            if (data.dwExtraInfo == ReplayTag)
+                return CallNextHookEx(_hook, nCode, wParam, lParam);
+
             var manager = ViewWindowManager.GetInstance();
 
             if (message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL && ViewerWindow.ShouldUseLayeredAcrylic())
@@ -294,7 +306,11 @@ internal class PreviewMouseHook : IDisposable
 
             if (!NativeMethods.QuickLookNext.TryGetItemPathAt(x, y, landedOn, out var path, out var report))
             {
-                WriteMiddleClickLog($"nothing to preview ({report})");
+                // Not a file of the folder being viewed - the navigation pane, a toolbar, or the empty
+                // space of the list. Explorer has to get the press, so it is sent back as real input
+                // (its own middle click opens a folder in a new tab, for instance).
+                WriteMiddleClickLog($"giving the press back to Explorer ({report})");
+                ReplayMiddleClick(x, y);
                 return;
             }
 
@@ -322,6 +338,40 @@ internal class PreviewMouseHook : IDisposable
 
     private static void WriteMiddleClickLog(string detail) =>
         ProcessHelper.WriteLog($"Middle click: {detail}");
+
+    /// <summary>
+    /// v5.6.9: gives the middle click back to the system, as if the hook had never taken it. A middle
+    /// click inside a folder window belongs to the preview only when it landed on a file of that
+    /// folder; anywhere else in the window it is Explorer's (its own middle click opens a folder in a
+    /// new tab, and the list pans with it). The press has already been consumed by the time this runs,
+    /// so it cannot simply be left alone - it is re-injected, tagged so the hook ignores it on the way
+    /// back.
+    /// </summary>
+    private static void ReplayMiddleClick(int x, int y)
+    {
+        try
+        {
+            var left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            var top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            var width = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN) - 1);
+            var height = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1);
+
+            var inputs = new INPUT[2];
+            inputs[0].type = INPUT_MOUSE;
+            inputs[0].mi.dx = (x - left) * 65535 / width;
+            inputs[0].mi.dy = (y - top) * 65535 / height;
+            inputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MIDDLEDOWN;
+            inputs[0].mi.dwExtraInfo = ReplayTag;
+            inputs[1] = inputs[0];
+            inputs[1].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MIDDLEUP;
+
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+    }
 
     /// <summary>
     /// Runs an action on the UI thread and waits for it. The caller is a pool thread, and the order
@@ -446,4 +496,41 @@ internal class PreviewMouseHook : IDisposable
 
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
+
+    // ---- v5.6.9: re-injecting a middle click that turned out not to be a file of the folder ----
+
+    private const uint INPUT_MOUSE = 0;
+    private const uint MOUSEEVENTF_MOVE = 0x0001;
+    private const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+    private const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
+    private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+
+    private const int SM_XVIRTUALSCREEN = 76;
+    private const int SM_YVIRTUALSCREEN = 77;
+    private const int SM_CXVIRTUALSCREEN = 78;
+    private const int SM_CYVIRTUALSCREEN = 79;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public nint dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public MOUSEINPUT mi;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
 }

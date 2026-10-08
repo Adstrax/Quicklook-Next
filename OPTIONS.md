@@ -135,10 +135,11 @@ Example:
 - Description: The mouse's middle button previews the file it is pointing at: press it on a file in a
   folder window and that file is previewed (and selected in the folder), press it on the file that is
   already being previewed and the preview closes, press it on the preview window itself to dismiss it.
-  This works with or without the quick preview key. Only folder windows are taken over, so a browser's
-  middle click (a link in a new tab) is untouched - but inside a folder window the middle button no
-  longer does Explorer's own middle click (opening a folder in a new tab, or panning the list). Set to
-  `False` to leave the middle button entirely to Explorer.
+  This works with or without the quick preview key. Only the file items of a folder window are taken
+  over: a middle click anywhere else - the navigation pane's folders (still opened in a new tab), the
+  toolbars, the empty space of the list - is handed straight back to Explorer, and so is every middle
+  click in another application (a browser's link in a new tab). Set to `False` to leave the middle
+  button entirely to Explorer.
 - Example:
   - `<MiddleClickPreviews>False</MiddleClickPreviews>`
 
