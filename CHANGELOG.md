@@ -7,6 +7,24 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.10
+
+### The middle button previews desktop icons too
+
+- The desktop is a folder view like any other - its icons are items with names and paths - so a middle
+  click on one now previews it, and pressing it again closes the preview. A shortcut is resolved to its
+  target first, the way the quick preview key treats a selection, so a shortcut pointing at a file the
+  extension filter refuses behaves exactly like pressing Space on it.
+- **How the desktop is resolved.** The name of the icon under the pointer comes from the same
+  accessibility hit test the folder windows use, and it is matched against the entries of the user's and
+  the public desktop folders - exact first, then by the display name an icon shows, because Explorer
+  hides known extensions ("VScode" has to find "VScode.lnk"). The two routes that look more obvious do
+  not work here: asking ShellWindows for the desktop's shell browser answered only every other time
+  (the worker is an STA that does not pump messages), and sending `LVM_*` to Explorer's list view crosses
+  a process with pointers in the message, which hangs.
+- The empty desktop and virtual items (This PC and the like, which have no file path) are handed back to
+  Explorer, like every other place that is not a file.
+
 ## QuickLook-Next 5.6.9
 
 ### The mouse's middle button previews the file it points at

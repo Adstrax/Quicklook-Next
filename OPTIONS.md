@@ -133,13 +133,16 @@ Example:
 - Default: `True`
 - Type: `Boolean`
 - Description: The mouse's middle button previews the file it is pointing at: press it on a file in a
-  folder window and that file is previewed (and selected in the folder), press it on the file that is
-  already being previewed and the preview closes, press it on the preview window itself to dismiss it.
-  This works with or without the quick preview key. Only the file items of a folder window are taken
-  over: a middle click anywhere else - the navigation pane's folders (still opened in a new tab), the
-  toolbars, the empty space of the list - is handed straight back to Explorer, and so is every middle
-  click in another application (a browser's link in a new tab). Set to `False` to leave the middle
-  button entirely to Explorer.
+  folder window (or on a desktop icon) and that file is previewed - and selected in the folder, so the
+  highlight follows - press it on the file that is already being previewed and the preview closes, press
+  it on the preview window itself to dismiss it. A shortcut is previewed through its target, the same as
+  the quick preview key does with a selection. This works with or without the quick preview key.
+- Only the file items are taken over: a middle click anywhere else - the navigation pane's folders
+  (still opened in a new tab), the toolbars, the empty space of the list, the empty desktop - is handed
+  straight back to Explorer, and so is every middle click in another application (a browser's link in a
+  new tab). Virtual desktop items (This PC and the like) have no file path and are left to Explorer as
+  well.
+- Set to `False` to leave the middle button entirely to Explorer.
 - Example:
   - `<MiddleClickPreviews>False</MiddleClickPreviews>`
 

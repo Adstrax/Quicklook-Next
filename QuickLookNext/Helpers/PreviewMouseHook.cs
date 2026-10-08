@@ -237,7 +237,10 @@ internal class PreviewMouseHook : IDisposable
                 var overPreview = enabled
                     && !string.IsNullOrEmpty(manager.PreviewedPath)
                     && IsPreviewWindow(underCursor);
-                var overFolder = enabled && !overPreview && IsFolderWindow(underCursor);
+                // The desktop counts as well: its icons are items like any other folder's, and previewing
+                // the one that was clicked is the same gesture.
+                var overFolder = enabled && !overPreview &&
+                    (IsFolderWindow(underCursor) || IsDesktopWindow(underCursor));
 
                 if (overPreview || overFolder)
                 {
@@ -439,6 +442,26 @@ internal class PreviewMouseHook : IDisposable
     }
 
     /// <summary>
+    /// v5.6.10: whether the window a press landed on is the desktop. Its icons are items of a folder view
+    /// like any other, but the desktop is not one of ShellWindows' browser windows - the shell side has
+    /// its own route to it (see QuickLookNext.ReadItemAtPointCore).
+    /// </summary>
+    private static bool IsDesktopWindow(nint underCursor)
+    {
+        if (underCursor == IntPtr.Zero)
+            return false;
+
+        var root = User32.GetAncestor(underCursor, User32.GA_ROOT);
+        if (root == IntPtr.Zero)
+            root = underCursor;
+
+        if (WindowClass(root) is not ("Progman" or "WorkerW"))
+            return false;
+
+        return FindWindowEx(root, IntPtr.Zero, "SHELLDLL_DefView", null) != IntPtr.Zero;
+    }
+
+    /// <summary>
     /// v5.6.7: names the window a press landed on, for the diagnostic line. It runs on a pool thread
     /// (a window can be gone by the time the line is written), so every part of it is allowed to fail.
     /// </summary>
@@ -533,4 +556,7 @@ internal class PreviewMouseHook : IDisposable
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint FindWindowEx(nint hwndParent, nint hwndChildAfter, string lpszClass, string lpszWindow);
 }

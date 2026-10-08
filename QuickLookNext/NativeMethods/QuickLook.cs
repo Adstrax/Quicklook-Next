@@ -67,6 +67,10 @@ internal static class QuickLookNext
     [DllImport("shell32.dll")]
     private static extern void ILFree(IntPtr pidl);
 
+    /// <summary>v5.6.10: the desktop folder, for resolving the name of a desktop icon to a path.</summary>
+    [DllImport("shell32.dll")]
+    private static extern int SHGetDesktopFolder(out IntPtr ppshf);
+
     /// <summary>v5.6.9: builds the item of a folder-relative PIDL, so its real path can be asked for.</summary>
     [DllImport("shell32.dll")]
     private static extern int SHCreateItemWithParent(IntPtr pidlParent, IntPtr psfParent, IntPtr pidl,
@@ -537,6 +541,11 @@ internal static class QuickLookNext
         if (root == IntPtr.Zero)
             root = underCursor;
 
+        // The desktop is a folder view as well - its icons are items like any other folder's - but it is
+        // not one of ShellWindows' browser windows.
+        if (IsDesktopRoot(root))
+            return ReadDesktopItem(hitName, out report);
+
         var browsers = FindShellBrowsers(out _);
         try
         {
@@ -566,6 +575,79 @@ internal static class QuickLookNext
     /// Whether a shell browser is the folder window the point was over. A tabbed Explorer window hosts
     /// the view in a child shell tab window, which is the window ShellWindows reports.
     /// </summary>
+    private static bool IsDesktopRoot(IntPtr root)
+    {
+        if (root == IntPtr.Zero)
+            return false;
+
+        var className = GetClassNameString(root);
+        if (className is not ("Progman" or "WorkerW"))
+            return false;
+
+        // A WorkerW is also used for other things (the wallpaper host); the desktop one carries the
+        // shell's own view.
+        return FindWindowEx(root, IntPtr.Zero, "SHELLDLL_DefView", null) != IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// v5.6.10: the item under the cursor on the desktop. The name comes from the same accessibility hit
+    /// test the folder windows use, and the desktop's items are the entries of its two folders, so the
+    /// name is matched against those - exact first, then by the display name an icon shows (Explorer
+    /// hides known extensions, so "VScode" has to find "VScode.lnk").
+    ///
+    /// <para>
+    /// The routes that were tried first do not belong here: asking ShellWindows for the desktop's shell
+    /// browser answered only every other time (this worker is an STA that does not pump messages),
+    /// <c>IShellFolder::ParseDisplayName</c> refuses the extension-less display name, and sending
+    /// <c>LVM_*</c> to Explorer's list view crosses a process with pointers in the message, which hangs.
+    /// Virtual desktop items (This PC and the like) have no path and are simply left to Explorer.
+    /// </para>
+    /// </summary>
+    private static string ReadDesktopItem(string hitName, out string report)
+    {
+        report = string.Empty;
+
+        foreach (var directory in new[]
+         {
+             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+             Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+         })
+        {
+            if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+                continue;
+
+            try
+            {
+                var entries = Directory.GetFileSystemEntries(directory);
+
+                foreach (var entry in entries)
+                {
+                    if (string.Equals(Path.GetFileName(entry), hitName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        report = $"hit=\"{hitName}\" on the desktop";
+                        return ResolveShortcut(entry);
+                    }
+                }
+
+                foreach (var entry in entries)
+                {
+                    if (NameMatches(Path.GetFileName(entry), hitName))
+                    {
+                        report = $"hit=\"{hitName}\" on the desktop (by name)";
+                        return ResolveShortcut(entry);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e);
+            }
+        }
+
+        report = $"the desktop has no item called \"{hitName}\"";
+        return string.Empty;
+    }
+
     private static bool IsWindowUnderPoint(IntPtr browserWindow, IntPtr root)
     {
         // A shell browser with no window of its own (the desktop, or a window that is going away) must
@@ -727,7 +809,8 @@ internal static class QuickLookNext
             if (item.GetDisplayName(SIGDN_FILESYSPATH, out var namePtr) != S_OK || namePtr == IntPtr.Zero)
                 return string.Empty;
 
-            return Marshal.PtrToStringUni(namePtr) ?? string.Empty;
+            // A shortcut is previewed through its target, the same as the Space key does with a selection.
+            return ResolveShortcut(Marshal.PtrToStringUni(namePtr) ?? string.Empty);
         }
         catch (Exception e)
         {
@@ -1418,6 +1501,17 @@ internal static class QuickLookNext
     /// v5.6.9: an item of the shell, used to turn the folder-relative PIDL that the folder view hands
     /// out into a real path (see ItemFileSystemPath).
     /// </summary>
+    [ComImport, Guid("000214E6-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellFolder
+    {
+        // Only ParseDisplayName is used; it is the first method after IUnknown, so the vtable slot is
+        // right without declaring the rest of IShellFolder.
+        [PreserveSig]
+        int ParseDisplayName(IntPtr hwnd, IntPtr pbc, [MarshalAs(UnmanagedType.LPWStr)] string pszDisplayName,
+            out uint pchEaten, out IntPtr ppidl, uint[] pdwAttributes);
+    }
+
     [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellItem
