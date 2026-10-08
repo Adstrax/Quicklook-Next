@@ -49,9 +49,11 @@ namespace QuickLookNext.Helpers;
 internal class PreviewMouseHook : IDisposable
 {
     private const int WH_MOUSE_LL = 14;
-    private const uint WM_MBUTTONDOWN = 0x0201;
-    private const uint WM_MBUTTONUP = 0x0202;
-    private const uint WM_MBUTTONDBLCLK = 0x0207;
+    // The middle button is 0x0207-0x0209 (0x0201-0x0202 is the LEFT button, and taking those made
+    // every left click in a folder window disappear).
+    private const uint WM_MBUTTONDOWN = 0x0207;
+    private const uint WM_MBUTTONUP = 0x0208;
+    private const uint WM_MBUTTONDBLCLK = 0x0209;
     private const uint WM_MOUSEWHEEL = 0x020A;
     private const uint WM_XBUTTONDOWN = 0x020B;
     private const uint WM_XBUTTONUP = 0x020C;
