@@ -7,6 +7,29 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.11
+
+### The plugin panel speaks every language now - starting with Chinese
+
+- The Browse view's strings were never added to the translation file: not to Chinese, not to any other
+  language, and not even to the English block. The code therefore fell back to its inline English
+  default, so a Chinese interface showed `Available Plugins`, `Installed` / `Browse`, `Install`,
+  `Refresh Index` and an English hint line. All 17 keys are now in the file: Chinese and Traditional
+  Chinese in full (可安装插件（43）、已安装 / 可安装、安装、刷新索引…), the other 27 languages for the 15
+  short labels, and the two long sentences (the install confirmation and the browse hint) for the 14
+  languages whose wording the project can check - the rest keep the English sentence rather than an
+  unreviewed translation.
+- Plugin **descriptions** stay in English on purpose: they are the text the plugin authors publish.
+- 21 strings still carried the access-key markers of upstream's WinForms menu (`(&U)`, `(&R)` and
+  friends). This menu is WPF, so they were rendered literally - 「检查更新... (U)」. They are gone.
+- The low-memory feature was called 低内存模式 and 省内存模式 in the same language file. The interface
+  says 省内存模式, so the remaining strings follow it.
+- The browse footer hint was longer than the box it lives in and was cut off mid-sentence, in English as
+  well; the Chinese and English versions are shorter now and fit.
+- Verified by running the panel with the interface set to Chinese: the Browse view reads
+  可安装插件（43）/ 已安装 / 可安装 / 安装 / 刷新索引 with a complete footer line, and the tray menu has
+  no `(U)`-style leftovers.
+
 ## QuickLook-Next 5.6.10
 
 ### The middle button previews desktop icons too
