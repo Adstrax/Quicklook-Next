@@ -55,6 +55,9 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | Image OCR | open upstream request [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | shipped, and the engine is picked per image |
 | Cache footprint | open upstream request [#1933](https://github.com/QL-Win/QuickLook/issues/1933) | data & cache panel, clearing only the rebuildable files |
 | Large images | open upstream request [#1054](https://github.com/QL-Win/QuickLook/issues/1054) | 40 MP decode cap plus decoded-space zoom accounting |
+| Image zoom | the wheel stops at 3x of the decoded pixels - 150% on a large photo | 8x, a notch that heads for a landmark instead of snapping to it, and magnifying past the loaded detail re-decodes the file at the size being viewed |
+| Mouse side buttons | - (keyboard only) | with a preview open, back/forward step through the folder and the highlight follows (back moves to the *next* file); presses anywhere else are left alone |
+| Middle mouse button | - (keyboard only) | previews the file - or the desktop icon - under the cursor, and hands every press that is not a file back to Explorer |
 | Mixed-DPI screens | open upstream request [#827](https://github.com/QL-Win/QuickLook/issues/827) | fixed, with a per-screen diagnostic to check on real hardware |
 | Unplayable video | open upstream request [#1768](https://github.com/QL-Win/QuickLook/issues/1768) | a message instead of taking the process down |
 | Distribution | Microsoft Store, installer, Scoop, nightly builds | portable zip |
@@ -156,7 +159,9 @@ existing plugins load without recompiling.
   menu's old "find new plugins" entry went.
 - **Built-in language switching**: follow-system + 30 languages in the tray menu
   (common languages first, names shown in their own language — Chinese displays
-  as 简体中文 / 繁体中文), persisted.
+  as 简体中文 / 繁体中文), persisted. 5.6.11 filled in the Browse view's labels, which had never
+  been added to the translation file - not even to the English block - and left a Chinese interface
+  showing `Available Plugins`, `Install` and `Refresh Index`.
 - **Auto-update**: downloads the Release package, replaces files and restarts
   in place.
 - **Scrollable text preview**: fixed layered-window wheel routing; txt / log /
@@ -202,6 +207,25 @@ fixes or implements is noted where there is one.
 - **Plugin manager search** — the panel opens with the caret already in the search box, filters name
   and description as you type, and reports "3 of 25 shown"; Esc clears the filter first and closes
   the panel second.
+- **Image magnifier (5.6.6)** — the wheel goes to **8x** instead of stopping at 3x of the *decoded*
+  size, and a notch now heads for a landmark (100%, "exactly fit") instead of snapping onto it, so the
+  same gesture feels the same on a small picture and a large one. Magnifying past the detail that was
+  loaded re-decodes the file at the size being looked at - 250 ms after the wheel stops, bounded by the
+  file's own size, and without moving the zoom, fit or scroll position.
+- **Mouse side buttons (5.6.7)** — while a preview is open, the mouse's back/forward buttons step
+  through the folder, the folder's highlight follows, and the press is consumed so the folder window
+  does not also navigate its own history. The two are crossed over by request: back moves to the *next*
+  file. It counts with the cursor over the preview or over the folder window, and with nothing being
+  previewed the buttons are left alone. Reading them needs a low-level mouse hook, and the first
+  attempt did the shell work right inside it - a hook runs on the input thread of **the whole desktop**,
+  so that stalled every application's mouse; the hook now only decides and hands the step to a pool
+  thread.
+- **Middle mouse button (5.6.9, desktop icons in 5.6.10)** — press it on a file to preview it, press it
+  again on the file being previewed to close it, press it on the preview window to dismiss it. Anything
+  that is not a file - the navigation pane, the toolbars, the empty space of the list, the empty desktop
+  - is handed back to Explorer as real input, so its own middle click still opens a folder in a new tab.
+  The item under the cursor is found with UI Automation (MSAA as a fallback) for its name and the shell
+  view of that window for its path; desktop icons are matched against the entries of the desktop folder.
 
 ### Performance & size
 

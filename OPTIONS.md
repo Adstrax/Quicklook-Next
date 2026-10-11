@@ -222,7 +222,7 @@ These keys are also stored in `QuickLookNext.config`.
   last preview (measured: 325 ms per preview before, 117 ms after).
 - v5.6.3: and the memory really comes back now - see `<LowMemoryReleaseSeconds>`.
 - v5.6.4: this key and `<LowMemoryReleaseSeconds>` are one menu control now. The tray
-  menu's "低内存模式 / Low memory mode" group carries the complete state in its header
+  menu's "省内存模式 / Low memory mode" group carries the complete state in its header
   ("Low memory mode: Release after 90 seconds") and offers the alternatives in its
   flyout: **off**, release after 90 seconds / 5 minutes / 15 minutes / 1 hour, or
   **never**. "Never" is not the off state: the startup warm-up stays off, but because
