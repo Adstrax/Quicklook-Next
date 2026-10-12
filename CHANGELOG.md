@@ -7,6 +7,22 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.14
+
+### A dot in the name of a desktop icon, and a preview that faded into its own background
+
+- A middle click on a **desktop** icon whose name has a dot of its own (`1.234.webp`, as reported) did
+  nothing. The desktop resolves the name Explorer reports through its own code path, and that path was still
+  using the older comparison that strips "the extension" from both sides - the bug 5.6.12 fixed for folder
+  windows: `1.234` was compared as `1` against `1.234`. `7.webp` has no dot besides its extension and kept
+  working, which is what was reported. The desktop now uses the same matcher, so ellipsised, dotted and
+  details-row names are all handled the same way there.
+- A WebP preview showed the picture and then **turned into the window's own background**. The detail
+  re-decode (5.6.6) asks for the file's embedded thumbnail first and assigned whatever came back; WebP has
+  none, so that was null, and assigning it wiped the frame already on screen. A still picture never triggers
+  another frame, so nothing restored it. A null thumbnail is now ignored and the rendered frame stays.
+- Both were verified on the reported files, including zooming past the decoded detail.
+
 ## QuickLook-Next 5.6.13
 
 ### Animated WebP previews render again

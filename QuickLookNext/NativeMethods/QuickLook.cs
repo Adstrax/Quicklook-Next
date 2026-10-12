@@ -607,6 +607,10 @@ internal static class QuickLookNext
     {
         report = string.Empty;
 
+        // The same matching the folder windows use: the name Explorer reports for a desktop icon is its
+        // display name, which drops a known extension, and it must not be compared by "stripping the
+        // extension" from both sides - that cuts a name with dots of its own at the last of them, which is
+        // why a middle click on "1.234.webp" did nothing while "7.webp" worked.
         foreach (var directory in new[]
          {
              Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
@@ -619,23 +623,15 @@ internal static class QuickLookNext
             try
             {
                 var entries = Directory.GetFileSystemEntries(directory);
+                var names = new string[entries.Length];
+                for (var i = 0; i < entries.Length; i++)
+                    names[i] = Path.GetFileName(entries[i]);
 
-                foreach (var entry in entries)
+                var index = FindItemIndex(names, hitName);
+                if (index >= 0)
                 {
-                    if (string.Equals(Path.GetFileName(entry), hitName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        report = $"hit=\"{hitName}\" on the desktop";
-                        return ResolveShortcut(entry);
-                    }
-                }
-
-                foreach (var entry in entries)
-                {
-                    if (NameMatches(Path.GetFileName(entry), hitName))
-                    {
-                        report = $"hit=\"{hitName}\" on the desktop (by name)";
-                        return ResolveShortcut(entry);
-                    }
+                    report = $"hit=\"{hitName}\" on the desktop in \"{directory}\"";
+                    return ResolveShortcut(entries[index]);
                 }
             }
             catch (Exception e)

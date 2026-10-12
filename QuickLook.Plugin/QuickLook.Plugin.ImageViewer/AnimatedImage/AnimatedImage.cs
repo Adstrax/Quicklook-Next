@@ -125,7 +125,13 @@ public class AnimatedImage : Image, IDisposable
             if (instance._disposing)
                 return;
 
-            instance.Source = _.Result;
+            // v5.6.14: a null thumbnail must not wipe a picture that is already on screen. Formats without
+            // an embedded thumbnail (WebP, and anything else that only has full frames) return null here,
+            // and the detail reload runs *after* the first frame was rendered - so assigning it blanked the
+            // preview: the image appeared, then became the window's own background. A static picture never
+            // triggers another frame, so nothing brought it back.
+            if (_.Result != null)
+                instance.Source = _.Result;
 
             if (_.Result != null && !keepView)
             {
