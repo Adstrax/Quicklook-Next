@@ -706,30 +706,125 @@ internal static class QuickLookNext
     /// </summary>
     private static int FindItemByName(IFolderView folderView, string hitName, int count)
     {
+        var names = new string[count];
+        for (var i = 0; i < count; i++)
+            names[i] = ItemName(folderView, i);
+
+        return FindItemIndex(names, hitName);
+    }
+
+    /// <summary>How a name reported by the accessibility layer relates to an item's name.</summary>
+    internal enum ItemNameMatch
+    {
+        None,
+        Exact,
+        DisplayName,
+        RowPrefix,
+        TruncatedLabel,
+    }
+
+    /// <summary>
+    /// v5.6.12: whether a reported name is this item, and how. Three shapes have to be recognised,
+    /// because the name comes from what Explorer draws rather than from the file system:
+    ///
+    /// <list type="bullet">
+    /// <item><description>the file name itself (extension and all) - <see cref="ItemNameMatch.Exact"/>;</description></item>
+    /// <item><description>the display name, which drops a known extension - <see cref="ItemNameMatch.DisplayName"/>;</description></item>
+    /// <item><description>the whole details-view row, which starts with the file name -
+    /// <see cref="ItemNameMatch.RowPrefix"/>;</description></item>
+    /// <item><description>a long name cut short, which is what Explorer shows for it - the label is
+    /// shorter than the file name and carries an ellipsis that Explorer adds itself
+    /// (<see cref="ItemNameMatch.TruncatedLabel"/>). Without this last shape, a middle click on a file
+    /// with a long name did nothing at all.</description></item>
+    /// </list>
+    /// </summary>
+    internal static ItemNameMatch MatchItemName(string itemName, string hitName)
+    {
+        if (string.IsNullOrEmpty(itemName) || string.IsNullOrEmpty(hitName))
+            return ItemNameMatch.None;
+
+        if (string.Equals(itemName, hitName, StringComparison.OrdinalIgnoreCase))
+            return ItemNameMatch.Exact;
+
+        // The details view reports the whole row ("img3.jpg   2026-10-07   PNG image"); the file name is
+        // its first part. This has to be checked before the display name below: stripping "the extension"
+        // from such a row also strips the rest of the row, so the row would otherwise look like a plain
+        // display-name match.
+        if (hitName.Length > itemName.Length &&
+            hitName.StartsWith(itemName, StringComparison.OrdinalIgnoreCase) &&
+            !char.IsLetterOrDigit(hitName[itemName.Length]))
+        {
+            return ItemNameMatch.RowPrefix;
+        }
+
+        // "photo" for "photo.jpg": Explorer hides known extensions, so the label and the file name differ
+        // by the extension alone. Comparing the *item's* stem against the reported name - rather than
+        // stripping the extension from both - is what makes this work for names that carry dots of their
+        // own: a long name like "产品需求文档 v2.1 评审版 最终稿.png" is reported without its extension, and
+        // stripping "the extension" from that report would cut it at the last dot and lose the match.
+        if (string.Equals(Path.GetFileNameWithoutExtension(itemName), hitName, StringComparison.OrdinalIgnoreCase))
+            return ItemNameMatch.DisplayName;
+
+        var label = TrimEllipsis(hitName);
+        if (label.Length >= 8 && label.Length < itemName.Length &&
+            itemName.StartsWith(label, StringComparison.OrdinalIgnoreCase))
+        {
+            return ItemNameMatch.TruncatedLabel;
+        }
+
+        return ItemNameMatch.None;
+    }
+
+    private static string TrimEllipsis(string name)
+    {
+        if (name.EndsWith("...", StringComparison.Ordinal))
+            return name[..^3];
+
+        return name.EndsWith("…", StringComparison.Ordinal) ? name[..^1] : name;
+    }
+
+    /// <summary>
+    /// The index of the item a reported name belongs to, or -1. A truncated label only counts when it
+    /// matches exactly one item: several files can share the visible beginning of a long name, and
+    /// previewing the wrong one would be worse than doing nothing.
+    /// </summary>
+    internal static int FindItemIndex(IReadOnlyList<string> itemNames, string hitName)
+    {
         var displayName = -1;
         var rowPrefix = -1;
+        var truncated = -1;
+        var truncatedMatches = 0;
 
-        for (var i = 0; i < count; i++)
+        for (var i = 0; i < itemNames.Count; i++)
         {
-            var itemName = ItemName(folderView, i);
-            if (string.IsNullOrEmpty(itemName))
-                continue;
-
-            if (string.Equals(itemName, hitName, StringComparison.OrdinalIgnoreCase))
-                return i;
-
-            if (displayName < 0 && NameMatches(itemName, hitName))
-                displayName = i;
-
-            if (rowPrefix < 0 && hitName.Length > itemName.Length &&
-                hitName.StartsWith(itemName, StringComparison.OrdinalIgnoreCase) &&
-                !char.IsLetterOrDigit(hitName[itemName.Length]))
+            switch (MatchItemName(itemNames[i], hitName))
             {
-                rowPrefix = i;
+                case ItemNameMatch.Exact:
+                    return i;
+
+                case ItemNameMatch.DisplayName when displayName < 0:
+                    displayName = i;
+                    break;
+
+                case ItemNameMatch.RowPrefix when rowPrefix < 0:
+                    rowPrefix = i;
+                    break;
+
+                case ItemNameMatch.TruncatedLabel:
+                    truncatedMatches++;
+                    if (truncated < 0)
+                        truncated = i;
+                    break;
             }
         }
 
-        return displayName >= 0 ? displayName : rowPrefix;
+        if (displayName >= 0)
+            return displayName;
+
+        if (rowPrefix >= 0)
+            return rowPrefix;
+
+        return truncatedMatches == 1 ? truncated : -1;
     }
 
     /// <summary>

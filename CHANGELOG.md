@@ -7,6 +7,28 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.12
+
+### The middle button works on a long file name again
+
+- A middle click on a file whose name carries dots of its own - anything named after a date or a version,
+  `产品需求文档 v2.1 评审版 最终稿.png` - did nothing. The name the accessibility layer reports for an item
+  is its display name, which drops a known extension; comparing the two sides by "stripping the
+  extension" then cut the reported name at the *last* of its own dots (`产品需求文档 v2`), so the two could
+  never be equal. Longer names are more likely to contain a dot, which is why it looked like a length
+  limit.
+- The comparison now strips the extension from the *item's* name only and compares that against what was
+  reported, which is both what Explorer means and unaffected by dots in the name.
+- A label that Explorer really has shortened is recognised as well: an ellipsis-trimmed name (or a name
+  cut short with no marker at all) matches the item that starts with it, and only when exactly one item
+  matches - several files can share the visible beginning of a long name, and previewing the wrong one
+  would be worse than doing nothing.
+- The details view's whole-row report was previously matched by the extension rule by accident (stripping
+  it also stripped the rest of the row); it is now recognised as a row, which does not change which item
+  is found but makes the log say what happened.
+- Verified with a real Explorer window and a 38-character dotted name, plus 12 unit tests over the
+  matching rules (`ql-smoke/verify-longname-middle-click.ps1`, `QuickLook.Tests/ItemNameMatchTests.cs`).
+
 ## QuickLook-Next 5.6.11
 
 ### The plugin panel speaks every language now - starting with Chinese
