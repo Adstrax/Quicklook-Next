@@ -100,7 +100,7 @@ internal class WebPProvider : ImageMagickProvider
             var durationMs = frame.AnimationDelay > 0 ? frame.AnimationDelay * 10 : 100;
             frame.Format = MagickFormat.Png;
             using var stream = new MemoryStream(frame.ToByteArray());
-            return (Bitmap: new Bitmap(stream), Duration: TimeSpan.FromMilliseconds(durationMs));
+            return (Bitmap: ToArgb32(new Bitmap(stream)), Duration: TimeSpan.FromMilliseconds(durationMs));
         }).ToList();
 
         var writeableBitmap = Application.Current.Dispatcher.Invoke(() =>
@@ -136,6 +136,28 @@ internal class WebPProvider : ImageMagickProvider
         }, TaskCreationOptions.LongRunning);
 
         return writeableBitmap;
+    }
+
+    /// <summary>
+    /// v5.6.13: GDI+ hands back whatever the PNG inside the frame was encoded as, and a frame with few
+    /// colours comes back indexed - which <see cref="Extension.ToWriteableBitmap"/> cannot map to a WPF
+    /// pixel format. The frame is drawn into a 32-bit ARGB bitmap first. Without this, an animated WebP
+    /// (or any of its frames) with few colours threw NotSupportedException, the frame came back null and
+    /// the preview showed nothing but its own background.
+    /// </summary>
+    private static Bitmap ToArgb32(Bitmap bitmap)
+    {
+        if (bitmap.PixelFormat == System.Drawing.Imaging.PixelFormat.Format32bppArgb)
+            return bitmap;
+
+        var copy = new Bitmap(bitmap.Width, bitmap.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        copy.SetResolution(bitmap.HorizontalResolution, bitmap.VerticalResolution);
+
+        using (var graphics = Graphics.FromImage(copy))
+            graphics.DrawImageUnscaled(bitmap, 0, 0);
+
+        bitmap.Dispose();
+        return copy;
     }
 }
 

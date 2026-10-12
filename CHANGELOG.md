@@ -7,6 +7,24 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.13
+
+### Animated WebP previews render again
+
+- An animated WebP whose frames have few colours showed nothing but the window's own background. Each
+  frame is re-encoded as PNG and decoded by GDI+ on the way to WPF, and GDI+ hands a low-colour PNG back
+  as an **indexed** bitmap (`Format8bppIndexed`) - while the conversion to a `WriteableBitmap` only knew
+  24-bit and 32-bit RGB. The frame threw `NotSupportedException`, the frame set came back null, and the
+  preview stayed empty (`Unsupported PixelFormat: Format8bppIndexed` in
+  `UserData\QuickLookNext.Exception.log`).
+- Frames are now drawn into a 32-bit ARGB bitmap before conversion, whatever the PNG inside them was
+  encoded as.
+- Static WebP files were unaffected: they take the ImageMagick path, which was verified with a lossy file,
+  a lossless one, one with alpha and a 1355 KB photo, including zooming past the decoded detail.
+- Verified with generated animated WebP files (with and without alpha, frames of a few colours each):
+  the exception is gone and the frames render. `ql-smoke/make-webp-variants.py` builds them and
+  `ql-smoke/probe-webp-preview.ps1` previews one and reports the log.
+
 ## QuickLook-Next 5.6.12
 
 ### The middle button works on a long file name again
