@@ -14,17 +14,16 @@
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </UserControl.Resources>
-    <!-- v5.6.16: the icon and its details are one block and are centred in the window: the window is
-    wider than most files need, and anchoring the block to the left left the empty space on the
-    right. The star columns therefore size to their content, and the file name is capped so a long
-    one wraps instead of stretching the block past the window. -->
-    <Grid HorizontalAlignment="Center">
+    <!-- v5.6.17: the window is split into two panes that fill it - a square on the left that holds the
+    icon in its middle, and the rest of the window for the details. The details keep their own inset and
+    are centred vertically in their pane. -->
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="15" />
+            <RowDefinition Height="0" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="160" />
+            <ColumnDefinition Width="192" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Border x:Name="imageBk"
@@ -63,15 +62,15 @@
                 </Image.Style>
             </Image>
         </Border>
-        <Grid Grid.Row="1" Grid.Column="1" MaxWidth="320">
+        <Grid Grid.Row="1" Grid.Column="1" MaxWidth="320" VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="20" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="10" />
+                <ColumnDefinition Width="20" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
-                <RowDefinition Height="10" />
+                <RowDefinition Height="0" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="10" />
                 <RowDefinition Height="Auto" />

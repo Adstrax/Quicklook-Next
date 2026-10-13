@@ -21,11 +21,11 @@
         one wraps instead of stretching the block past the window. -->
         <Grid Margin="0,0,8,0" HorizontalAlignment="Center">
             <Grid.RowDefinitions>
-                <RowDefinition Height="15" />
+                <RowDefinition Height="0" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="192" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Image x:Name="image"
@@ -37,15 +37,15 @@
                    VerticalAlignment="Top"
                    Source="/QuickLook.Plugin.AppViewer;component/Resources/nuget.png"
                    Stretch="Uniform" />
-            <Grid Grid.Row="1" Grid.Column="1" MaxWidth="340">
+            <Grid Grid.Row="1" Grid.Column="1" MaxWidth="340" VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="5" />
+                    <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="20" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="10" />
+                    <RowDefinition Height="0" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="10" />
                     <RowDefinition Height="Auto" />
