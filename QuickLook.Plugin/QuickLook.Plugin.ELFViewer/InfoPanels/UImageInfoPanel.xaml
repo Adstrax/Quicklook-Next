@@ -17,7 +17,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="192" />
+            <ColumnDefinition Width="176" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="image"
@@ -25,7 +25,7 @@
                Grid.Column="0"
                Width="128"
                Height="128"
-               Margin="0,-20,0,0"
+               VerticalAlignment="Center"
                Opacity="0"
                Stretch="Fill">
             <Image.Style>
@@ -50,7 +50,7 @@
         </Image>
         <Grid Grid.Row="1" Grid.Column="1" MaxWidth="260" VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="20" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="20" />

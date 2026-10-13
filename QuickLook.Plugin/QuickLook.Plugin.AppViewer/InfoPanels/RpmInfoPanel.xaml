@@ -23,7 +23,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="192" />
+            <ColumnDefinition Width="176" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Border x:Name="imageBk"
@@ -34,6 +34,7 @@
                 VerticalAlignment="Top"
                 CornerRadius="8">
             <Image x:Name="image"
+            VerticalAlignment="Center"
                    Width="120"
                    Height="120"
                    Opacity="0"
@@ -64,7 +65,7 @@
         </Border>
         <Grid Grid.Row="1" Grid.Column="1" MaxWidth="320" VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="20" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="20" />

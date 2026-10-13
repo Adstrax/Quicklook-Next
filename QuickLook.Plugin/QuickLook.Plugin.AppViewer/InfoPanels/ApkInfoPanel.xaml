@@ -23,7 +23,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="192" />
+            <ColumnDefinition Width="176" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="image"
@@ -32,7 +32,7 @@
                Width="120"
                Height="120"
                Margin="8"
-               VerticalAlignment="Top"
+               VerticalAlignment="Center"
                Opacity="0"
                RenderOptions.BitmapScalingMode="HighQuality"
                SnapsToDevicePixels="True"
@@ -60,7 +60,7 @@
         </Image>
         <Grid Grid.Row="1" Grid.Column="1" MaxWidth="370" VerticalAlignment="Center">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="20" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="20" />
