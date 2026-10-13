@@ -37,10 +37,16 @@ public sealed class Plugin : IViewer
 
     public void Prepare(string path, ContextObject context)
     {
-        context.PreferredSize = new Size { Width = 453, Height = 172 };
+        // v5.6.15: the card is centred, so it has to own the whole client area. With the caption strip
+        // reserved (TitlebarOverlap = false) the window is a caption height taller than the card and the
+        // card is laid out below that strip - which left the blank above the icon visibly wider than the
+        // blank below it. The window is dragged by its whole surface (FullWindowDragging), so the strip is
+        // not needed for dragging either; the vertical padding below is what keeps the revealed top bar
+        // off the icon.
+        context.PreferredSize = new Size { Width = 453, Height = 196 };
 
         context.Title = string.Empty;
-        context.TitlebarOverlap = false;
+        context.TitlebarOverlap = true;
         context.TitlebarBlurVisibility = false;
         context.TitlebarColourVisibility = false;
         context.CanResize = false;

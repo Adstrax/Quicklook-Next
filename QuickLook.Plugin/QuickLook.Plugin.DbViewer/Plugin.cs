@@ -57,7 +57,10 @@ public sealed partial class Plugin : IViewer, IMoreMenu
     public void Prepare(string path, ContextObject context)
     {
         context.PreferredSize = new Size { Width = 1024, Height = 720 };
-        context.TitlebarOverlap = false;
+        // v5.6.15: the panel owns the whole client area - see the folder card (QuickLookNext/Plugin/InfoPanel).
+        // A reserved caption strip made the window a caption height taller than the content, and because the
+        // top bar is hidden in normal use that strip showed up as extra blank space above the content.
+        context.TitlebarOverlap = true;
         context.TitlebarBlurVisibility = true;
         context.TitlebarColourVisibility = true;
     }

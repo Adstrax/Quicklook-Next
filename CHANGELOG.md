@@ -7,6 +7,24 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.15
+
+### The information panels reserve no caption strip any more
+
+- Every panel-style preview - the folder card, PE, ELF, app packages, databases, crash dumps, prefetch
+  files and the plugin installer - told the window not to let the caption bar overlap its content. The
+  window therefore reserved a caption height (32 DIP) above the content, which is right while the top bar
+  is up and pure blank space while it is hidden. It is hidden in normal use, so the content sat a caption
+  height lower than the window's own centre; on the folder card, which is a centred card, the blank above
+  the icon was visibly 32 DIP wider than the blank below it.
+- Those panels now own the whole client area and the window is exactly as tall as the panel asked for, so
+  the content lands where the panel's layout intends it to. The folder card also carries 32 DIP of padding
+  top and bottom, so the bar has blank space to appear on instead of the icon.
+- Measured on the folder card (200 % screen): the icon's block sat 37 px below the window's centre before
+  and 5 px after; the PE panel's window went from 226 to 200 DIP tall with its content centred in it.
+- Trade-off, unchanged from the image and video previews: the top bar, revealed while the pointer is in the
+  top strip, now floats over the panel's own top margin instead of a dedicated band.
+
 ## QuickLook-Next 5.6.14
 
 ### A dot in the name of a desktop icon, and a preview that faded into its own background

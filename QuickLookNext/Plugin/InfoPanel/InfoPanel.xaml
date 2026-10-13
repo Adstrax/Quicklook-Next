@@ -5,13 +5,13 @@
              xmlns:local="clr-namespace:QuickLook.Plugin.InfoPanel"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              Width="453"
-             Height="172"
+             Height="196"
              FontSize="13"
              UseLayoutRounding="True"
              mc:Ignorable="d">
     <!-- v3.8.0: card-like layout - icon in a rounded tinted container, metadata
          rows with MDL2 glyphs and a calmer vertical rhythm. -->
-    <Grid Margin="20,18,20,18">
+    <Grid Margin="20,32,20,32">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="128" />
             <ColumnDefinition Width="*" />
