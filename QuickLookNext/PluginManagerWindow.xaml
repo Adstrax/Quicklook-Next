@@ -1,7 +1,7 @@
 <Window x:Class="QuickLookNext.PluginManagerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Manage Plugins"
+        Title="Plugin Market"
         Width="700"
         Height="500"
         WindowStartupLocation="CenterScreen"

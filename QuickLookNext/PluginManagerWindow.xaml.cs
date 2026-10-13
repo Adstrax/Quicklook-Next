@@ -49,7 +49,9 @@ public partial class PluginManagerWindow : Window
     // v5.6.0: the panel has two views. "Installed" is the local list; "Browse"
     // is the catalogue this repo publishes, which points at each plugin's own
     // release asset.
-    private bool _browseMode;
+    // v5.6.18: it opens on Browse - the catalogue is the shop window, and the list
+    // of what is already installed is one click away.
+    private bool _browseMode = true;
     private bool _catalogueLoading;
     private bool _catalogueLoaded;
     private bool _forceCatalogueRefresh;
@@ -68,7 +70,7 @@ public partial class PluginManagerWindow : Window
         _isDark = TrayIconManager.IsDarkTheme();
         ApplyTheme();
 
-        Title = Tr("PM_Title", "Manage Plugins");
+        Title = Tr("PM_Title", "Plugin Market");
         btnOpenFolder.Content = Tr("PM_OpenFolder", "Open Plugin Folder");
         btnRefresh.Content = Tr("PM_Refresh", "Refresh");
         btnClose.Content = Tr("PM_Close", "Close");

@@ -14,7 +14,7 @@
 > (ported to .NET 10, based on the 4.5.0 codebase).
 
 QuickLook-Next keeps the full file-preview capability and rebuilds the experience:
-preview backdrop, rounded corners, themes, tray menu, plugin manager, language
+preview backdrop, rounded corners, themes, tray menu, plugin market, language
 switching, auto-update — **more features, not fewer**.
 
 Named pipes and the mutex use the `QuickLookNext.App.*` prefix, so it can be installed
@@ -34,7 +34,7 @@ the official build and is not affiliated with it.
 - **Side by side**: named pipes and the mutex use the `QuickLookNext.App.*` prefix, so this build and
   the official one can be installed at the same time without interfering.
 - **What is this fork's work**: the preview engine is upstream's. The UI layer (acrylic and rounded
-  corners, themes, tray menu, plugin manager, caption bar), the self-rendered Office previews, the
+  corners, themes, tray menu, plugin market, caption bar), the self-rendered Office previews, the
   OCR wiring, and the performance, packaging and testing work are this fork's — everything listed
   under [Highlights vs. the original](#highlights-vs-the-original) and
   [New in the 5.x line](#new-in-the-5x-line).
@@ -47,9 +47,9 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | | Upstream QuickLook | QuickLook-Next |
 |---|---|---|
 | Runtime | .NET Framework 4.6.2 | .NET 10 |
-| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the same, plus a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 1 h / never), the plugin manager and the data & cache panel — "find plugins" moved into the plugin manager's Browse view |
+| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the same, plus a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 1 h / never), the plugin market and the data & cache panel — "find plugins" moved into the plugin market's Browse view, which is the view the panel opens on |
 | Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
-| Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin manager, which lists name, version and origin and has a search box |
+| Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin market, which lists name, version and origin and has a search box |
 | Installing a plugin | download a `.qlplugin` from the wiki in a browser, then preview the file to install it | browse the list inside the panel and install in one click, with the size and SHA-256 verified before anything is written |
 | Office preview | the plugin renders through the system preview component | re-implemented in-house (OOXML parsed and rendered in WebView2), so no Office install is needed |
 | Image OCR | open upstream request [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | shipped, and the engine is picked per image |
@@ -106,12 +106,12 @@ icons; clicking an option does not accidentally close the menu.
 
 ![Tray menu](docs/screenshots/tray-menu.jpg)
 
-### Plugin manager
+### Plugin market
 
 Lists built-in and user plugins; user plugins can be uninstalled directly;
 existing plugins load without recompiling.
 
-![Plugin manager](docs/screenshots/plugin-manager.jpg)
+![Plugin market](docs/screenshots/plugin-manager.jpg)
 
 ## Highlights vs. the original
 
@@ -123,15 +123,15 @@ existing plugins load without recompiling.
   immediately and follows wallpaper changes.
 - **Native Win11 rounded corners**: 8 px rounded corners on the glass, no square
   frosted edges.
-- **Consistent Acrylic look**: preview window, tray menu and plugin manager all
+- **Consistent Acrylic look**: preview window, tray menu and plugin market all
   use borderless non-layered WCA acrylic + DWM corners.
 - **Light / Dark / System themes**: switch from the tray menu, persisted instantly.
 - **Auto-hiding top bar**: the caption area only appears when the cursor reaches
   the top of the window.
-- **Unified theme colors**: the tray menu and plugin manager share one palette
+- **Unified theme colors**: the tray menu and plugin market share one palette
   (text / separators / hover / accent); the accent follows the system accent color.
 - **Theme-aware scrollbars**: scrollbar thumbs follow the light / dark theme in
-  the preview window, tray menu and plugin manager.
+  the preview window, tray menu and plugin market.
 - **No flicker when switching previews**: the fade-in plays on the first preview
   only; switching files keeps full opacity.
 - **Grouped tray menu with icons**: theme / backdrop / language / options live in
@@ -144,10 +144,10 @@ existing plugins load without recompiling.
   Windows system preview component — they are parsed and rendered in-house
   (MiniExcel / OOXML → styled HTML in WebView2), matching the app's rounded
   corners, acrylic and themes, with a fixed light paper surface for readability.
-- **Plugin manager (new)**: lists user and built-in plugins, uninstalls user
+- **Plugin market (new)**: lists user and built-in plugins, uninstalls user
   plugins; the plugin contract stays `QuickLook.Common` / `QuickLook.Plugin.*`,
   so existing plugins load without recompiling.
-- **Plugin browser (new in 5.6.0)**: the same panel has a **Browse** view that
+- **Plugin market (new in 5.6.0)**: the panel opens on its **Browse** view, which
   lists 43 third-party plugins — publisher, version, size, description — and
   installs one in a click. Nothing is mirrored: every row downloads the file the
   author publishes, and the catalogue pins each entry to its size and SHA-256,
@@ -201,10 +201,10 @@ fixes or implements is noted where there is one.
   codecs and edge cases. (upstream #1768)
 - **Accessibility** — reduced motion is honoured (the caption fade, the content fade and the window
   show transition follow the system setting), and icon-only buttons carry names for screen readers.
-- **Readability on any wallpaper** — the surfaces you actually read (plugin manager, update prompt,
+- **Readability on any wallpaper** — the surfaces you actually read (plugin market, update prompt,
   download panel, data & cache, OCR) use a 45% panel tint over a content plate rather than the 30%
   menu glass, and fall back to a solid surface when Windows transparency effects are switched off.
-- **Plugin manager search** — the panel opens with the caret already in the search box, filters name
+- **Plugin market search** — the panel opens with the caret already in the search box, filters name
   and description as you type, and reports "3 of 25 shown"; Esc clears the filter first and closes
   the panel second.
 - **Image magnifier (5.6.6)** — the wheel goes to **8x** instead of stopping at 3x of the *decoded*
