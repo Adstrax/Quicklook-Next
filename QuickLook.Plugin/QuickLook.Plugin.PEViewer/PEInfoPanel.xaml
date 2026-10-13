@@ -49,11 +49,11 @@
                 </Style>
             </Image.Style>
         </Image>
-        <Grid Grid.Row="1" Grid.Column="1">
+        <Grid Grid.Row="1" Grid.Column="1" MaxWidth="360">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" MaxWidth="200" />
                 <ColumnDefinition Width="10" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
@@ -109,6 +109,8 @@
             <TextBlock x:Name="totalSize"
                        Grid.Row="3"
                        Grid.Column="2"
+                       TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis"
                        Margin="8,0,0,0"
                        Padding="3"
                        Foreground="{DynamicResource WindowTextForegroundAlternative}"
@@ -123,6 +125,7 @@
             <TextBlock x:Name="fileVersion"
                        Grid.Row="4"
                        Grid.Column="2"
+                       TextWrapping="NoWrap"
                        Margin="8,0,0,0"
                        Padding="3"
                        Foreground="{DynamicResource WindowTextForegroundAlternative}"

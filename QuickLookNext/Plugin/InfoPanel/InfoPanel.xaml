@@ -57,6 +57,7 @@
 
         <StackPanel Grid.Column="1"
                     Margin="20,0,0,0"
+                    MaxWidth="265"
                     VerticalAlignment="Center">
             <TextBlock x:Name="filename"
                        MaxHeight="50"
@@ -78,6 +79,7 @@
                            Foreground="{DynamicResource WindowTextForegroundAlternative}" />
                 <TextBlock x:Name="modDate"
                            FontSize="12.5"
+                           TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource WindowTextForegroundAlternative}">
                     Last modified at 01/01/2017 00:00:00
@@ -93,6 +95,7 @@
                            Foreground="{DynamicResource WindowTextForegroundAlternative}" />
                 <TextBlock x:Name="totalSize"
                            FontSize="12.5"
+                           TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource WindowTextForegroundAlternative}">
                     Calculating size...
