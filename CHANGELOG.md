@@ -7,6 +7,20 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.18
+
+### The plugin manager is the Plugin Market now
+
+- The panel and its tray entry are called **Plugin Market**: `Manage Plugins...` became `Plugin Market...`
+  in the tray menu, and the window title (`Manage Plugins`) became `Plugin Market`.
+- It opens on its **Browse** view - the catalogue of third-party plugins - instead of the installed list, so
+  the market is what you see first and the installed list is one click away. The catalogue therefore starts
+  loading as the window opens (it is cached, so a warm start shows it immediately).
+- Both strings existed in three language blocks (English, Chinese Simplified `插件市场`, Chinese Traditional
+  `外掛市場`) and were updated there. The other ~27 blocks never carried these keys and keep falling back to
+  the English text, exactly as they did when the entry still read `Manage Plugins`.
+- The READMEs in both languages carry the new name and note the market-first default.
+
 ## QuickLook-Next 5.6.17
 
 ### The icon-and-details panels get their layout straight
