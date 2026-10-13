@@ -11,10 +11,14 @@
              mc:Ignorable="d">
     <!-- v3.8.0: card-like layout - icon in a rounded tinted container, metadata
          rows with MDL2 glyphs and a calmer vertical rhythm. -->
-    <Grid Margin="20,32,20,32">
+    <!-- v5.6.16: the icon and its details are one block and are centred in the window: the window is
+    wider than most files need, and anchoring the block to the left left the empty space on the
+    right. The star columns therefore size to their content, and the file name is capped so a long
+    one wraps instead of stretching the block past the window. -->
+    <Grid Margin="20,32,20,32" HorizontalAlignment="Center">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="128" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0"
@@ -56,6 +60,7 @@
                     VerticalAlignment="Center">
             <TextBlock x:Name="filename"
                        MaxHeight="50"
+                       MaxWidth="290"
                        FontSize="17"
                        FontWeight="SemiBold"
                        LineHeight="24"

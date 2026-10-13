@@ -7,6 +7,25 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.16
+
+### The icon-and-details panels are centred horizontally as well
+
+- 5.6.15 took away the caption strip that pushed these panels' content down; the block itself was still
+  anchored to the left of a window that is wider than most files need, so a short name and two or three
+  size/version rows left every pixel of empty space on the right (reported on an executable preview: the
+  window is 520 DIP wide, the block is about 350).
+- The block - icon plus details - is now centred in the window. The three columns that used to stretch (the
+  details column, the name column and the values column) size to their content instead, and the file name
+  is capped so a long one wraps inside the window instead of stretching the block past it. The same edit
+  covers the folder card, PEViewer, ELFViewer and all twelve app-package panels.
+- Measured on a 200 % screen: the PE panel's blank space either side of the block went from 128 / 259 px to
+  180 / 164, the MSI panel sits at 186 / 172 and the apk panel at 164 / 164. A deliberately very long file
+  name wraps onto a second line with an ellipsis, nothing is clipped.
+- Panels whose content is a list rather than a few rows - databases, crash dumps, prefetch - were never
+  left-biased; they keep filling the window. The apk permission list is now as wide as its content instead
+  of stretching to the window edge, which matches the rest of the panel.
+
 ## QuickLook-Next 5.6.15
 
 ### The information panels reserve no caption strip any more
