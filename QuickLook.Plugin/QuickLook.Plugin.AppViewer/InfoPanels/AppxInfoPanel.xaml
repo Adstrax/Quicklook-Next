@@ -24,7 +24,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="160" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="image"
@@ -58,11 +58,11 @@
                 </Style>
             </Image.Style>
         </Image>
-        <Grid Grid.Row="1" Grid.Column="1" MaxWidth="360">
+        <Grid Grid.Row="1" Grid.Column="1" MaxWidth="300">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" MaxWidth="200" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="10" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>

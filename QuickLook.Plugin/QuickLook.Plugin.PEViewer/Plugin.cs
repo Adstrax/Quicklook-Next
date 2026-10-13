@@ -51,7 +51,9 @@ public sealed class Plugin : IViewer
 
     public void Prepare(string path, ContextObject context)
     {
-        context.PreferredSize = new Size { Width = 520, Height = 192 };
+        // v5.6.17: the window is sized to the block (icon + details) plus a fixed inset, so the block does
+        // not float in a window twice its width.
+        context.PreferredSize = new Size { Width = 460, Height = 192 };
         context.Title = string.Empty;
         // v5.6.15: the panel owns the whole client area - see the folder card (QuickLookNext/Plugin/InfoPanel).
         // A reserved caption strip made the window a caption height taller than the content, and because the

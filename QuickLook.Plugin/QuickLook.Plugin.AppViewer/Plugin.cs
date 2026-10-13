@@ -86,17 +86,19 @@ public sealed partial class Plugin : IViewer, IMoreMenu
     {
         context.PreferredSize = Path.GetExtension(ConfirmPath(path)).ToLower() switch
         {
-            ".apk" or ".aab" => new Size { Width = 600, Height = 510 },
-            ".ipa" => new Size { Width = 560, Height = 510 },
-            ".hap" => new Size { Width = 560, Height = 500 },
-            ".msi" or ".msp" => new Size { Width = 560, Height = 230 },
-            ".msix" or ".msixbundle" or ".appx" or ".appxbundle" => new Size { Width = 560, Height = 328 },
-            ".ddeb" or ".deb" => new Size { Width = 600, Height = 345 },
-            ".dmg" => new Size { Width = 560, Height = 510 },
-            ".appimage" => new Size { Width = 600, Height = 300 },
-            ".rpm" => new Size { Width = 600, Height = 260 },
-            ".wgt" or ".wgtu" => new Size { Width = 600, Height = 345 },
-            ".nupkg" or ".snupkg" => new Size { Width = 700, Height = 580 },
+            // v5.6.17: each width is the panel's block (icon + details) plus a fixed inset - the old widths
+            // left the block floating in a window up to twice as wide as the content.
+            ".apk" or ".aab" => new Size { Width = 570, Height = 510 },
+            ".ipa" => new Size { Width = 500, Height = 510 },
+            ".hap" => new Size { Width = 500, Height = 500 },
+            ".msi" or ".msp" => new Size { Width = 500, Height = 230 },
+            ".msix" or ".msixbundle" or ".appx" or ".appxbundle" => new Size { Width = 500, Height = 328 },
+            ".ddeb" or ".deb" => new Size { Width = 520, Height = 345 },
+            ".dmg" => new Size { Width = 500, Height = 510 },
+            ".appimage" => new Size { Width = 520, Height = 300 },
+            ".rpm" => new Size { Width = 520, Height = 260 },
+            ".wgt" or ".wgtu" => new Size { Width = 520, Height = 345 },
+            ".nupkg" or ".snupkg" => new Size { Width = 540, Height = 580 },
             _ => throw new NotSupportedException("Extension is not supported."),
         };
         context.Title = string.Empty;
