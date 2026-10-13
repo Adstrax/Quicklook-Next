@@ -7,6 +7,26 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.6.17
+
+### The icon-and-details panels get their layout straight
+
+- A long product version - reported on `v2rayN.exe`, whose version string runs to 50 characters - widened the
+  content past the window and pushed the icon off the left edge. The details block is now clamped and the
+  value cells trim, so the icon keeps its own pane whatever the file carries.
+- The block had been left content-sized and centred inside a window up to twice its width: the icon all but
+  touched the text (12 DIP) while the block floated in about 100 DIP of empty space either side. The window
+  is now split into two panes that fill it - a square one on the left holding the icon in its middle (128 DIP
+  of icon, 24 DIP of air either side) and the rest of the window for the details, which keep their own inset
+  and are centred vertically. The window widths were re-tuned to match (executables 520 → 460 DIP; app
+  packages 560/600/700 → 520/550/560/570/590).
+- The icon also carried a `Margin="0,-20,0,0"` left over from the caption-strip era, which put it above the
+  details' axis - 20 DIP from the top of the window and 45 from the bottom. It is centred now, and the last
+  reminders of that strip (a 15 DIP spacer above the icon, the details' own top spacer) are gone.
+- This covers the folder card's siblings: PEViewer, ELFViewer and all twelve AppViewer panels. Verified with
+  an executable, an MSI, an apk and a probe assembly carrying a v2rayN-length product version, at 200 %
+  scaling.
+
 ## QuickLook-Next 5.6.16
 
 ### The icon-and-details panels are centred horizontally as well
