@@ -15,7 +15,14 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// </summary>
 public sealed class PresentationPanel : OfficePanelBase
 {
-    public PresentationPanel(string path)
+    /// <summary>
+    /// v5.7.1: the colour the page has before it paints is the deck's own desk - PptxToHtml draws the slide
+    /// on #F3F3F3, so the wait and the slide that lands on it match (see OfficePanelBase).
+    /// </summary>
+    private static readonly System.Windows.Media.Color SlideDesk =
+        System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF3);
+
+    public PresentationPanel(string path) : base(SlideDesk)
     {
         NavigateAsync(() =>
         {

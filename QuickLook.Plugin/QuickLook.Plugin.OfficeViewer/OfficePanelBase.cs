@@ -52,33 +52,47 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     private readonly Border _railHost;
     private readonly ListBox _rail;
     private readonly WebView2 _webView;
+    private readonly System.Drawing.Color _pageColour;
+    private readonly string _pageHex;
     private EventHandler<CoreWebView2WebMessageReceivedEventArgs> _messageHandler;
     private string _imageFolder;
     private bool _suppressRail;
     private bool _disposed;
 
-    protected OfficePanelBase()
+    /// <summary>
+    /// v5.7.1: <paramref name="surface"/> is the colour of the page this panel is about to show - the sheet
+    /// of paper for Word and Excel, the desk a slide sits on for PowerPoint. The border behind the browser is
+    /// painted with it, so the area reads as the page before the browser's own surface has anything to draw.
+    /// <para>
+    /// v5.7.1: this used to be the app theme's tint (#171717 in dark mode), chosen in v3.26.0 to keep a white
+    /// flash out of a dark window. Measured on a repeat preview of 2024论文-V2.docx (warm control, no cold
+    /// start left to pay), the content area read 100 % dark - RGB 23,23,23 and then 18,18,18, frames sampled
+    /// at 120 ms - between the rail appearing and the page arriving. The rail appears as soon as the document
+    /// is parsed, so that band is exactly what a reader sees in the meantime, and it repeats on every
+    /// preview, not only the first. A dark placeholder in front of a white page reads as a black hole, and
+    /// the page's own colour does not.
+    /// </para>
+    /// </summary>
+    protected OfficePanelBase(WpfColor? surface = null)
     {
-        // v3.26.0: the panel used to be opaque white from the moment it was
-        // created, so switching to an Office file flashed a big white box
-        // before the page loaded (especially jarring in dark mode). Match the
-        // loading surface to the app theme; the white "paper" only appears
-        // together with the rendered content. Stays opaque, so the v3.17.0
-        // "transparent WebView2 composites to black" issue cannot reappear.
-        var tint = IsDarkTheme()
-            ? WpfColor.FromRgb(0x17, 0x17, 0x17)
-            : WpfColor.FromRgb(0xF2, 0xF2, 0xF2);
+        // Opaque, so the v3.17.0 "transparent WebView2 composites to black" issue cannot reappear.
+        var page = surface ?? WpfColor.FromRgb(0xFF, 0xFF, 0xFF);
+        _pageColour = System.Drawing.Color.FromArgb(page.A, page.R, page.G, page.B);
+        _pageHex = $"#{page.R:X2}{page.G:X2}{page.B:X2}";
 
         // v3.34.0: take a warm control from the pool instead of creating a new
         // Chromium controller for every document (~300-400 ms each).
         _webView = WebView2ControlPool.Acquire();
-        // The control background only shows before the page paints; the page
-        // itself is an opaque white paper surface (v3.17.0).
-        _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(
-            tint.A, tint.R, tint.G, tint.B);
+        // v5.7.1: the page's colour, which is the colour the control is asked to use for the area its page
+        // will fill. Measured, this property does not actually reach the surface the browser shows while it
+        // has no frame - set to pure red, the frames of that window stayed RGB 18,18,18 with not one red
+        // pixel - which is why the panel also lays a sheet and navigates to a document instead of handing
+        // the page over as a string (see LaySheetAsync and NavigatePage).
+        _webView.DefaultBackgroundColor = _pageColour;
+
         _paper = new Border
         {
-            Background = new SolidColorBrush(tint),
+            Background = new SolidColorBrush(page),
             Child = _webView,
         };
 
@@ -102,21 +116,87 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         // v3.29.0: track the control so the idle recycler can shut the
         // Chromium process group down after the last Office preview closes.
         WebView2Lifecycle.Register(_webView);
+
+        // v5.7.1: the controller is brought up here, while the document is still being parsed, instead of
+        // waiting for the page to be ready. The two used to be strictly serial: on 2024论文-V2.docx the parse
+        // took 195 ms and only then did EnsureCoreWebView2Async cost another 287 ms, with an idle UI thread
+        // the whole time. The rail appears the moment the parse is done, so those 287 ms were exactly the
+        // black gap between the rail and the page - starting the controller at construction puts that work
+        // behind the parse instead of after it, and the page then has nothing to wait for but its own load.
+        // The call waits for the control to be loaded because a WebView2 cannot create its browser before it
+        // has a window; if this panel is already loaded, the head start begins now.
+        if (IsLoaded)
+            WarmUpCore();
+        else
+            Loaded += (_, _) => WarmUpCore();
+    }
+
+    /// <summary>
+    /// v5.7.1: brings the Chromium controller up ahead of the page. This is only a head start - a failure is
+    /// left alone, because <see cref="NavigateWhenReadyAsync"/> owns the retry and the fallback message, and
+    /// by the time it runs the controller is normally already there.
+    /// </summary>
+    private async void WarmUpCore()
+    {
+        try
+        {
+            await _webView.EnsureCoreWebView2Async();
+        }
+        catch (Exception e)
+        {
+            // Never let the head start become the failure; the navigation path reports what went wrong.
+            Debug.WriteLine(e.Message);
+        }
+    }
+
+    /// <summary>
+    /// v5.7.1: gives the browser a frame of its own before the document's page is asked for - an empty sheet
+    /// in the page's own colour - and returns when that frame is up.
+    /// <para>
+    /// This is what the black band was. A control taken from the pool still shows the page it was parked on,
+    /// and the pool parks its controls on <c>about:blank</c> with a transparent background, so that page is
+    /// the window's own backdrop showing through - measured on a repeat preview, RGB 18,18,18 for the 500 ms
+    /// between the browser's surface coming up and the document's page painting. Everything tried against the
+    /// surface itself failed for one reason or another: a WPF layer above the browser cannot paint over it (a
+    /// WebView2 is an HWND of its own - the covered frames still read 18,18,18), <c>DefaultBackgroundColor</c>
+    /// is the colour Chromium paints a document with rather than what an empty surface shows, and keeping the
+    /// control hidden until its page arrived stopped it loading at all (the sheet stayed blank).
+    /// <para>
+    /// Small enough to load in a frame or two. Chromium holds the frame it already has while the next
+    /// navigation loads - the same reason a browser does not flash white between pages - so the document's
+    /// page then replaces this sheet without the empty surface ever being on screen.
+    /// </para>
+    /// </summary>
+    private async Task LaySheetAsync()
+    {
+        var painted = new TaskCompletionSource<bool>();
+
+        void OnCompleted(object _, CoreWebView2NavigationCompletedEventArgs __) => painted.TrySetResult(true);
+
+        try
+        {
+            _webView.CoreWebView2.NavigationCompleted += OnCompleted;
+            _webView.NavigateToString(
+                $"<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>" +
+                $"<body style=\"margin:0;background:{_pageHex}\"></body></html>");
+
+            // Never let the head start hold up the document: if the blank page has not reported back by now,
+            // the page is navigated anyway and the worst case is what happened before this existed.
+            await Task.WhenAny(painted.Task, Task.Delay(400));
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+        }
+        finally
+        {
+            if (_webView?.CoreWebView2 is not null)
+                _webView.CoreWebView2.NavigationCompleted -= OnCompleted;
+        }
     }
 
     /// <summary>What the rail currently shows, so a selection can be acted on.</summary>
     protected IReadOnlyList<OfficeNavEntry> Navigation { get; private set; } = [];
-
-    private static bool IsDarkTheme()
-    {
-        var theme = (Themes)SettingHelper.Get("LastTheme", (int)Themes.None, "QuickLookNext");
-        return theme switch
-        {
-            Themes.Dark => true,
-            Themes.Light => false,
-            _ => OSThemeHelper.AppsUseDarkTheme(),
-        };
-    }
 
     /// <summary>
     /// v5.7.0: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
@@ -226,10 +306,32 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     /// </summary>
     protected void Navigate(string html)
     {
-        _ = NavigateWhenReadyAsync(html);
+        _ = NavigateWhenReadyAsync(html, null);
     }
 
-    private async Task NavigateWhenReadyAsync(string html)
+    /// <summary>
+    /// v5.7.1: hands the page over as a document on the preview's own virtual host rather than as a string,
+    /// which is what keeps the sheet that is already on screen up until the page can paint (see
+    /// OfficeImageStore.SaveHtml). Falls back to the string hand-over when the file cannot be written.
+    /// </summary>
+    private void NavigatePage(string html)
+    {
+        // A page that carries no pictures (the spreadsheet) arrives without a folder of its own; one is made
+        // here so that page still gets the document navigation, which is what keeps the black band away.
+        if (string.IsNullOrEmpty(_imageFolder))
+            _imageFolder = OfficeImageStore.CreateFolder();
+
+        var name = OfficeImageStore.SaveHtml(_imageFolder, html);
+        if (name is null)
+        {
+            Navigate(html);
+            return;
+        }
+
+        _ = NavigateWhenReadyAsync(null, $"https://{ImageHost}/{name}");
+    }
+
+    private async Task NavigateWhenReadyAsync(string html, string url)
     {
         const int attempts = 3;
 
@@ -256,6 +358,14 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                 await Task.Delay(attempt == 1 ? 300 : 800);
                 continue;
             }
+
+            if (_disposed)
+                return;
+
+            // v5.7.1: the sheet goes down first, and this waits for it, because the order between the two is
+            // what the whole thing depends on - the sheet is only worth anything if it paints before the
+            // document's page takes the surface (see LaySheetAsync). It costs what a blank page costs to load.
+            await Dispatcher.InvokeAsync(LaySheetAsync).Task.Unwrap();
 
             if (_disposed)
                 return;
@@ -297,7 +407,10 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                     _webView.CoreWebView2.WebMessageReceived += _messageHandler;
                 }
 
-                _webView.NavigateToString(html);
+                if (url is null)
+                    _webView.NavigateToString(html);
+                else
+                    _webView.CoreWebView2.Navigate(url);
             });
 
             return;
@@ -401,7 +514,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             _suppressRail = false;
         }
 
-        Navigate(content.Html);
+        NavigatePage(content.Html);
     }
 
     public void Dispose()
@@ -414,11 +527,12 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
         if (!string.IsNullOrEmpty(folder))
             OfficeImageStore.Cleanup(folder);
-        if (control?.CoreWebView2 is not null && _messageHandler is not null)
+        if (control?.CoreWebView2 is not null)
         {
             try
             {
-                control.CoreWebView2.WebMessageReceived -= _messageHandler;
+                if (_messageHandler is not null)
+                    control.CoreWebView2.WebMessageReceived -= _messageHandler;
             }
             catch (Exception e)
             {

@@ -10,6 +10,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows.Media.Imaging;
 
 namespace QuickLook.Plugin.OfficeViewer;
@@ -52,6 +53,34 @@ internal static class OfficeImageStore
         {
             // The next preview writes its own folder; a leftover is only disk noise.
             Debug.WriteLine(e.Message);
+        }
+    }
+
+    /// <summary>
+    /// v5.7.1: writes the page itself beside its pictures and returns the file name, so the panel can
+    /// navigate to it over the same virtual host instead of handing the whole document over as a string.
+    /// <c>NavigateToString</c> destroys the page that was showing the moment it is called, which leaves the
+    /// browser with nothing to draw while the new document is parsed and laid out - measured as an opaque
+    /// near-black surface for the 300-500 ms that takes. Navigating to a document instead is the ordinary
+    /// case every browser is built around: the page on screen stays up until the new one is ready to paint.
+    /// A fresh folder per preview means the URL is new every time, so a repeat preview is never served from
+    /// a stale cache.
+    /// </summary>
+    internal static string SaveHtml(string folder, string html)
+    {
+        if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(html))
+            return null;
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(folder, "page.html"), html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return "page.html";
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+            return null;
         }
     }
 
