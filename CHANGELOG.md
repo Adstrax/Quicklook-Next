@@ -7,6 +7,44 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.7.0
+
+### The Office previews are a rail and a page now
+
+The self-rendered previews - Excel, Word and PowerPoint - have the PDF panel's shape: the file's own
+structure in a rail down the left, the page beside it. None of it needs Office installed; the OOXML is
+parsed in-house and drawn in WebView2.
+
+- **Word draws the document as the sheet of paper it would print** - the section's own page size (`w:pgSz`)
+  with the section's own margins as its padding - and the window is asked for that sheet beside the rail, so
+  the page fills the window edge to edge instead of being a column the full width of it. The reported
+  document used to run 855 DIP wide; it is 816 CSS px of paper now, scaled into the window it is given.
+  Word's own page breaks are not drawn: `w:lastRenderedPageBreak` records where its last layout broke, and
+  that layout is not the one this renderer produces (on that document the abstract came out across two sheets
+  while the contents sat on one). Reading on is a scroll. A section that began on a new page by way of a run
+  of empty paragraphs - the document carries no page break of its own: twelve runs of four or more stand
+  through its body - is one blank line now instead of a screenful.
+- **Word's rail is the document's outline**: its headings, and its table of contents where the document has
+  one, indented by level, each row a jump to the paragraph it names. The contents itself is drawn as it
+  reads - entry, dotted leader, page number - and its rows are matched to the paragraph each one points at,
+  because the bookmarks Word writes go stale (the reported file links `_Toc228813823` while its body carries
+  `_Toc224322068`, so every row was a link to nowhere).
+- **PowerPoint** shows one slide at a time with the deck in the rail. Grouped shapes are composed through
+  their group transform (a design template keeps nearly everything inside groups, which is why templates came
+  out nearly empty), tables are drawn instead of skipped, charts get a labelled placeholder, an empty
+  placeholder stays out, and the slide master with its layout is drawn as a layer under the slide.
+- **Excel** lists the workbook's worksheets in the rail, each with the row count the workbook records - the
+  preview used to show the first sheet and never mention the others - and the page says what is on screen
+  ("rows 1-300 of 66,353"; a test workbook has 66,353 rows where the old preview silently stopped at 300).
+  The footer walks or jumps through the file over WebView2's own message channel.
+- **Pictures a page references** are written to a per-preview temp folder and served over a virtual host
+  instead of being inlined as base64: a template's 25 MB photo became 34 MB of HTML for a single slide, and
+  for Word the inlined pictures routinely pushed the page past `NavigateToString`'s 2 MB limit, which fails
+  the whole navigation rather than one image. The folder goes away with the panel.
+
+Verified against 2024论文-V2.docx, ZUST-Template.pptx and 控制变量表.xlsx on a 200 % screen. `.doc`, `.xls`,
+`.ppt` and the rest still go through the system preview handler, as before.
+
 ## QuickLook-Next 5.6.18
 
 ### The plugin manager is the Plugin Market now
