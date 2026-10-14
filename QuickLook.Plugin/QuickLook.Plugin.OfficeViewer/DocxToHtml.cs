@@ -26,7 +26,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// pictures - so the file can be read in the app's own window instead of through the Windows system preview
 /// component.
 /// <para>
-/// v5.6.19: the preview is one column in a single scroll - the page area is white throughout and the column
+/// v5.7.0: the preview is one column in a single scroll - the page area is white throughout and the column
 /// holds the section's own paper measure, capped there so it never reads wider than Word prints. The pages are
 /// deliberately not drawn as pages:
 /// Word records its page boundaries as "the last layout broke here", and this renderer does not lay text out
@@ -88,7 +88,7 @@ internal static class DocxToHtml
                 listBuffer.Clear();
             }
 
-            // v5.6.19: a cheap first pass over the body's own paragraphs. Word's table of contents stores
+            // v5.7.0: a cheap first pass over the body's own paragraphs. Word's table of contents stores
             // bookmark anchors, and they go stale the moment the document is edited without updating the
             // field - the reported file points at _Toc228813823 while its body carries _Toc224322068 - so a
             // row has to be matched to the paragraph it *names* instead of trusted. The pass also gives every
@@ -133,7 +133,7 @@ internal static class DocxToHtml
                     if (++paragraphCount > MaxParagraphs)
                         return;
 
-                    // v5.6.19: a section of this document begins on a new page by way of a run of empty
+                    // v5.7.0: a section of this document begins on a new page by way of a run of empty
                     // paragraphs (there is no w:br w:type="page" anywhere in it - five of them stand between
                     // the abstract and the English one, and twelve runs of four or more are spread through the
                     // body). While the pages were drawn that run was simply the foot of a page; in one column
@@ -170,7 +170,7 @@ internal static class DocxToHtml
                 }
                 else if (node.Name == W + "sdt")
                 {
-                    // v5.6.19: Word wraps whole blocks (a TOC, cover-page fields) in a structured document
+                    // v5.7.0: Word wraps whole blocks (a TOC, cover-page fields) in a structured document
                     // tag; its content is what the reader is meant to see.
                     foreach (var inner in node.Descendants(W + "sdtContent").SelectMany(c => c.Elements()))
                         RenderBlock(inner, -1);
@@ -179,7 +179,7 @@ internal static class DocxToHtml
 
             if (body is not null)
             {
-                // v5.6.19: the document is one column and the pages are not cut. Word records its boundaries as
+                // v5.7.0: the document is one column and the pages are not cut. Word records its boundaries as
                 // "the last layout broke here", and that layout is not the one this renderer produces - the
                 // abstract came out across two sheets while the table of contents sat on one - so the breaks a
                 // reader was shown were not the document's own. A single column also has neither the bands of
@@ -194,9 +194,9 @@ internal static class DocxToHtml
             var sb = new StringBuilder();
             sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>");
             AppendCss(sb, geometry);
-            sb.Append("</style></head><body><div class=\"wrap\"><div class=\"doc\">")
+            sb.Append("</style></head><body><div class=\"doc\">")
               .Append(html)
-              .Append("</div></div>").Append(DocumentScript).Append("</body></html>");
+              .Append("</div>").Append(DocumentScript(geometry)).Append("</body></html>");
 
             return new OfficePanelContent
             {
@@ -292,11 +292,11 @@ internal static class DocxToHtml
 
     private sealed record ParagraphResult(string Html, bool IsListItem);
 
-    /// <summary>v5.6.19: one entry of a Word table of contents, read before the page is rendered.</summary>
+    /// <summary>v5.7.0: one entry of a Word table of contents, read before the page is rendered.</summary>
     private sealed record OfficeTocRow(int Level, string Text, string Page, string Anchor, bool Bold);
 
     /// <summary>
-    /// v5.6.19: the text and the page number of a TOC entry, which Word separates with a tab, plus the
+    /// v5.7.0: the text and the page number of a TOC entry, which Word separates with a tab, plus the
     /// bookmark its hyperlink points at (which may be stale) and its emphasis.
     /// </summary>
     private static OfficeTocRow ReadTocRow(XElement paragraph, int level)
@@ -379,7 +379,7 @@ internal static class DocxToHtml
 
         var alignment = Alignment(pPr);
         var styleAttr = alignment is null ? string.Empty : $" style=\"text-align:{alignment}\"";
-        // v5.6.19: a paragraph a TOC row resolves to gets an id of its own; a bookmark keeps its name.
+        // v5.7.0: a paragraph a TOC row resolves to gets an id of its own; a bookmark keeps its name.
         var navId = index >= 0 && navTargets.Contains(index) ? $"nav-{index}" : null;
         var idAttr = navId is not null || anchor is not null
             ? $" id=\"{WebUtility.HtmlEncode(navId ?? anchor)}\""
@@ -407,7 +407,7 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: one row of the table of contents - the entry, a dotted leader and the page number, linked to
+    /// v5.7.0: one row of the table of contents - the entry, a dotted leader and the page number, linked to
     /// the paragraph the entry names. When the field is stale the link uses the paragraph's own id; when the
     /// entry cannot be matched at all the row still reads as text rather than pointing nowhere.
     /// </summary>
@@ -442,7 +442,7 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: the runs of a paragraph, in document order, seen through the inline wrappers Word puts them
+    /// v5.7.0: the runs of a paragraph, in document order, seen through the inline wrappers Word puts them
     /// in (<c>w:hyperlink</c> for a TOC entry or a link, <c>w:ins</c>, <c>w:smartTag</c>, <c>w:sdt</c>).
     /// </summary>
     private static IEnumerable<XElement> RunsOf(XElement container)
@@ -467,7 +467,7 @@ internal static class DocxToHtml
         string.Concat(RunsOf(paragraph).SelectMany(r => r.Elements(W + "t")).Select(t => t.Value));
 
     /// <summary>
-    /// v5.6.19: emits a paragraph's content, keeping hyperlinks as links. Only the wrappers that can hold
+    /// v5.7.0: emits a paragraph's content, keeping hyperlinks as links. Only the wrappers that can hold
     /// visible content are entered; <c>w:del</c> (deleted text) and <c>w:instrText</c> (field instructions)
     /// are left out.
     /// </summary>
@@ -640,7 +640,7 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: writes the picture next to the page instead of inlining it, scaled to the size the page
+    /// v5.7.0: writes the picture next to the page instead of inlining it, scaled to the size the page
     /// draws it at (see <see cref="OfficeImageStore"/>).
     /// </summary>
     private static string ExtractImage(
@@ -759,10 +759,9 @@ internal static class DocxToHtml
         var scrollHover = "rgba(0,0,0,.45)";
         var headerBg = "rgba(0,0,0,.04)";
         var link = "#005FB8";
-        // v5.6.19: what the sheets sit on - the page beside it is white, so the backdrop is a neutral grey
-        // rather than the app's own backdrop (a transparent WebView2 page composites to black).
-        // v5.6.19: the page area is white from edge to edge - a column of a document is not a page floating on
-        // a backdrop, and any band of backdrop beside or below it reads as empty space to scroll past.
+        // v5.7.0: the page area is paper-white from edge to edge, because the sheet that fills it is. A desk
+        // colour showed as blank beside and below the sheet - the scrollbar's own 8 px gutter was enough to
+        // put a band of it down the right-hand edge - so whatever the sheet does not cover is white as well.
         var backdrop = "#FFFFFF";
 
         // v3.17.0 fix: opaque white paper - transparent pages can composite to
@@ -776,19 +775,15 @@ internal static class DocxToHtml
         sb.Append($"::-webkit-scrollbar-thumb:hover{{background:{scrollHover}}}");
         sb.Append("::-webkit-scrollbar-corner{background:transparent}");
 
-        // v5.6.19: the document is one column with the proportions of the section's own paper - the page area
-        // is white from edge to edge, and the column holds the paper's measure within it - so a reader sees no
-        // bands of backdrop anywhere, no page gaps, and no blank foot on a page whose content is short. The
-        // wrap caps the column at the paper's own width, so the measure never grows past the one Word prints;
-        // the padding is a share of that width rather than a fixed margin, so a narrow window keeps a readable
-        // column instead of losing half of it to paper margins.
-        var wrap = Number(geometry.Width);
-        var side = Number(geometry.Right / geometry.Width * 100d);
-        var top = Number(geometry.Top / geometry.Width * 100d);
-        var foot = Number(geometry.Bottom / geometry.Width * 100d);
-        sb.Append($".wrap{{width:100%;max-width:{wrap}px;margin:0 auto}}");
-        sb.Append($".doc{{box-sizing:border-box;width:100%;padding:{top}% {side}% {foot}%;" +
-            "background:#FFFFFF;overflow-wrap:break-word}");
+        // v5.7.0: one sheet of the section's own paper, with that paper's margins as its padding - the page a
+        // reader sees is the page Word would print, and the window is sized to it (see Plugin.Prepare). The
+        // sheet is also scaled to the width it is given (see DocumentScript), so it fills the page area edge to
+        // edge whatever the window's shape is; the scale never goes past one, so the measure can only ever be
+        // as wide as Word's rather than as wide as the window.
+        sb.Append($".doc{{box-sizing:border-box;width:{Number(geometry.Width)}px;" +
+            $"padding:{Number(geometry.Top)}px {Number(geometry.Right)}px " +
+            $"{Number(geometry.Bottom)}px {Number(geometry.Left)}px;" +
+            "margin:0 auto;background:#FFFFFF;overflow-wrap:break-word}");
         sb.Append($"h1,h2,h3,h4,h5,h6{{margin:1.1em 0 .5em;line-height:1.3}}");
         sb.Append($"h1{{font-size:24px}}h2{{font-size:20px}}h3{{font-size:17px}}h4{{font-size:15px}}");
         sb.Append($"p{{margin:.55em 0}}");
@@ -800,7 +795,7 @@ internal static class DocxToHtml
         sb.Append($"img{{max-width:100%;height:auto;border-radius:6px}}");
         sb.Append($".error{{color:#C42B1C;padding:24px;font-size:14px}}");
 
-        // v5.6.19: the table of contents. Word stores its entries as hyperlinks to the heading bookmarks,
+        // v5.7.0: the table of contents. Word stores its entries as hyperlinks to the heading bookmarks,
         // and the page number follows a tab - so the row is a flex line with a dotted leader between.
         sb.Append($"a{{color:{link};text-decoration:none}}a:hover{{text-decoration:underline}}");
         sb.Append(".toc-row{margin:.15em 0;max-width:760px}");
@@ -816,21 +811,82 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: the document is one scroll - the column fits the window by itself (a capped width with padding
-    /// in share of it, see AppendCss), so there is nothing to scale - and the rail and the document's own table
-    /// of contents are both a set of anchors: a click is a scroll to the paragraph they name.
+    /// v5.7.0: the sheet is scaled to the width of the page area, which is what keeps it filling the window
+    /// whatever shape that window has - the window itself is asked for the paper's own size (see
+    /// Plugin.Prepare), and the scale is never allowed past one, so the measure can only ever be as wide as
+    /// Word's rather than as wide as the window. The scrollbar's own width (8 px, as AppendCss sets it) is
+    /// taken out of the width the scale is worked from, because the vertical scrollbar is created by the fit
+    /// itself: a sheet measured against the width that is about to change would come back a scrollbar's width
+    /// too wide. The fit is taken once more after the page has finished laying out (and once on load, for the
+    /// pictures that arrive later), so the numbers it uses are the finished page's. The document is one
+    /// scroll, so the rail and its own table of contents are a set of anchors: a click is a scroll to the
+    /// paragraph they name.
     /// </summary>
-    private const string DocumentScript =
+    private static string DocumentScript(PageGeometry geometry) =>
         "<script>" +
+        $"var paper={{w:{Number(geometry.Width)}}};" +
+        "function fitPage(){var doc=document.querySelector('.doc');if(!doc)return;" +
+        "var scale=(document.documentElement.clientWidth-8)/paper.w;" +
+        "doc.style.zoom=Math.min(1,scale);}" +
         "function goTo(id){var el=document.getElementById(id);if(!el)return;" +
         "el.scrollIntoView({behavior:'smooth',block:'start'});}" +
         "document.addEventListener('click',function(e){" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a)return;" +
         "e.preventDefault();goTo(decodeURIComponent(a.getAttribute('href').slice(1)));});" +
-        "</script>";
+        "window.addEventListener('resize',fitPage);fitPage();setTimeout(fitPage,0);" +
+        "window.addEventListener('load',fitPage);</script>";
 
-    /// <summary>v5.6.19: the white sheet a page is drawn as, in CSS pixels.</summary>
-    private sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);
+    /// <summary>v5.7.0: the white sheet a page is drawn as, in CSS pixels.</summary>
+    internal sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);
+
+    /// <summary>
+    /// v5.7.0: the paper of a .docx, read before there is a panel to read it in - the preview window is sized
+    /// around the sheet it is about to show (see Plugin.Prepare). The body's section properties are the last
+    /// thing in word/document.xml, so the part is streamed past with only its tail kept.
+    /// </summary>
+    internal static PageGeometry ReadPaperSize(string path)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(path);
+            var entry = archive.GetEntry("word/document.xml");
+            if (entry is null)
+                return null;
+
+            using var stream = entry.Open();
+            var tail = ReadTail(stream, 8192);
+            var size = Regex.Match(tail, "<w:pgSz\\b[^>]*>");
+            if (!size.Success)
+                return null;
+
+            var margin = Regex.Match(tail, "<w:pgMar\\b[^>]*>");
+            return Geometry(size.Value, margin.Success ? margin.Value : null);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+            return null;
+        }
+    }
+
+    /// <summary>The last <paramref name="count"/> characters of a stream, without holding the whole part.</summary>
+    private static string ReadTail(Stream stream, int count)
+    {
+        var buffer = new byte[count];
+        var filled = 0;
+        int read;
+        while ((read = stream.Read(buffer, filled, count - filled)) > 0)
+        {
+            filled += read;
+            if (filled < count)
+                continue;
+
+            Array.Copy(buffer, count / 2, buffer, 0, count / 2);
+            filled = count / 2;
+        }
+
+        return Encoding.UTF8.GetString(buffer, 0, filled);
+    }
 
     private static PageGeometry ReadPageGeometry(XDocument document)
     {
@@ -849,7 +905,7 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: the sheet a page is drawn as, in CSS pixels, from the section's own paper - A4 with one-inch
+    /// v5.7.0: the sheet a page is drawn as, in CSS pixels, from the section's own paper - A4 with one-inch
     /// margins when the document says nothing usable. A twip is a twentieth of a point and a CSS pixel is
     /// 1/96 inch, so a pixel is fifteen twips.
     /// </summary>

@@ -15,7 +15,7 @@ using System.Windows.Media.Imaging;
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v5.6.19: pictures a self-rendered Office page references are written here once, scaled to what the page
+/// v5.7.0: pictures a self-rendered Office page references are written here once, scaled to what the page
 /// can actually show, and served to WebView2 over a virtual host.
 ///
 /// <para>

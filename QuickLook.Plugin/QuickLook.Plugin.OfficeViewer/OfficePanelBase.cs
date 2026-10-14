@@ -28,7 +28,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// The content always sits on a plain white paper-like surface (never
 /// theme-adapted) so real documents stay readable in dark mode too.
 /// <para>
-/// v5.6.19: the surface is two columns now - a rail on the left for the structure of the file (Word's
+/// v5.7.0: the surface is two columns now - a rail on the left for the structure of the file (Word's
 /// outline, PowerPoint's slides, Excel's worksheets) and the page on the right, which is how the PDF panel
 /// has always looked. Selecting a rail row either scrolls the page to an anchor or asks the panel to render
 /// something else (a worksheet, a window of rows).
@@ -36,8 +36,11 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// </summary>
 public abstract class OfficePanelBase : UserControl, IDisposable
 {
-    /// <summary>v5.6.19: how wide the rail is - the page beside it gets the rest of the window.</summary>
-    private const double RailWidth = 208;
+    /// <summary>
+    /// v5.7.0: how wide the rail is. A preview whose page is portrait (Word) sizes its window around this,
+    /// because the rail does not scale with the window while the page beside it does.
+    /// </summary>
+    internal const double RailWidth = 208;
 
     /// <summary>
     /// The host name the preview's own pictures are served under (see OfficeImageStore); the converters put
@@ -82,13 +85,11 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         _rail = BuildRail();
         _railHost = BuildRailHost(_rail);
 
-        // v5.6.19: the window's caption bar fades in over the top of the preview, so a rail row underneath it
-        // can be read but not clicked - the first row was lost to it. The rail therefore starts below the
-        // caption, and only the rail does: the page beside it keeps the full height of the window, so nothing
-        // reads as an empty band across the window.
-        _railHost.Margin = new Thickness(0, CaptionHeight, 0, 0);
-        Loaded += (_, _) => _railHost.Margin = new Thickness(0, CaptionHeight, 0, 0);
-
+        // v5.7.0: the rail runs the full height of the window on purpose. The caption bar fades in over its
+        // top, so the rail's first row can be read but not clicked while the bar is showing - reserving the
+        // caption's own row above the rail (a 32 DIP margin, as the pages of this preview used to) fixes the
+        // click and breaks the look, because the rail then starts below the sheet beside it. Measured both
+        // ways on 2024论文-V2.docx; the trade the preview ships with is the look.
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -106,13 +107,6 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     /// <summary>What the rail currently shows, so a selection can be acted on.</summary>
     protected IReadOnlyList<OfficeNavEntry> Navigation { get; private set; } = [];
 
-    /// <summary>
-    /// v5.6.19: how tall the window's caption bar is. The resource belongs to the window, so it is only
-    /// reachable once the panel is in its tree - hence the second look when the panel is loaded.
-    /// </summary>
-    private double CaptionHeight =>
-        TryFindResource("MainWindowCaptionHeight") is double height && height > 0 ? height : 32d;
-
     private static bool IsDarkTheme()
     {
         var theme = (Themes)SettingHelper.Get("LastTheme", (int)Themes.None, "QuickLookNext");
@@ -125,7 +119,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v5.6.19: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
+    /// v5.7.0: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
     /// rail itself is transparent and its rows keep the app's own colours (see BuildRailHost).
     /// </summary>
     private ListBox BuildRail()
@@ -155,7 +149,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     private static Border BuildRailHost(ListBox rail) => new()
     {
         Width = RailWidth,
-        // v5.6.19: transparent, so the window's own backdrop shows through the rail the way it does behind the
+        // v5.7.0: transparent, so the window's own backdrop shows through the rail the way it does behind the
         // PDF panel's thumbnails, and the rail and the colours of its rows follow the app's theme. The page
         // area beside it is an opaque grey (a transparent WebView2 page composites to black), which is what
         // makes the rail read as a surface of its own instead of another grey band.
@@ -165,7 +159,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     };
 
     /// <summary>
-    /// v5.6.19: a plain row - padding for a comfortable target, and a size that fits the rail. It deliberately
+    /// v5.7.0: a plain row - padding for a comfortable target, and a size that fits the rail. It deliberately
     /// keeps the stock item visuals: a custom template here turned out to be the one thing between the outline
     /// and the reader.
     /// </summary>
@@ -178,7 +172,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v5.6.19: a rail row was picked. The default scrolls the page to the row's anchor, which is what Word's
+    /// v5.7.0: a rail row was picked. The default scrolls the page to the row's anchor, which is what Word's
     /// outline and PowerPoint's slide list want; the spreadsheet panel overrides it to switch worksheets.
     /// </summary>
     protected virtual void OnNavigationSelected(int index)
@@ -191,12 +185,12 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             $"document.getElementById('{entry.Target}')?.scrollIntoView({{behavior:'smooth',block:'start'}})");
     }
 
-    /// <summary>v5.6.19: a message from the page itself (the spreadsheet's row pager).</summary>
+    /// <summary>v5.7.0: a message from the page itself (the spreadsheet's row pager).</summary>
     protected virtual void OnWebMessage(string message)
     {
     }
 
-    /// <summary>v5.6.19: runs JavaScript in the page, ignoring failures (the surface is decoration).</summary>
+    /// <summary>v5.7.0: runs JavaScript in the page, ignoring failures (the surface is decoration).</summary>
     protected void RunScript(string script)
     {
         if (_disposed || string.IsNullOrEmpty(script))
@@ -272,7 +266,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                 if (_disposed || _webView.CoreWebView2 == null)
                     return;
 
-                // v5.6.19: the pictures this page references live in a temp folder; the page asks for them
+                // v5.7.0: the pictures this page references live in a temp folder; the page asks for them
                 // by https://office-preview.local/... rather than carrying them as base64.
                 if (!string.IsNullOrEmpty(_imageFolder))
                 {
@@ -345,7 +339,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     /// when ready, so the preview window stays responsive while the document
     /// parses.
     /// <para>
-    /// v5.6.19: the task also produces the structure for the left rail, which is why the result is a
+    /// v5.7.0: the task also produces the structure for the left rail, which is why the result is a
     /// <see cref="OfficePanelContent"/> rather than a bare string.
     /// </para>
     /// </summary>
@@ -372,7 +366,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v5.6.19: puts the rail and the page in place. The picture folder from the previous page is dropped
+    /// v5.7.0: puts the rail and the page in place. The picture folder from the previous page is dropped
     /// here - each preview owns its folder for as long as it is on screen.
     /// </summary>
     private void ApplyContent(OfficePanelContent content)

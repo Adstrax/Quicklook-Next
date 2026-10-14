@@ -24,7 +24,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// <summary>
 /// v3.12.0: renders a .pptx slide by slide, so the preview shows the deck in the app's own window.
 /// <para>
-/// v5.6.19: three things used to make templates come out nearly empty, and all three are handled now:
+/// v5.7.0: three things used to make templates come out nearly empty, and all three are handled now:
 /// </para>
 /// <list type="bullet">
 /// <item><description><c>p:grpSp</c> - a design template keeps almost everything inside grouped shapes, and
@@ -413,7 +413,7 @@ internal static class PptxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: a fill as CSS - an explicit colour, a theme colour (with its luminance/shade/tint/alpha
+    /// v5.7.0: a fill as CSS - an explicit colour, a theme colour (with its luminance/shade/tint/alpha
     /// transforms) or a picture fill. Templates colour almost everything through the theme, which is why the
     /// slides used to come out with wrong or invisible colours.
     /// </summary>
@@ -784,7 +784,7 @@ internal static class PptxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: a shape's box in slide pixels. Groups carry their own placement and their own coordinate
+    /// v5.7.0: a shape's box in slide pixels. Groups carry their own placement and their own coordinate
     /// space, so a child inside a group has to be mapped through it before it means anything on the slide.
     /// </summary>
     private readonly record struct Xform(

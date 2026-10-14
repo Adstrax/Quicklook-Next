@@ -26,7 +26,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// <summary>
 /// v3.13.0: renders a workbook as a paper-like table.
 /// <para>
-/// v5.6.19: three things the preview used to hide:
+/// v5.7.0: three things the preview used to hide:
 /// </para>
 /// <list type="bullet">
 /// <item><description>the worksheets. Only the first one was ever shown; the rail lists all of them (the reason
@@ -173,7 +173,7 @@ public sealed class SpreadsheetPanel : OfficePanelBase
         var first = rows.Count == 0 ? 0 : start + 1;
         var last = start + rows.Count;
 
-        // v5.6.19: say what is on screen - the sheet, the range and the size of the file behind it.
+        // v5.7.0: say what is on screen - the sheet, the range and the size of the file behind it.
         sb.Append("<div class=\"head\">");
         if (!string.IsNullOrEmpty(sheet))
             sb.Append("<b>").Append(WebUtility.HtmlEncode(sheet)).Append("</b>");
@@ -205,7 +205,7 @@ public sealed class SpreadsheetPanel : OfficePanelBase
     }
 
     /// <summary>
-    /// v5.6.19: the pager talks to the panel over WebView2's own message channel; the panel answers by
+    /// v5.7.0: the pager talks to the panel over WebView2's own message channel; the panel answers by
     /// rendering the window that was asked for.
     /// </summary>
     private static void AppendPager(StringBuilder sb, int start, int count, int total)
@@ -273,7 +273,7 @@ public sealed class SpreadsheetPanel : OfficePanelBase
     }
 
     /// <summary>
-    /// v5.6.19: the worksheets in the order the workbook lists them, each with the row count from its
+    /// v5.7.0: the worksheets in the order the workbook lists them, each with the row count from its
     /// <c>dimension</c> element - which sits at the very start of the worksheet part, so nothing else has to
     /// be parsed (a test workbook is 25 MB).
     /// </summary>
