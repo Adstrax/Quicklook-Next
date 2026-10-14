@@ -1,5 +1,15 @@
+// Copyright © 2017-2026 QL-Win Contributors
+//
+// This file is part of QuickLookNext program.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -10,10 +20,22 @@ using System.Xml.Linq;
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v3.14.0: converts a .docx (OOXML) document into styled HTML for the
-/// self-rendered preview. Covers the common content - headings, formatted
-/// runs, lists, tables and embedded images - without depending on Office or
-/// the Windows system preview component.
+/// v3.11.0: turns a .docx into the page the Word preview shows - headings, formatted runs, lists, tables and
+/// pictures - so the file can be read in the app's own window instead of through the Windows system preview
+/// component.
+/// <para>
+/// v3.44.0: it also hands back the document's outline for the panel's left rail, and it renders the two
+/// pieces Word users notice first:
+/// </para>
+/// <list type="bullet">
+/// <item><description>the table of contents. Its entries live inside <c>w:hyperlink</c> elements, and the
+/// renderer used to look only at a paragraph's direct <c>w:r</c> children - so every entry came out as an
+/// empty paragraph (the "目录 is blank" report). Runs are now collected through the inline wrappers
+/// (<c>w:hyperlink</c>, <c>w:ins</c>, <c>w:smartTag</c>, <c>w:sdt</c>), while <c>w:instrText</c> stays out so
+/// the field instruction itself cannot leak into the page;</description></item>
+/// <item><description>the bookmark targets the TOC links to (<c>w:bookmarkStart w:name="_Toc..."</c>), which
+/// are emitted as element ids so both the TOC and the rail can jump to a heading.</description></item>
+/// </list>
 /// </summary>
 internal static class DocxToHtml
 {
@@ -23,10 +45,13 @@ internal static class DocxToHtml
     private static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     private static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     private static readonly XNamespace A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    private static readonly XNamespace Wp =
+        "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 
-    internal static string Convert(string path)
+    internal static OfficePanelContent Convert(string path, string imageFolder, string imageHost)
     {
-        var sb = new StringBuilder();
+        var outline = new List<OfficeNavEntry>();
+
         try
         {
             using var archive = ZipFile.OpenRead(path);
@@ -35,74 +60,135 @@ internal static class DocxToHtml
             var numbering = ReadXml(archive, "word/numbering.xml");
             var rels = ReadRels(archive, "word/_rels/document.xml.rels");
             if (document is null)
-                return ErrorHtml("Not a valid Word document (word/document.xml is missing).");
+                return Failure("Not a valid Word document (word/document.xml is missing).");
 
             var styleNames = BuildStyleMap(styles);
             var numberingFormats = BuildNumberingFormats(numbering);
 
             var body = document.Root?.Element(W + "body");
             var html = new StringBuilder();
+            var listBuffer = new List<string>();
             var paragraphCount = 0;
             var imageCount = 0;
+            var headingIndex = 0;
+
+            // v3.44.0: a cheap first pass over the body's own paragraphs. Word's table of contents stores
+            // bookmark anchors, and they go stale the moment the document is edited without updating the
+            // field - the reported file points at _Toc228813823 while its body carries _Toc224322068 - so a
+            // row has to be matched to the paragraph it *names* instead of trusted. The pass also gives every
+            // paragraph an index, which is what the rendered ids and the rail's targets use.
+            var paragraphs = body?.Elements(W + "p").ToList() ?? [];
+            var byText = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var tocRows = new List<(int Index, OfficeTocRow Row)>();
+            for (var i = 0; i < paragraphs.Count; i++)
+            {
+                var styleId = paragraphs[i].Element(W + "pPr")?.Element(W + "pStyle")?.Attribute(W + "val")?.Value;
+                var styleName = styleId is not null && styleNames.TryGetValue(styleId, out var n) ? n : null;
+                var level = TocLevel(styleId, styleName);
+                if (level > 0)
+                {
+                    var row = ReadTocRow(paragraphs[i], level);
+                    if (row is not null)
+                        tocRows.Add((i, row));
+                    continue;
+                }
+
+                var text = Normalize(Flatten(paragraphs[i]));
+                if (text.Length > 0 && !byText.ContainsKey(text))
+                    byText[text] = i;
+            }
+
+            var tocTargets = new Dictionary<int, int>();
+            foreach (var (index, row) in tocRows)
+            {
+                if (byText.TryGetValue(row.Text, out var target))
+                    tocTargets[index] = target;
+            }
+
+            var navTargets = new HashSet<int>(tocTargets.Values);
+            var tocByIndex = tocRows.ToDictionary(t => t.Index, t => t.Row);
+
+            void RenderBlock(XElement node, int index)
+            {
+                if (node.Name == W + "p")
+                {
+                    if (++paragraphCount > MaxParagraphs)
+                        return;
+
+                    var item = ParagraphToHtml(node, styleNames, numberingFormats, rels, archive,
+                        imageFolder, imageHost, ref imageCount, outline, ref headingIndex,
+                        index, tocByIndex.TryGetValue(index, out var row) ? row : null,
+                        tocTargets.TryGetValue(index, out var target) ? target : (int?)null,
+                        navTargets);
+                    if (item is null)
+                        return;
+
+                    if (item.IsListItem)
+                    {
+                        listBuffer.Add(item.Html);
+                        return;
+                    }
+
+                    if (listBuffer.Count > 0)
+                    {
+                        FlushList(html, listBuffer, numberingFormats);
+                        listBuffer.Clear();
+                    }
+
+                    html.Append(item.Html);
+                }
+                else if (node.Name == W + "tbl")
+                {
+                    if (listBuffer.Count > 0)
+                    {
+                        FlushList(html, listBuffer, numberingFormats);
+                        listBuffer.Clear();
+                    }
+
+                    html.Append(TableToHtml(node, rels, archive, imageFolder, imageHost, ref imageCount));
+                }
+                else if (node.Name == W + "sdt")
+                {
+                    // v3.44.0: Word wraps whole blocks (a TOC, cover-page fields) in a structured document
+                    // tag; its content is what the reader is meant to see.
+                    foreach (var inner in node.Descendants(W + "sdtContent").SelectMany(c => c.Elements()))
+                        RenderBlock(inner, -1);
+                }
+            }
 
             if (body is not null)
             {
-                var listBuffer = new List<string>();
-
-                foreach (var node in body.Elements())
-                {
-                    if (node.Name == W + "p")
-                    {
-                        if (++paragraphCount > MaxParagraphs)
-                            break;
-
-                        var item = ParagraphToHtml(node, styleNames, numberingFormats, rels, archive, ref imageCount);
-                        if (item is null)
-                            continue;
-
-                        if (item.IsListItem)
-                        {
-                            listBuffer.Add(item.Html);
-                            continue;
-                        }
-
-                        if (listBuffer.Count > 0)
-                        {
-                            FlushList(html, listBuffer, numberingFormats);
-                            listBuffer.Clear();
-                        }
-
-                        html.Append(item.Html);
-                    }
-                    else if (node.Name == W + "tbl")
-                    {
-                        if (listBuffer.Count > 0)
-                        {
-                            FlushList(html, listBuffer, numberingFormats);
-                            listBuffer.Clear();
-                        }
-
-                        html.Append(TableToHtml(node, rels, archive, ref imageCount));
-                    }
-                }
+                var nodes = body.Elements().ToList();
+                foreach (var node in nodes)
+                    RenderBlock(node, node.Name == W + "p" ? paragraphs.IndexOf(node) : -1);
 
                 if (listBuffer.Count > 0)
                     FlushList(html, listBuffer, numberingFormats);
             }
 
+            var sb = new StringBuilder();
             sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>");
             AppendCss(sb);
             sb.Append("</style></head><body><div class=\"doc\">")
               .Append(html)
               .Append("</div></body></html>");
+
+            return new OfficePanelContent
+            {
+                Html = sb.ToString(),
+                Navigation = outline,
+                ImageFolder = imageFolder,
+            };
         }
         catch (Exception e)
         {
-            return ErrorHtml("This Word document cannot be read: " + WebUtility.HtmlEncode(e.Message));
+            Debug.WriteLine(e);
+            return Failure("This Word document cannot be read: " + WebUtility.HtmlEncode(e.Message));
         }
-
-        return sb.ToString();
     }
+
+    private static OfficePanelContent Failure(string html) =>
+        new() { Html = ErrorHtml(html) };
 
     private static XDocument ReadXml(ZipArchive archive, string entryName)
     {
@@ -144,7 +230,7 @@ internal static class DocxToHtml
         foreach (var style in styles.Root.Elements(W + "style"))
         {
             var id = (string)style.Attribute(W + "styleId");
-            var name = style.Element(W + "name")?.Attribute(W + "val")?.Value;
+            var name = (string)style.Element(W + "name")?.Attribute(W + "val");
             if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
                 map[id] = name;
         }
@@ -154,33 +240,26 @@ internal static class DocxToHtml
 
     private static Dictionary<string, string> BuildNumberingFormats(XDocument numbering)
     {
-        // abstractNumId -> numFmt (decimal/bullet/...)
+        var formats = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (numbering?.Root is null)
+            return formats;
+
         var abstractFormats = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (numbering?.Root is not null)
+        foreach (var abs in numbering.Root.Elements(W + "abstractNum"))
         {
-            foreach (var abs in numbering.Root.Elements(W + "abstractNum"))
-            {
-                var id = (string)abs.Attribute(W + "abstractNumId");
-                var fmt = abs.Descendants(W + "numFmt").FirstOrDefault()?.Attribute(W + "val")?.Value;
-                if (id is not null && fmt is not null)
-                    abstractFormats[id] = fmt;
-            }
+            var id = (string)abs.Attribute(W + "abstractNumId");
+            var level = abs.Elements(W + "lvl").FirstOrDefault();
+            var fmt = (string)level?.Element(W + "numFmt")?.Attribute(W + "val");
+            if (id is not null && fmt is not null)
+                abstractFormats[id] = fmt;
         }
 
-        // numId -> abstractNumId (indirection via num -> abstractNumId)
-        var formats = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (numbering?.Root is not null)
+        foreach (var num in numbering.Root.Elements(W + "num"))
         {
-            foreach (var num in numbering.Root.Elements(W + "num"))
-            {
-                var id = (string)num.Attribute(W + "numId");
-                var absId = num.Element(W + "abstractNumId")?.Attribute(W + "val")?.Value;
-                if (id is not null && absId is not null &&
-                    abstractFormats.TryGetValue(absId, out var fmt))
-                {
-                    formats[id] = fmt;
-                }
-            }
+            var id = (string)num.Attribute(W + "numId");
+            var absId = (string)num.Element(W + "abstractNumId")?.Attribute(W + "val");
+            if (id is not null && absId is not null && abstractFormats.TryGetValue(absId, out var fmt))
+                formats[id] = fmt;
         }
 
         return formats;
@@ -188,26 +267,86 @@ internal static class DocxToHtml
 
     private sealed record ParagraphResult(string Html, bool IsListItem);
 
+    /// <summary>v3.44.0: one entry of a Word table of contents, read before the page is rendered.</summary>
+    private sealed record OfficeTocRow(int Level, string Text, string Page, string Anchor, bool Bold);
+
+    /// <summary>
+    /// v3.44.0: the text and the page number of a TOC entry, which Word separates with a tab, plus the
+    /// bookmark its hyperlink points at (which may be stale) and its emphasis.
+    /// </summary>
+    private static OfficeTocRow ReadTocRow(XElement paragraph, int level)
+    {
+        var text = new StringBuilder();
+        var page = new StringBuilder();
+        var bold = false;
+        var inPageNumber = false;
+
+        foreach (var run in RunsOf(paragraph))
+        {
+            if (run.Element(W + "rPr")?.Element(W + "b") is not null)
+                bold = true;
+
+            foreach (var node in run.Nodes())
+            {
+                if (node is not XElement el)
+                    continue;
+
+                if (el.Name == W + "t")
+                    (inPageNumber ? page : text).Append(el.Value);
+                else if (el.Name == W + "tab")
+                    inPageNumber = true;
+                else if (el.Name == W + "br")
+                    text.Append(' ');
+            }
+        }
+
+        var entry = Normalize(text.ToString());
+        var pageText = page.ToString().Trim();
+        if (entry.Length == 0 && pageText.Length == 0)
+            return null;
+
+        var anchor = paragraph.Descendants(W + "hyperlink")
+            .Select(h => (string)h.Attribute(W + "anchor"))
+            .FirstOrDefault(a => !string.IsNullOrEmpty(a));
+
+        return new OfficeTocRow(level, entry, pageText, anchor, bold);
+    }
+
+    /// <summary>Whitespace collapsed, so a TOC entry matches the heading it names.</summary>
+    private static string Normalize(string value) =>
+        string.Join(' ', value.Split([' ', '\t', '\u00a0', '\u3000'], StringSplitOptions.RemoveEmptyEntries));
+
     private static ParagraphResult ParagraphToHtml(
         XElement paragraph,
         Dictionary<string, string> styleNames,
         Dictionary<string, string> numberingFormats,
         Dictionary<string, string> rels,
         ZipArchive archive,
-        ref int imageCount)
+        string imageFolder,
+        string imageHost,
+        ref int imageCount,
+        List<OfficeNavEntry> outline,
+        ref int headingIndex,
+        int index,
+        OfficeTocRow tocRow,
+        int? tocTarget,
+        HashSet<int> navTargets)
     {
         var pPr = paragraph.Element(W + "pPr");
         var styleId = pPr?.Element(W + "pStyle")?.Attribute(W + "val")?.Value;
         var styleName = styleId is not null && styleNames.TryGetValue(styleId, out var n) ? n : null;
         var headingLevel = HeadingLevel(styleId, styleName);
+        var tocLevel = TocLevel(styleId, styleName);
+        var anchor = AnchorOf(paragraph);
 
         var numId = pPr?.Element(W + "numPr")?.Element(W + "numId")?.Attribute(W + "val")?.Value;
         var isListItem = numId is not null;
 
+        if (tocLevel > 0)
+            return new ParagraphResult(TocRowToHtml(tocRow, tocLevel, tocTarget, outline), false);
+
         var sb = new StringBuilder();
-        var runs = paragraph.Elements(W + "r").ToList();
-        foreach (var run in runs)
-            AppendRun(sb, run, rels, archive, ref imageCount);
+        AppendInline(sb, paragraph, rels, archive, imageFolder, imageHost, ref imageCount);
 
         // Empty paragraphs still produce a blank line.
         if (sb.Length == 0)
@@ -215,21 +354,142 @@ internal static class DocxToHtml
 
         var alignment = Alignment(pPr);
         var styleAttr = alignment is null ? string.Empty : $" style=\"text-align:{alignment}\"";
+        // v3.44.0: a paragraph a TOC row resolves to gets an id of its own; a bookmark keeps its name.
+        var navId = index >= 0 && navTargets.Contains(index) ? $"nav-{index}" : null;
+        var idAttr = navId is not null || anchor is not null
+            ? $" id=\"{WebUtility.HtmlEncode(navId ?? anchor)}\""
+            : string.Empty;
 
         if (isListItem)
         {
             var fmt = numId is not null && numberingFormats.TryGetValue(numId, out var f) ? f : null;
             var ordered = fmt is "decimal" or "lowerLetter" or "upperLetter" or "lowerRoman" or "upperRoman";
-            return new ParagraphResult($"<li data-ordered=\"{ordered}\">{sb}</li>", true);
+            return new ParagraphResult($"<li{idAttr} data-ordered=\"{ordered}\">{sb}</li>", true);
         }
 
         if (headingLevel > 0)
         {
             var h = Math.Min(headingLevel, 6);
-            return new ParagraphResult($"<h{h}{styleAttr}>{sb}</h{h}>", false);
+            var id = navId ?? anchor ?? $"h{++headingIndex}";
+            var text = Flatten(paragraph).Trim();
+            if (text.Length > 0)
+                outline.Add(new OfficeNavEntry(text, id, Math.Min(headingLevel - 1, 3)));
+
+            return new ParagraphResult($"<h{h}{idAttr}{styleAttr}>{sb}</h{h}>", false);
         }
 
-        return new ParagraphResult($"<p{styleAttr}>{sb}</p>", false);
+        return new ParagraphResult($"<p{idAttr}{styleAttr}>{sb}</p>", false);
+    }
+
+    /// <summary>
+    /// v3.44.0: one row of the table of contents - the entry, a dotted leader and the page number, linked to
+    /// the paragraph the entry names. When the field is stale the link uses the paragraph's own id; when the
+    /// entry cannot be matched at all the row still reads as text rather than pointing nowhere.
+    /// </summary>
+    private static string TocRowToHtml(
+        OfficeTocRow row, int level, int? targetIndex, List<OfficeNavEntry> outline)
+    {
+        if (row is null)
+            return string.Empty;
+
+        var target = targetIndex is { } index
+            ? $"nav-{index}"
+            : row.Anchor;
+
+        if (!string.IsNullOrEmpty(row.Text))
+            outline.Add(new OfficeNavEntry(
+                row.Text, target ?? $"toc-{outline.Count}", Math.Min(level - 1, 3)));
+
+        var style = row.Bold ? " class=\"toc-text toc-bold\"" : " class=\"toc-text\"";
+        var body =
+            $"<span{style}>{WebUtility.HtmlEncode(row.Text)}</span>" +
+            "<span class=\"toc-dots\"></span>" +
+            $"<span class=\"toc-page\">{WebUtility.HtmlEncode(row.Page)}</span>";
+
+        var content = string.IsNullOrEmpty(target)
+            ? body
+            : $"<a href=\"#{WebUtility.HtmlEncode(target)}\">{body}</a>";
+
+        return $"<div class=\"toc-row toc-l{Math.Min(level, 9)}\">{content}</div>";
+    }
+
+    /// <summary>
+    /// v3.44.0: the runs of a paragraph, in document order, seen through the inline wrappers Word puts them
+    /// in (<c>w:hyperlink</c> for a TOC entry or a link, <c>w:ins</c>, <c>w:smartTag</c>, <c>w:sdt</c>).
+    /// </summary>
+    private static IEnumerable<XElement> RunsOf(XElement container)
+    {
+        foreach (var node in container.Elements())
+        {
+            if (node.Name == W + "r")
+                yield return node;
+            else if (node.Name != W + "del" &&
+                     (node.Name == W + "hyperlink" || node.Name == W + "ins" ||
+                      node.Name == W + "smartTag" || node.Name == W + "sdt" ||
+                      node.Name == W + "sdtContent"))
+            {
+                foreach (var run in RunsOf(node))
+                    yield return run;
+            }
+        }
+    }
+
+    /// <summary>The plain text of a paragraph, wrappers included - used for outline labels.</summary>
+    private static string Flatten(XElement paragraph) =>
+        string.Concat(RunsOf(paragraph).SelectMany(r => r.Elements(W + "t")).Select(t => t.Value));
+
+    /// <summary>
+    /// v3.44.0: emits a paragraph's content, keeping hyperlinks as links. Only the wrappers that can hold
+    /// visible content are entered; <c>w:del</c> (deleted text) and <c>w:instrText</c> (field instructions)
+    /// are left out.
+    /// </summary>
+    private static void AppendInline(
+        StringBuilder sb,
+        XElement container,
+        Dictionary<string, string> rels,
+        ZipArchive archive,
+        string imageFolder,
+        string imageHost,
+        ref int imageCount)
+    {
+        foreach (var node in container.Elements())
+        {
+            if (node.Name == W + "r")
+            {
+                AppendRun(sb, node, rels, archive, imageFolder, imageHost, ref imageCount);
+            }
+            else if (node.Name == W + "hyperlink")
+            {
+                var target = (string)node.Attribute(W + "anchor");
+                if (!string.IsNullOrEmpty(target))
+                    sb.Append("<a href=\"#").Append(WebUtility.HtmlEncode(target)).Append("\">");
+
+                AppendInline(sb, node, rels, archive, imageFolder, imageHost, ref imageCount);
+
+                if (!string.IsNullOrEmpty(target))
+                    sb.Append("</a>");
+            }
+            else if (node.Name == W + "ins" || node.Name == W + "smartTag" ||
+                     node.Name == W + "sdt" || node.Name == W + "sdtContent")
+            {
+                AppendInline(sb, node, rels, archive, imageFolder, imageHost, ref imageCount);
+            }
+        }
+    }
+
+    private static string AnchorOf(XElement paragraph) =>
+        paragraph.Descendants(W + "bookmarkStart")
+            .Select(b => (string)b.Attribute(W + "name"))
+            .FirstOrDefault(name => !string.IsNullOrEmpty(name) && name != "_GoBack");
+
+    private static int TocLevel(string styleId, string styleName)
+    {
+        var probe = !string.IsNullOrEmpty(styleId) ? styleId : styleName;
+        if (string.IsNullOrEmpty(probe) || !probe.StartsWith("toc", StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        var digits = new string(probe.SkipWhile(c => !char.IsDigit(c)).TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var level) && level is >= 1 and <= 9 ? level : 0;
     }
 
     private static int HeadingLevel(string styleId, string styleName)
@@ -275,11 +535,11 @@ internal static class DocxToHtml
         XElement run,
         Dictionary<string, string> rels,
         ZipArchive archive,
+        string imageFolder,
+        string imageHost,
         ref int imageCount)
     {
         var rPr = run.Element(W + "rPr");
-        var tag = string.Empty;
-        var close = string.Empty;
         var extra = string.Empty;
 
         if (rPr is not null)
@@ -331,7 +591,7 @@ internal static class DocxToHtml
                 }
                 else if (el.Name == W + "drawing" && imageCount < MaxImages)
                 {
-                    var img = ExtractImage(el, rels, archive);
+                    var img = ExtractImage(el, rels, archive, imageFolder, imageHost, imageCount);
                     if (img is not null)
                     {
                         content.Append(img);
@@ -351,8 +611,21 @@ internal static class DocxToHtml
         sb.Append("<span").Append(extra).Append('>').Append(content).Append("</span>");
     }
 
-    private static string ExtractImage(XElement drawing, Dictionary<string, string> rels, ZipArchive archive)
+    /// <summary>
+    /// v3.44.0: writes the picture next to the page instead of inlining it, scaled to the size the page
+    /// draws it at (see <see cref="OfficeImageStore"/>).
+    /// </summary>
+    private static string ExtractImage(
+        XElement drawing,
+        Dictionary<string, string> rels,
+        ZipArchive archive,
+        string imageFolder,
+        string imageHost,
+        int imageCount)
     {
+        if (string.IsNullOrEmpty(imageFolder))
+            return null;
+
         var embed = drawing.Descendants(A + "blip").FirstOrDefault()?.Attribute(R + "embed")?.Value;
         if (embed is null || !rels.TryGetValue(embed, out var target))
             return null;
@@ -368,30 +641,36 @@ internal static class DocxToHtml
         if (entry is null)
             return null;
 
-        using var stream = entry.Open();
-        using var ms = new MemoryStream();
-        stream.CopyTo(ms);
-        var bytes = ms.ToArray();
+        byte[] bytes;
+        using (var stream = entry.Open())
+        using (var ms = new MemoryStream())
+        {
+            stream.CopyTo(ms);
+            bytes = ms.ToArray();
+        }
+
         if (bytes.Length == 0)
             return null;
 
-        var mime = MimeFromBytes(bytes);
-        return $"<img src=\"data:{mime};base64,{System.Convert.ToBase64String(bytes)}\" alt=\"\">";
-    }
+        // The drawing's extent is in EMU; the page draws it at 96 dpi.
+        var extent = drawing.Descendants(Wp + "extent").FirstOrDefault();
+        var displayWidth = 0d;
+        if (extent is not null && long.TryParse((string)extent.Attribute("cx"), out var cx) && cx > 0)
+            displayWidth = cx / 9525d;
 
-    private static string MimeFromBytes(byte[] bytes)
-    {
-        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50) return "image/png";
-        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return "image/jpeg";
-        if (bytes.Length >= 4 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return "image/gif";
-        if (bytes.Length >= 2 && bytes[0] == 0x42 && bytes[1] == 0x4D) return "image/bmp";
-        return "image/png";
+        var name = OfficeImageStore.Save(imageFolder, bytes, displayWidth, $"img{imageCount}");
+        if (name is null)
+            return null;
+
+        return $"<img src=\"https://{imageHost}/{name}\" alt=\"\">";
     }
 
     private static string TableToHtml(
         XElement table,
         Dictionary<string, string> rels,
         ZipArchive archive,
+        string imageFolder,
+        string imageHost,
         ref int imageCount)
     {
         var sb = new StringBuilder("<table><tbody>");
@@ -405,7 +684,9 @@ internal static class DocxToHtml
                 {
                     var para = ParagraphToHtml(p, new Dictionary<string, string>(),
                         new Dictionary<string, string>(), rels,
-                        archive, ref imageCount);
+                        archive, imageFolder, imageHost, ref imageCount,
+                        new List<OfficeNavEntry>(), ref UnusedHeadingIndex,
+                        -1, null, null, EmptyNavTargets);
                     cellHtml.Append(para.IsListItem ? "<div>" + para.Html + "</div>" : para.Html);
                 }
 
@@ -421,6 +702,11 @@ internal static class DocxToHtml
         return sb.ToString();
     }
 
+    /// <summary>Headings inside table cells are not part of the outline, so their counter is thrown away.</summary>
+    private static int UnusedHeadingIndex;
+
+    private static readonly HashSet<int> EmptyNavTargets = [];
+
     private static void FlushList(StringBuilder html, List<string> items, Dictionary<string, string> numberingFormats)
     {
         var ordered = items.Any(i => i.Contains("data-ordered=\"True\"", StringComparison.OrdinalIgnoreCase));
@@ -435,30 +721,6 @@ internal static class DocxToHtml
         html.Append("</").Append(tag).Append('>');
     }
 
-    private static string HighlightColor(string name)
-    {
-        return name.ToLowerInvariant() switch
-        {
-            "yellow" => "#FFFF00",
-            "green" => "#00FF00",
-            "cyan" => "#00FFFF",
-            "magenta" => "#FF00FF",
-            "red" => "#FF0000",
-            "blue" => "#0000FF",
-            "darkblue" => "#00008B",
-            "darkcyan" => "#008B8B",
-            "darkgreen" => "#006400",
-            "darkmagenta" => "#8B008B",
-            "darkred" => "#8B0000",
-            "darkyellow" => "#808000",
-            "gray" or "grey" => "#808080",
-            "lightgray" or "lightgrey" => "#D3D3D3",
-            "black" => "#000000",
-            "white" => "#FFFFFF",
-            _ => "#FFFF00",
-        };
-    }
-
     private static void AppendCss(StringBuilder sb)
     {
         // v3.17.0: fixed light paper rendering, independent of the app theme.
@@ -467,11 +729,13 @@ internal static class DocxToHtml
         var scrollThumb = "rgba(0,0,0,.28)";
         var scrollHover = "rgba(0,0,0,.45)";
         var headerBg = "rgba(0,0,0,.04)";
+        var link = "#005FB8";
 
         // v3.17.0 fix: opaque white paper - transparent pages can composite to
         // black on some window setups.
         sb.Append($"html,body{{height:100%}}body{{margin:0;color:{fg};background:#FFFFFF;" +
             "font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6}");
+        sb.Append("html{scroll-behavior:smooth}");
         sb.Append("::-webkit-scrollbar{width:8px;height:8px}");
         sb.Append("::-webkit-scrollbar-track{background:transparent}");
         sb.Append($"::-webkit-scrollbar-thumb{{background:{scrollThumb};border-radius:4px}}");
@@ -488,6 +752,20 @@ internal static class DocxToHtml
         sb.Append($"thead th,table tr:first-child td{{background:{headerBg};font-weight:600}}");
         sb.Append($"img{{max-width:100%;height:auto;border-radius:6px}}");
         sb.Append($".error{{color:#C42B1C;padding:24px;font-size:14px}}");
+
+        // v3.44.0: the table of contents. Word stores its entries as hyperlinks to the heading bookmarks,
+        // and the page number follows a tab - so the row is a flex line with a dotted leader between.
+        sb.Append($"a{{color:{link};text-decoration:none}}a:hover{{text-decoration:underline}}");
+        sb.Append(".toc-row{margin:.15em 0;max-width:760px}");
+        sb.Append(".toc-row a{display:flex;align-items:baseline;color:inherit}");
+        sb.Append(".toc-row a:hover{text-decoration:none}");
+        sb.Append(".toc-row a:hover .toc-text{text-decoration:underline}");
+        sb.Append(".toc-text{flex:0 1 auto;text-decoration:none}");
+        sb.Append(".toc-bold{font-weight:600}");
+        sb.Append(".toc-dots{flex:1 1 auto;border-bottom:1px dotted #B4B4B4;margin:0 6px;transform:translateY(-4px)}");
+        sb.Append(".toc-page{flex:0 0 auto;font-variant-numeric:tabular-nums}");
+        for (var level = 1; level <= 4; level++)
+            sb.Append($".toc-l{level}{{padding-left:{(level - 1) * 18}px}}");
     }
 
     private static string ErrorHtml(string message)
@@ -496,4 +774,24 @@ internal static class DocxToHtml
             "background:#FFFFFF;font-family:'Segoe UI',sans-serif}}</style></head>" +
             $"<body><div class=\"error\" style=\"padding:24px\">{message}</div></body></html>";
     }
+
+    private static string HighlightColor(string name) => name switch
+    {
+        "yellow" => "#FFFF00",
+        "green" => "#00FF00",
+        "cyan" => "#00FFFF",
+        "magenta" => "#FF00FF",
+        "blue" => "#0000FF",
+        "red" => "#FF0000",
+        "darkBlue" => "#000080",
+        "darkCyan" => "#008080",
+        "darkGreen" => "#008000",
+        "darkMagenta" => "#800080",
+        "darkRed" => "#800000",
+        "darkYellow" => "#808000",
+        "darkGray" => "#808080",
+        "lightGray" => "#C0C0C0",
+        "black" => "#000000",
+        _ => "transparent",
+    };
 }

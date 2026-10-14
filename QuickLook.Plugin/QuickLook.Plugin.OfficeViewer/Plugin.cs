@@ -118,7 +118,9 @@ public sealed class Plugin : IViewer
 
     public void Prepare(string path, ContextObject context)
     {
-        context.SetPreferredSizeFit(new Size { Width = 1200, Height = 800 }, 0.8d);
+        // v3.44.0: the self-rendered panels carry a rail on the left (Word's outline, the slide list, the
+        // worksheets), so the page keeps its 1200 px and the window grows by the rail's width.
+        context.SetPreferredSizeFit(new Size { Width = 1410, Height = 800 }, 0.8d);
     }
 
     public void View(string path, ContextObject context)
