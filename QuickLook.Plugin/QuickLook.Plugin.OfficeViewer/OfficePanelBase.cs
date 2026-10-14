@@ -36,8 +36,8 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// </summary>
 public abstract class OfficePanelBase : UserControl, IDisposable
 {
-    /// <summary>v5.6.19: how wide the rail is, so a preview whose page is portrait can size its window around it.</summary>
-    internal const double RailWidth = 208;
+    /// <summary>v5.6.19: how wide the rail is - the page beside it gets the rest of the window.</summary>
+    private const double RailWidth = 208;
 
     /// <summary>
     /// The host name the preview's own pictures are served under (see OfficeImageStore); the converters put
@@ -82,6 +82,13 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         _rail = BuildRail();
         _railHost = BuildRailHost(_rail);
 
+        // v5.6.19: the window's caption bar fades in over the top of the preview, so a rail row underneath it
+        // can be read but not clicked - the first row was lost to it. The rail therefore starts below the
+        // caption, and only the rail does: the page beside it keeps the full height of the window, so nothing
+        // reads as an empty band across the window.
+        _railHost.Margin = new Thickness(0, CaptionHeight, 0, 0);
+        Loaded += (_, _) => _railHost.Margin = new Thickness(0, CaptionHeight, 0, 0);
+
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -98,6 +105,13 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
     /// <summary>What the rail currently shows, so a selection can be acted on.</summary>
     protected IReadOnlyList<OfficeNavEntry> Navigation { get; private set; } = [];
+
+    /// <summary>
+    /// v5.6.19: how tall the window's caption bar is. The resource belongs to the window, so it is only
+    /// reachable once the panel is in its tree - hence the second look when the panel is loaded.
+    /// </summary>
+    private double CaptionHeight =>
+        TryFindResource("MainWindowCaptionHeight") is double height && height > 0 ? height : 32d;
 
     private static bool IsDarkTheme()
     {

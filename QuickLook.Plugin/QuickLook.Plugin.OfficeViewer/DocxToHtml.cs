@@ -26,10 +26,12 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// pictures - so the file can be read in the app's own window instead of through the Windows system preview
 /// component.
 /// <para>
-/// v5.6.19: the preview is drawn as the pages the document is made of - cut where Word's own last layout cut
-/// them, each on a white sheet of the section's paper size and margins - and those sheets follow one another
-/// in a single scroll, with the document's own outline in the panel's rail. Two pieces Word users notice first
-/// are drawn as part of that:
+/// v5.6.19: the preview is one column in a single scroll - the page area is white throughout and the column
+/// holds the section's own paper measure, capped there so it never reads wider than Word prints. The pages are
+/// deliberately not drawn as pages:
+/// Word records its page boundaries as "the last layout broke here", and this renderer does not lay text out
+/// the way Word does, so the breaks do not survive (the abstract came out across two sheets and the table of
+/// contents on one). Two pieces Word users notice first are drawn as part of that:
 /// </para>
 /// <list type="bullet">
 /// <item><description>the table of contents. Its entries live inside <c>w:hyperlink</c> elements, and the
@@ -69,53 +71,21 @@ internal static class DocxToHtml
 
             var body = document.Root?.Element(W + "body");
             var geometry = ReadPageGeometry(document);
-            var pages = new List<StringBuilder>();
-            var page = new StringBuilder();
+            var html = new StringBuilder();
             var outline = new List<OfficeNavEntry>();
             var listBuffer = new List<string>();
-            var listRun = 0;
             var paragraphCount = 0;
             var imageCount = 0;
             var headingIndex = 0;
 
-            // v5.6.19: the page is the unit of the preview now, as it has always been in the PDF panel. Word
-            // writes a w:lastRenderedPageBreak wherever its last layout put a boundary, so the document can be
-            // cut where Word itself cut it, and an explicit w:br w:type="page" counts as well. The marker sits
-            // at the end of the paragraph that closed a page about as often as at the start of the one that
-            // opened the next, so the caller asks FindPageBreak which side of the marker the new page is on.
-            void FlushPage()
-            {
-                if (page.Length == 0)
-                    return;
-
-                pages.Add(page);
-                page = new StringBuilder();
-            }
-
-            // Emits the pending list items into the page being built. listRun counts the items already
-            // emitted for the list run in progress, so a numbered list that crosses a page boundary
-            // continues its count in the next <ol> instead of starting over at one.
+            // Emits the pending list items, so a run of them becomes one <ol>/<ul> instead of one list each.
             void FlushListBuffer()
             {
                 if (listBuffer.Count == 0)
                     return;
 
-                FlushList(page, listBuffer, numberingFormats, listRun + 1);
-                listRun += listBuffer.Count;
+                FlushList(html, listBuffer, numberingFormats);
                 listBuffer.Clear();
-            }
-
-            // A block that is not a list item ends the run, so the next list counts from one again.
-            void CloseListRun()
-            {
-                FlushListBuffer();
-                listRun = 0;
-            }
-
-            void EndPage()
-            {
-                FlushListBuffer();
-                FlushPage();
             }
 
             // v5.6.19: a cheap first pass over the body's own paragraphs. Word's table of contents stores
@@ -154,12 +124,26 @@ internal static class DocxToHtml
             var navTargets = new HashSet<int>(tocTargets.Values);
             var tocByIndex = tocRows.ToDictionary(t => t.Index, t => t.Row);
 
+            var blankRun = false;
+
             void RenderBlock(XElement node, int index)
             {
                 if (node.Name == W + "p")
                 {
                     if (++paragraphCount > MaxParagraphs)
                         return;
+
+                    // v5.6.19: a section of this document begins on a new page by way of a run of empty
+                    // paragraphs (there is no w:br w:type="page" anywhere in it - five of them stand between
+                    // the abstract and the English one, and twelve runs of four or more are spread through the
+                    // body). While the pages were drawn that run was simply the foot of a page; in one column
+                    // it is a screenful of nothing, so a run is collapsed to a single blank line. One empty
+                    // paragraph is a deliberate gap and stays as it is.
+                    var blank = Flatten(node).Trim().Length == 0 && !node.Descendants(W + "drawing").Any();
+                    if (blank && blankRun)
+                        return;
+
+                    blankRun = blank;
 
                     var item = ParagraphToHtml(node, styleNames, numberingFormats, rels, archive,
                         imageFolder, imageHost, ref imageCount, outline, ref headingIndex,
@@ -175,13 +159,14 @@ internal static class DocxToHtml
                         return;
                     }
 
-                    CloseListRun();
-                    page.Append(item.Html);
+                    FlushListBuffer();
+                    html.Append(item.Html);
                 }
                 else if (node.Name == W + "tbl")
                 {
-                    CloseListRun();
-                    page.Append(TableToHtml(node, rels, archive, imageFolder, imageHost, ref imageCount));
+                    blankRun = false;
+                    FlushListBuffer();
+                    html.Append(TableToHtml(node, rels, archive, imageFolder, imageHost, ref imageCount));
                 }
                 else if (node.Name == W + "sdt")
                 {
@@ -194,36 +179,24 @@ internal static class DocxToHtml
 
             if (body is not null)
             {
-                var nodes = body.Elements().ToList();
-                foreach (var node in nodes)
-                {
-                    var broke = FindPageBreak(node, out var continues);
-                    if (broke && continues)
-                        EndPage();
-
+                // v5.6.19: the document is one column and the pages are not cut. Word records its boundaries as
+                // "the last layout broke here", and that layout is not the one this renderer produces - the
+                // abstract came out across two sheets while the table of contents sat on one - so the breaks a
+                // reader was shown were not the document's own. A single column also has neither the bands of
+                // backdrop a sheet leaves when the window is not the paper's shape, nor a blank foot on a page
+                // whose content happens to be short.
+                foreach (var node in body.Elements().ToList())
                     RenderBlock(node, node.Name == W + "p" ? paragraphs.IndexOf(node) : -1);
 
-                    if (broke && !continues)
-                        EndPage();
-                }
-
-                CloseListRun();
-                FlushPage();
+                FlushListBuffer();
             }
-
-            if (pages.Count == 0)
-                pages.Add(page);
 
             var sb = new StringBuilder();
             sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>");
             AppendCss(sb, geometry);
-            sb.Append("</style></head><body><div class=\"pages\">");
-
-            for (var i = 0; i < pages.Count; i++)
-                sb.Append("<div class=\"page\" id=\"page-").Append(i + 1).Append("\">")
-                  .Append(pages[i].ToString()).Append("</div>");
-
-            sb.Append("</div>").Append(PageScript(geometry)).Append("</body></html>");
+            sb.Append("</style></head><body><div class=\"wrap\"><div class=\"doc\">")
+              .Append(html)
+              .Append("</div></div>").Append(DocumentScript).Append("</body></html>");
 
             return new OfficePanelContent
             {
@@ -763,17 +736,11 @@ internal static class DocxToHtml
     private static readonly HashSet<int> EmptyNavTargets = [];
 
     private static void FlushList(
-        StringBuilder html, List<string> items, Dictionary<string, string> numberingFormats, int start)
+        StringBuilder html, List<string> items, Dictionary<string, string> numberingFormats)
     {
         var ordered = items.Any(i => i.Contains("data-ordered=\"True\"", StringComparison.OrdinalIgnoreCase));
         var tag = ordered ? "ol" : "ul";
-        html.Append('<').Append(tag);
-
-        // v5.6.19: the count a list continues with when a page ended in the middle of it.
-        if (ordered && start > 1)
-            html.Append(" start=\"").Append(start).Append('"');
-
-        html.Append('>');
+        html.Append('<').Append(tag).Append('>');
         foreach (var item in items)
         {
             var clean = item.Replace(" data-ordered=\"True\"", string.Empty, StringComparison.OrdinalIgnoreCase)
@@ -794,7 +761,9 @@ internal static class DocxToHtml
         var link = "#005FB8";
         // v5.6.19: what the sheets sit on - the page beside it is white, so the backdrop is a neutral grey
         // rather than the app's own backdrop (a transparent WebView2 page composites to black).
-        var backdrop = "#E9E9E9";
+        // v5.6.19: the page area is white from edge to edge - a column of a document is not a page floating on
+        // a backdrop, and any band of backdrop beside or below it reads as empty space to scroll past.
+        var backdrop = "#FFFFFF";
 
         // v3.17.0 fix: opaque white paper - transparent pages can composite to
         // black on some window setups.
@@ -807,16 +776,19 @@ internal static class DocxToHtml
         sb.Append($"::-webkit-scrollbar-thumb:hover{{background:{scrollHover}}}");
         sb.Append("::-webkit-scrollbar-corner{background:transparent}");
 
-        // v5.6.19: the document is drawn as the pages it is made of - a white sheet of the section's own
-        // paper size, with the section's own margins as its padding - and the sheets follow one another in one
-        // scroll, as print layout does, rather than one page taking the window at a time: a page is then never
-        // floating in bands of backdrop, and reading on needs no more than a scroll.
-        sb.Append($".page{{box-sizing:border-box;width:{Number(geometry.Width)}px;" +
-            $"min-height:{Number(geometry.Height)}px;" +
-            $"padding:{Number(geometry.Top)}px {Number(geometry.Right)}px " +
-            $"{Number(geometry.Bottom)}px {Number(geometry.Left)}px;" +
-            "margin:18px auto;background:#FFFFFF;overflow-wrap:break-word;" +
-            "box-shadow:0 1px 2px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06)}");
+        // v5.6.19: the document is one column with the proportions of the section's own paper - the page area
+        // is white from edge to edge, and the column holds the paper's measure within it - so a reader sees no
+        // bands of backdrop anywhere, no page gaps, and no blank foot on a page whose content is short. The
+        // wrap caps the column at the paper's own width, so the measure never grows past the one Word prints;
+        // the padding is a share of that width rather than a fixed margin, so a narrow window keeps a readable
+        // column instead of losing half of it to paper margins.
+        var wrap = Number(geometry.Width);
+        var side = Number(geometry.Right / geometry.Width * 100d);
+        var top = Number(geometry.Top / geometry.Width * 100d);
+        var foot = Number(geometry.Bottom / geometry.Width * 100d);
+        sb.Append($".wrap{{width:100%;max-width:{wrap}px;margin:0 auto}}");
+        sb.Append($".doc{{box-sizing:border-box;width:100%;padding:{top}% {side}% {foot}%;" +
+            "background:#FFFFFF;overflow-wrap:break-word}");
         sb.Append($"h1,h2,h3,h4,h5,h6{{margin:1.1em 0 .5em;line-height:1.3}}");
         sb.Append($"h1{{font-size:24px}}h2{{font-size:20px}}h3{{font-size:17px}}h4{{font-size:15px}}");
         sb.Append($"p{{margin:.55em 0}}");
@@ -844,115 +816,21 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: the sheets are scaled to the window by their *paper* - the width of the window decides the
-    /// scale, so a sheet always spans it and nothing is left over at the sides, and every sheet keeps the same
-    /// scale so a reader sees one size of type throughout. The window is sized to the paper as well (see
-    /// Plugin.Prepare), so the scale is usually a touch under one.
-    /// <para>
-    /// The whole document is one scroll, so the table of contents the page itself carries - and the rail - can
-    /// just go to the paragraph they name.
-    /// </para>
+    /// v5.6.19: the document is one scroll - the column fits the window by itself (a capped width with padding
+    /// in share of it, see AppendCss), so there is nothing to scale - and the rail and the document's own table
+    /// of contents are both a set of anchors: a click is a scroll to the paragraph they name.
     /// </summary>
-    private static string PageScript(PageGeometry geometry) =>
+    private const string DocumentScript =
         "<script>" +
-        $"var paper={{w:{Number(geometry.Width)},h:{Number(geometry.Height)}}};" +
-        "function fitPage(){document.body.style.zoom=(window.innerWidth-8)/paper.w;}" +
         "function goTo(id){var el=document.getElementById(id);if(!el)return;" +
         "el.scrollIntoView({behavior:'smooth',block:'start'});}" +
         "document.addEventListener('click',function(e){" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a)return;" +
         "e.preventDefault();goTo(decodeURIComponent(a.getAttribute('href').slice(1)));});" +
-        "window.addEventListener('resize',fitPage);fitPage();</script>";
-
-    /// <summary>
-    /// v5.6.19: where Word last laid a page out. <c>w:lastRenderedPageBreak</c> records the boundary from the
-    /// last save and <c>w:br w:type="page"</c> is one the author typed; both can sit at the end of the
-    /// paragraph a page closed with or at the start of the one that opened the next. <paramref name="continues"/>
-    /// says which: true when visible content still follows the marker inside the same block, which means the
-    /// new page begins with that block.
-    /// </summary>
-    private static bool FindPageBreak(XElement block, out bool continues)
-    {
-        continues = false;
-
-        var elements = block.DescendantsAndSelf().ToList();
-        for (var i = 0; i < elements.Count; i++)
-        {
-            var element = elements[i];
-            var isBreak = element.Name == W + "lastRenderedPageBreak" ||
-                          (element.Name == W + "br" && (string)element.Attribute(W + "type") == "page");
-            if (!isBreak)
-                continue;
-
-            for (var j = i + 1; j < elements.Count; j++)
-            {
-                var after = elements[j];
-                if ((after.Name == W + "t" && !string.IsNullOrWhiteSpace(after.Value)) ||
-                    after.Name == W + "drawing" || after.Name == W + "pict")
-                {
-                    continues = true;
-                    break;
-                }
-            }
-
-            return true;
-        }
-
-        return false;
-    }
+        "</script>";
 
     /// <summary>v5.6.19: the white sheet a page is drawn as, in CSS pixels.</summary>
-    internal sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);
-
-    /// <summary>
-    /// v5.6.19: the paper of a .docx, read before there is a panel to read it in - the preview window is sized
-    /// around the sheet it is about to show (see Plugin.Prepare), which is what keeps a portrait Word page
-    /// from sitting in a landscape window. The body's section properties are the last thing in
-    /// word/document.xml, so the part is streamed past with only its tail kept.
-    /// </summary>
-    internal static PageGeometry ReadPaperSize(string path)
-    {
-        try
-        {
-            using var archive = ZipFile.OpenRead(path);
-            var entry = archive.GetEntry("word/document.xml");
-            if (entry is null)
-                return null;
-
-            using var stream = entry.Open();
-            var tail = ReadTail(stream, 8192);
-            var size = Regex.Match(tail, "<w:pgSz\\b[^>]*>");
-            if (!size.Success)
-                return null;
-
-            var margin = Regex.Match(tail, "<w:pgMar\\b[^>]*>");
-            return Geometry(size.Value, margin.Success ? margin.Value : null);
-        }
-        catch (Exception e)
-        {
-            Debug.WriteLine(e.Message);
-            return null;
-        }
-    }
-
-    /// <summary>The last <paramref name="count"/> characters of a stream, without holding the whole part.</summary>
-    private static string ReadTail(Stream stream, int count)
-    {
-        var buffer = new byte[count];
-        var filled = 0;
-        int read;
-        while ((read = stream.Read(buffer, filled, count - filled)) > 0)
-        {
-            filled += read;
-            if (filled < count)
-                continue;
-
-            Array.Copy(buffer, count / 2, buffer, 0, count / 2);
-            filled = count / 2;
-        }
-
-        return Encoding.UTF8.GetString(buffer, 0, filled);
-    }
+    private sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);
 
     private static PageGeometry ReadPageGeometry(XDocument document)
     {
