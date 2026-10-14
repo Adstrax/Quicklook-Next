@@ -10,9 +10,10 @@
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v3.11.0: the page for a .docx/.docm. v5.6.19: the document is shown as the pages it is made of, one at a
-/// time, while the rail keeps the document's own outline - its headings and its table of contents - as the
-/// way around it, and a row that names a paragraph on another page turns to that page.
+/// v3.11.0: the page for a .docx/.docm. v5.6.19: the document is shown as the pages it is made of, in one
+/// scroll, while the rail keeps the document's own outline - its headings and its table of contents - as the
+/// way around it; a rail row is an anchor and scrolling is what getting there takes, which is what the base
+/// class already does with a navigation target.
 /// </summary>
 public sealed class DocumentPanel : OfficePanelBase
 {
@@ -25,15 +26,5 @@ public sealed class DocumentPanel : OfficePanelBase
             var folder = OfficeImageStore.CreateFolder();
             return DocxToHtml.Convert(path, folder, ImageHost);
         });
-    }
-
-    protected override void OnNavigationSelected(int index)
-    {
-        if (index < 0 || index >= Navigation.Count)
-            return;
-
-        var target = Navigation[index].Target;
-        if (!string.IsNullOrEmpty(target))
-            RunScript($"goTo({System.Text.Json.JsonSerializer.Serialize(target)})");
     }
 }

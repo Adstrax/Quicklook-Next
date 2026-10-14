@@ -148,6 +148,12 @@ public sealed class Plugin : IViewer
         var extension = Path.GetExtension(path);
         if (SelfRenderedExtensions.Contains(extension))
         {
+            // v5.6.19: the rail sits against the top of the window and the caption bar fades in over whatever
+            // is there, so a preview that overlaps it loses its first row to the caption - it could be seen but
+            // not clicked. Asking the host to keep the caption's height clear (the default is to overlap) puts
+            // the rail, the page and the caption each in their own place.
+            context.TitlebarOverlap = false;
+
             if (extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase) ||
                 extension.Equals(".xlsm", StringComparison.OrdinalIgnoreCase))
             {

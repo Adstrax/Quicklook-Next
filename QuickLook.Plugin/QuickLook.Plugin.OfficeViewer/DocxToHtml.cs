@@ -27,8 +27,9 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// component.
 /// <para>
 /// v5.6.19: the preview is drawn as the pages the document is made of - cut where Word's own last layout cut
-/// them, each on a white sheet of the section's paper size and margins, one page at a time, with the pages
-/// listed in the panel's rail. Two pieces Word users notice first are drawn as part of that:
+/// them, each on a white sheet of the section's paper size and margins - and those sheets follow one another
+/// in a single scroll, with the document's own outline in the panel's rail. Two pieces Word users notice first
+/// are drawn as part of that:
 /// </para>
 /// <list type="bullet">
 /// <item><description>the table of contents. Its entries live inside <c>w:hyperlink</c> elements, and the
@@ -219,8 +220,7 @@ internal static class DocxToHtml
             sb.Append("</style></head><body><div class=\"pages\">");
 
             for (var i = 0; i < pages.Count; i++)
-                sb.Append("<div class=\"page").Append(i == 0 ? " active" : string.Empty)
-                  .Append("\" id=\"page-").Append(i + 1).Append("\">")
+                sb.Append("<div class=\"page\" id=\"page-").Append(i + 1).Append("\">")
                   .Append(pages[i].ToString()).Append("</div>");
 
             sb.Append("</div>").Append(PageScript(geometry)).Append("</body></html>");
@@ -808,14 +808,15 @@ internal static class DocxToHtml
         sb.Append("::-webkit-scrollbar-corner{background:transparent}");
 
         // v5.6.19: the document is drawn as the pages it is made of - a white sheet of the section's own
-        // paper size, with the section's own margins as its padding, one page at a time (showPage()).
-        sb.Append($".page{{display:none;box-sizing:border-box;width:{Number(geometry.Width)}px;" +
+        // paper size, with the section's own margins as its padding - and the sheets follow one another in one
+        // scroll, as print layout does, rather than one page taking the window at a time: a page is then never
+        // floating in bands of backdrop, and reading on needs no more than a scroll.
+        sb.Append($".page{{box-sizing:border-box;width:{Number(geometry.Width)}px;" +
             $"min-height:{Number(geometry.Height)}px;" +
             $"padding:{Number(geometry.Top)}px {Number(geometry.Right)}px " +
             $"{Number(geometry.Bottom)}px {Number(geometry.Left)}px;" +
-            "margin:22px auto;background:#FFFFFF;overflow-wrap:break-word;" +
+            "margin:18px auto;background:#FFFFFF;overflow-wrap:break-word;" +
             "box-shadow:0 1px 2px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06)}");
-        sb.Append(".page.active{display:block}");
         sb.Append($"h1,h2,h3,h4,h5,h6{{margin:1.1em 0 .5em;line-height:1.3}}");
         sb.Append($"h1{{font-size:24px}}h2{{font-size:20px}}h3{{font-size:17px}}h4{{font-size:15px}}");
         sb.Append($"p{{margin:.55em 0}}");
@@ -843,29 +844,21 @@ internal static class DocxToHtml
     }
 
     /// <summary>
-    /// v5.6.19: page switching, plus the document's own table of contents. A TOC row points at a paragraph
-    /// that may live on another page, and every page but the current one is display:none - so the click has
-    /// to bring the row's page up first, or the browser scrolls to a hidden element and nothing appears to
-    /// happen.
+    /// v5.6.19: the sheets are scaled to the window by their *paper* - the width of the window decides the
+    /// scale, so a sheet always spans it and nothing is left over at the sides, and every sheet keeps the same
+    /// scale so a reader sees one size of type throughout. The window is sized to the paper as well (see
+    /// Plugin.Prepare), so the scale is usually a touch under one.
     /// <para>
-    /// The sheets are scaled to the window the way the PDF panel fits the page of a PDF, and by the *paper*
-    /// rather than by each page's own height: the window is already sized to the paper, so the scale is
-    /// usually one, and pages keep one scale between them instead of each turning to whatever its content
-    /// happens to measure. A page whose content runs past the paper - our layout does not reflow text the way
-    /// Word does - simply scrolls.
+    /// The whole document is one scroll, so the table of contents the page itself carries - and the rail - can
+    /// just go to the paragraph they name.
     /// </para>
     /// </summary>
     private static string PageScript(PageGeometry geometry) =>
-        "<script>window._pages=[].slice.call(document.querySelectorAll('.page'));window._current=0;" +
+        "<script>" +
         $"var paper={{w:{Number(geometry.Width)},h:{Number(geometry.Height)}}};" +
-        "function fitPage(){var scale=Math.min((window.innerHeight-44)/paper.h,(window.innerWidth-8)/paper.w);" +
-        "for(var n=0;n<window._pages.length;n++)window._pages[n].style.zoom=scale;}" +
-        "function showPage(i){i=Math.max(0,Math.min(window._pages.length-1,i));window._current=i;" +
-        "for(var n=0;n<window._pages.length;n++)window._pages[n].className=(n===i?'page active':'page');" +
-        "window.scrollTo(0,0);}" +
+        "function fitPage(){document.body.style.zoom=(window.innerWidth-8)/paper.w;}" +
         "function goTo(id){var el=document.getElementById(id);if(!el)return;" +
-        "var p=el.closest('.page');if(p)showPage(window._pages.indexOf(p));" +
-        "setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},40);}" +
+        "el.scrollIntoView({behavior:'smooth',block:'start'});}" +
         "document.addEventListener('click',function(e){" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a)return;" +
         "e.preventDefault();goTo(decodeURIComponent(a.getAttribute('href').slice(1)));});" +
