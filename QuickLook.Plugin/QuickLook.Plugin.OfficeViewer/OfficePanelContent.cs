@@ -12,7 +12,7 @@ using System.Collections.Generic;
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v3.44.0: one row of a self-rendered Office panel's left rail - an outline entry for Word, a slide for
+/// v5.6.19: one row of a self-rendered Office panel's left rail - an outline entry for Word, a slide for
 /// PowerPoint, a worksheet for Excel.
 /// </summary>
 /// <param name="Label">What the row shows.</param>
@@ -24,7 +24,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 public sealed record OfficeNavEntry(string Label, string Target, int Level = 0);
 
 /// <summary>
-/// v3.44.0: what a converter hands to its panel: the page, the structure behind the left rail, and - when
+/// v5.6.19: what a converter hands to its panel: the page, the structure behind the left rail, and - when
 /// the page references pictures - the folder they were written to. The folder is served over a virtual host
 /// instead of inlining base64: a template's 25 MB photo used to turn one slide into 34 MB of HTML, which
 /// WebView2 then had to parse (and which routinely ran past NavigateToString's 2 MB limit for Word images).

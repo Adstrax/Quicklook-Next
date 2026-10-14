@@ -28,7 +28,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// The content always sits on a plain white paper-like surface (never
 /// theme-adapted) so real documents stay readable in dark mode too.
 /// <para>
-/// v3.44.0: the surface is two columns now - a rail on the left for the structure of the file (Word's
+/// v5.6.19: the surface is two columns now - a rail on the left for the structure of the file (Word's
 /// outline, PowerPoint's slides, Excel's worksheets) and the page on the right, which is how the PDF panel
 /// has always looked. Selecting a rail row either scrolls the page to an anchor or asks the panel to render
 /// something else (a worksheet, a window of rows).
@@ -108,7 +108,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v3.44.0: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
+    /// v5.6.19: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
     /// colours are fixed (light) like the paper surface next to them.
     /// </summary>
     private ListBox BuildRail()
@@ -146,7 +146,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     };
 
     /// <summary>
-    /// v3.44.0: a plain, light row. The rail sits next to the white page, so it does not follow the app
+    /// v5.6.19: a plain, light row. The rail sits next to the white page, so it does not follow the app
     /// theme - and it deliberately keeps the stock item visuals: a custom template here turned out to be the
     /// one thing between the outline and the reader.
     /// </summary>
@@ -161,7 +161,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v3.44.0: a rail row was picked. The default scrolls the page to the row's anchor, which is what Word's
+    /// v5.6.19: a rail row was picked. The default scrolls the page to the row's anchor, which is what Word's
     /// outline and PowerPoint's slide list want; the spreadsheet panel overrides it to switch worksheets.
     /// </summary>
     protected virtual void OnNavigationSelected(int index)
@@ -174,12 +174,12 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             $"document.getElementById('{entry.Target}')?.scrollIntoView({{behavior:'smooth',block:'start'}})");
     }
 
-    /// <summary>v3.44.0: a message from the page itself (the spreadsheet's row pager).</summary>
+    /// <summary>v5.6.19: a message from the page itself (the spreadsheet's row pager).</summary>
     protected virtual void OnWebMessage(string message)
     {
     }
 
-    /// <summary>v3.44.0: runs JavaScript in the page, ignoring failures (the surface is decoration).</summary>
+    /// <summary>v5.6.19: runs JavaScript in the page, ignoring failures (the surface is decoration).</summary>
     protected void RunScript(string script)
     {
         if (_disposed || string.IsNullOrEmpty(script))
@@ -255,7 +255,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                 if (_disposed || _webView.CoreWebView2 == null)
                     return;
 
-                // v3.44.0: the pictures this page references live in a temp folder; the page asks for them
+                // v5.6.19: the pictures this page references live in a temp folder; the page asks for them
                 // by https://office-preview.local/... rather than carrying them as base64.
                 if (!string.IsNullOrEmpty(_imageFolder))
                 {
@@ -328,7 +328,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     /// when ready, so the preview window stays responsive while the document
     /// parses.
     /// <para>
-    /// v3.44.0: the task also produces the structure for the left rail, which is why the result is a
+    /// v5.6.19: the task also produces the structure for the left rail, which is why the result is a
     /// <see cref="OfficePanelContent"/> rather than a bare string.
     /// </para>
     /// </summary>
@@ -355,7 +355,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v3.44.0: puts the rail and the page in place. The picture folder from the previous page is dropped
+    /// v5.6.19: puts the rail and the page in place. The picture folder from the previous page is dropped
     /// here - each preview owns its folder for as long as it is on screen.
     /// </summary>
     private void ApplyContent(OfficePanelContent content)

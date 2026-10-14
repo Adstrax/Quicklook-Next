@@ -10,7 +10,7 @@
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v3.12.0: the page for a .pptx/.pptm. v3.44.0: the rail lists the slides, and picking one shows that
+/// v3.12.0: the page for a .pptx/.pptm. v5.6.19: the rail lists the slides, and picking one shows that
 /// slide - the deck is not one long scroll any more.
 /// </summary>
 public sealed class PresentationPanel : OfficePanelBase
