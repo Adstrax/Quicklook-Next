@@ -7,6 +7,51 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.7.1
+
+### A Word table is the width Word made it, and the preview shows a page instead of an empty surface
+
+Two fixes to the Office previews from 5.7.0.
+
+- **The Word page no longer grows a horizontal scrollbar along its foot.** Every table in the reported
+  thesis declares `w:tblW w:w="5000" w:type="pct"` - Word's way of saying "the full width of the text
+  column" - and the converter dropped it and emitted a bare `<table>`, so the browser laid each table out
+  from its content instead of from Word's measure: the first one came out 719 px against a 660 px measure.
+  A table wider than the sheet is what puts a scrollbar along the foot of the page area (measured: 8 CSS px
+  of scrollbar, its thumb covering 92 % of the track - the same 660/719), and it also strayed past the
+  paper's own margin. The declared width is honoured now: `pct` in fiftieths of a percent, `dxa` in twips,
+  capped at 100 % because a table Word allowed to run into the margin (a 120 % table) would only bring the
+  scrollbar back. `max-width:100%` on the table and `overflow-wrap:anywhere` in its cells are what make the
+  cap hold: an auto-laid-out table is never narrower than the widest thing it cannot break, and `break-word`
+  - the value the sheet itself carries - does not lower that floor.
+- **The content area no longer goes black while a page is on its way.** This was not the cold start, and it
+  was not the page failing to load: it is the browser's own empty surface. `NavigateToString` destroys the
+  document that is on screen the instant it is called, so between that moment and the new page's first paint
+  the browser has nothing to draw. Sampled frame by frame on a repeat preview of the reported document - a
+  warm control, so no cold start left to pay - the content area was 100 % dark for 660 ms, RGB 23,23,23 and
+  then 18,18,18, **with the rail already fully filled**: the document had been parsed and the panel was up,
+  and the black was the canvas beside it. It therefore repeated on every preview, not only the first.
+  Three things that do not work, each measured: a WPF layer above the browser cannot cover it (a WebView2 is
+  an HWND of its own - the covered frames still read 18,18,18); the control's `DefaultBackgroundColor` does
+  not reach that surface (set to pure red, the frames of that window contained no red pixel at all); and
+  keeping the control hidden until its page arrived stops it loading (the sheet stayed blank). What does
+  work is to lay an empty sheet in the page's own colour first, and then navigate to the document on the
+  preview's own virtual host instead of handing it over as a string - a normal navigation keeps the frame it
+  has until the new document can paint, which is why a browser does not flash between pages. The
+  placeholder colour is the page's own now (white for Word and Excel, `#F3F3F3` for a PowerPoint desk)
+  rather than the app theme's tint, which was `#171717` in dark mode.
+- **A cold preview starts sooner.** The Chromium controller used to be asked for only once the document had
+  been parsed - strictly serial, 195 ms of parsing and then 287 ms of controller, with an idle UI thread the
+  whole time. Bringing the controller up while the document parses took the reported document from 1320 ms
+  to 1054 ms. The page itself still takes what it takes to load (700-900 ms for that thesis); what changed
+  is that the wait is the colour of paper rather than black. The empty sheet costs about what a blank page
+  costs to load, which is the ~100 ms the extra navigation adds.
+- **A workbook takes the same path**: its page carries no pictures and so arrives without a temp folder,
+  which is made on demand so the spreadsheet preview gets the document navigation too.
+
+Verified frame by frame against 2024论文-V2.docx and 控制变量表.xlsx (no dark frame at all, from the first
+frame to the page) and by eye against ZUST-Template.pptx, on a 200 % screen.
+
 ## QuickLook-Next 5.7.0
 
 ### The Office previews are a rail and a page now
