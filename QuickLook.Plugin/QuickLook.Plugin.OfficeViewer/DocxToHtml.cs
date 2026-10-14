@@ -693,6 +693,48 @@ internal static class DocxToHtml
         return $"<img src=\"https://{imageHost}/{name}\" alt=\"\">";
     }
 
+    /// <summary>
+    /// v5.7.1: the width Word gives a table, as CSS. <c>&lt;w:tblW w:w="5000" w:type="pct"/&gt;</c> is the
+    /// common case and means "the full width of the text column" - the count is in fiftieths of a percent.
+    /// The converter used to drop this and emit a bare <c>&lt;table&gt;</c>, so the browser laid every table
+    /// out from its content instead of from Word's measure: the reported thesis has 21 tables that all ask
+    /// for 100 %, and the first of them came out 719 px against a 660 px measure. A table wider than the
+    /// sheet is what puts a horizontal scrollbar along the foot of the page, and it also strayed past the
+    /// paper's own margin. <c>w:type="dxa"</c> is an absolute width in twips; <c>auto</c> and <c>nil</c>
+    /// say nothing, and then the content decides, as before. The width is capped at 100 % because a table
+    /// Word allowed to run into the margin (a 120 % table) would only bring the scrollbar back.
+    /// </summary>
+    private static string TableStyle(XElement tableProperties)
+    {
+        if (tableProperties is null)
+            return null;
+
+        var style = new StringBuilder();
+        var width = tableProperties.Element(W + "tblW");
+        var type = (string)width?.Attribute(W + "type");
+        var declared = (string)width?.Attribute(W + "w");
+        if (double.TryParse(declared, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount) &&
+            amount > 0)
+        {
+            if (string.Equals(type, "pct", StringComparison.OrdinalIgnoreCase))
+                style.Append("width:").Append(Number(Math.Min(100, amount / 50d))).Append('%');
+            else if (string.Equals(type, "dxa", StringComparison.OrdinalIgnoreCase))
+                style.Append("width:").Append(Number(Pixels(amount))).Append("px");
+        }
+
+        // A fixed layout is Word's own instruction to keep the grid's columns rather than size them from
+        // what is in them, and the two only agree once the width above is honoured.
+        if (string.Equals((string)tableProperties.Element(W + "tblLayout")?.Attribute(W + "type"),
+                "fixed", StringComparison.OrdinalIgnoreCase))
+        {
+            if (style.Length > 0)
+                style.Append(';');
+            style.Append("table-layout:fixed");
+        }
+
+        return style.Length == 0 ? null : style.ToString();
+    }
+
     private static string TableToHtml(
         XElement table,
         Dictionary<string, string> rels,
@@ -701,7 +743,11 @@ internal static class DocxToHtml
         string imageHost,
         ref int imageCount)
     {
-        var sb = new StringBuilder("<table><tbody>");
+        var style = TableStyle(table.Element(W + "tblPr"));
+        var sb = new StringBuilder("<table");
+        if (style is not null)
+            sb.Append(" style=\"").Append(style).Append('"');
+        sb.Append("><tbody>");
         foreach (var row in table.Elements(W + "tr"))
         {
             sb.Append("<tr>");
@@ -789,8 +835,13 @@ internal static class DocxToHtml
         sb.Append($"p{{margin:.55em 0}}");
         sb.Append($"ul,ol{{margin:.5em 0;padding-left:2em}}");
         sb.Append($"li{{margin:.18em 0}}");
-        sb.Append($"table{{border-collapse:collapse;margin:.8em 0;font-size:13px}}");
-        sb.Append($"td,th{{border:1px solid {border};padding:5px 10px}}");
+        // v5.7.1: a table may not be wider than the sheet. max-width holds a table Word let run into the
+        // margin back inside the paper, and overflow-wrap:anywhere is what makes that hold in a table: an
+        // auto-laid-out table is never narrower than the widest thing it cannot break, and break-word - the
+        // value .doc carries - does not lower that floor, only anywhere does. Without both the table pushes
+        // the page wider than the sheet and the page area grows a horizontal scrollbar along its foot.
+        sb.Append($"table{{border-collapse:collapse;margin:.8em 0;font-size:13px;max-width:100%}}");
+        sb.Append($"td,th{{border:1px solid {border};padding:5px 10px;overflow-wrap:anywhere}}");
         sb.Append($"thead th,table tr:first-child td{{background:{headerBg};font-weight:600}}");
         sb.Append($"img{{max-width:100%;height:auto;border-radius:6px}}");
         sb.Append($".error{{color:#C42B1C;padding:24px;font-size:14px}}");
