@@ -28,30 +28,40 @@ using System.Windows.Threading;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v3.42.0: prepares the preview families this user actually uses, in the
-/// background, right after startup.
+/// v3.42.0: prepares the preview families in the background, so the first preview of a
+/// family does not have to pay the one-time cost itself.
 /// <para>
 /// Measured on a warm app, the *second* preview of a family is always much faster
 /// than the first: text 289 ms -> 96 ms, csv 205 -> 124, png 170 -> 100,
 /// mp4 595 -> 413. The difference is one-time work - the plugin's panel XAML and
 /// JIT, its native libraries, the WebView2 environment - that every user pays on
 /// the first preview of that kind. This class pays it while the user is still
-/// doing something else (the app starts at login), so the first preview feels like
-/// the second one.
+/// doing something else (the app starts at login) or, in the low memory mode, while
+/// they are reading the preview that started the session.
 /// </para>
 /// <para>
-/// It is usage-driven: the families come from <see cref="PluginUsageTracker"/>,
-/// so a user who never opens a video never pays for the video pipeline. Video and
-/// Office are deliberately left out - preparing them means starting playback or
-/// synthesising a valid OOXML document, and their panels are already the cheapest
-/// to reach (the shared WebView2 pool covers Markdown/HTML/Office).
+/// v5.8.0: every family is prepared now, not the two most-used ones. The cost of the
+/// whole list turned out to be small - measured on the 5.7.1 build, tray process,
+/// nothing previewed, 75 s after start: 147 MB private / 228 MB working set with the
+/// warm-up off, 179 / 267 MB with the old default of two, and 217 / 320 MB with all
+/// eight, i.e. 70 MB private for every family against 38 MB for the two that were
+/// default (see <see cref="AllFamilies"/>). The usage history still decides the
+/// *order*: the families this user opens most are prepared first, so a preview that
+/// arrives mid-preparation is most likely to be for one that is already ready.
 /// </para>
 /// <para>
-/// Cost, measured on the tray process with nothing previewed: warming text and
-/// image adds ~23 MB private / ~36 MB working set over a cold session; adding a
-/// WebView2 family (Markdown/HTML) doubles that. The families are therefore capped
-/// (<c>WarmUpFamilyCount</c>, default 2) and the whole thing can be switched off
-/// with <c>WarmUpPreviewFamilies=false</c>.
+/// Video, audio and Office are deliberately left out of the family list - preparing
+/// them means starting playback, or synthesising a valid OOXML document and keeping a
+/// Chromium environment for it - so "all families" here means the eight formats a small
+/// sample file can be written for.
+/// </para>
+/// <para>
+/// Where the cost sits: measured on the tray process with nothing previewed, warming
+/// text and image adds ~23 MB private / ~36 MB working set over a cold session, and
+/// adding a WebView2 family (Markdown/HTML) doubles that. A user who wants the idle
+/// footprint of the old default back can still cap the list
+/// (<c>WarmUpFamilyCount</c>, 0 to 8), and the whole thing can be switched off with
+/// <c>WarmUpPreviewFamilies=false</c>.
 /// </para>
 /// </summary>
 internal static class PreviewWarmUp
@@ -60,18 +70,18 @@ internal static class PreviewWarmUp
     private const string CountSetting = "WarmUpFamilyCount";
 
     /// <summary>
-    /// Families prepared per session when the setting is not set. Two, because the
-    /// cost is not the same for every family: measured idle memory of the tray
-    /// process with the warm-up off / one family (text) / two (text + image) / three
-    /// (text + image + Markdown) was 131 / 148 / 154 / 168-182 MB private. Text
-    /// costs ~17 MB, image ~6 MB, and the WebView2 families (Markdown/HTML/Office)
-    /// add another ~15-25 MB because they leave a Chromium environment behind - that
-    /// one is worth paying only for users who actually open those formats.
+    /// v5.8.0: how many families make up "all of them" - the ones a sample file can be
+    /// written for (see the class comment for why video, audio and Office are not in
+    /// the list). This is also the default: the warm-up prepares the whole list.
     /// </summary>
-    private const int DefaultCount = 2;
+    internal static int AllFamilies => Families.Count;
 
-    /// <summary>Wait before the first family, so startup finishes cleanly.</summary>
-    private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(3);
+    /// <summary>
+    /// Wait before the first family. At startup the app is still settling; when a preview
+    /// is what started the preparation, that preview is the thing that must not compete
+    /// with it.
+    /// </summary>
+    private static readonly TimeSpan FirstDelay = TimeSpan.FromSeconds(3);
 
     /// <summary>Pause between two families, so input is never held up for long.</summary>
     private static readonly TimeSpan BetweenFamilies = TimeSpan.FromMilliseconds(500);
@@ -115,27 +125,38 @@ internal static class PreviewWarmUp
         "QuickLook.Plugin.HtmlViewer",
     ];
 
-    private static readonly string[] _warmed = new string[8];
+    private static readonly string[] _warmed = new string[Families.Count];
     private static int _warmedCount;
     private static bool _started;
 
-    internal static void Start()
+    /// <summary>
+    /// v5.8.0: whether a call to <see cref="Start"/> from this point may begin. The normal
+    /// mode prepares the families while the user is doing something else, so it starts at
+    /// startup; the low memory mode has no such budget and waits for the first preview of
+    /// the session (<c>afterFirstPreview</c>) - which is why it can no longer skip the
+    /// families for the rest of the session, as it did before this version.
+    /// </summary>
+    internal static bool ShouldStart(bool afterFirstPreview)
+        => afterFirstPreview || StartupWarmUp.IsEnabled;
+
+    /// <summary>Whether this session has started preparing the families (test hook).</summary>
+    internal static bool HasStarted => _started;
+
+    internal static void Start(bool afterFirstPreview = false)
     {
         if (_started)
             return;
 
-        _started = true;
-
-        // v5.2.0: the low memory mode is the user saying "I would rather have the memory
-        // back than the head start" - see StartupWarmUp for the measured cost.
-        if (!StartupWarmUp.IsEnabled)
+        if (!ShouldStart(afterFirstPreview))
             return;
+
+        _started = true;
 
         if (!SettingHelper.Get(EnabledSetting, true, "QuickLookNext"))
             return;
 
         var count = Math.Clamp(
-            SettingHelper.Get(CountSetting, DefaultCount, "QuickLookNext"), 0, 8);
+            SettingHelper.Get(CountSetting, AllFamilies, "QuickLookNext"), 0, AllFamilies);
         if (count == 0)
             return;
 
@@ -153,7 +174,7 @@ internal static class PreviewWarmUp
         Application.Current?.Dispatcher.BeginInvoke(
             new Action(async () =>
             {
-                await Task.Delay(InitialDelay);
+                await Task.Delay(FirstDelay);
 
                 foreach (var family in families)
                 {
@@ -174,7 +195,11 @@ internal static class PreviewWarmUp
             DispatcherPriority.ApplicationIdle);
     }
 
-    private static List<string> ChooseFamilies(int count)
+    /// <summary>
+    /// The families to prepare, most used first. Exposed for the tests, which pin that a
+    /// count covering the whole list really does choose every family.
+    /// </summary>
+    internal static List<string> ChooseFamilies(int count)
     {
         var chosen = new List<string>();
 
@@ -184,9 +209,10 @@ internal static class PreviewWarmUp
                 chosen.Add(plugin);
         }
 
-        // Top up with the common formats: a fresh install has no history, and a
-        // user with two favourite formats should still get the third slot used.
-        foreach (var plugin in DefaultOrder)
+        // Top up with the common formats (a fresh install has no history) and then with
+        // whatever is left of the family list, so that a count of AllFamilies really
+        // prepares every one of them rather than the six the order happens to name.
+        foreach (var plugin in DefaultOrder.Concat(Families.Keys))
         {
             if (chosen.Count >= count)
                 break;
@@ -211,6 +237,18 @@ internal static class PreviewWarmUp
                      ?? manager.LoadPluginByName(pluginName);
 
         if (plugin == null)
+            return;
+
+        // v5.8.0: the session start means a preview is on screen while the families are
+        // prepared - and a plugin keeps its panel in its own fields (View assigns them,
+        // Cleanup disposes them), so preparing the family that is on screen right now would
+        // take that panel out from under the user. It is the one family that has already
+        // paid for itself anyway.
+        // The comparison is by name, not by instance: the same plugin can be loaded more than
+        // once (the built-in folder is discovered on its own, and a copy of it can be loaded
+        // from the data folder as well), and the instance the warm-up resolved is not
+        // necessarily the one the window is showing.
+        if (IsOnScreen(host, pluginName))
             return;
 
         manager.EnsurePluginReady(plugin);
@@ -256,16 +294,32 @@ internal static class PreviewWarmUp
             context.ViewerContent = null;
             context.PendingViewerContent = null;
 
-            try
+            // ... and if the user previewed this very family while the sample was loading,
+            // the plugin's fields are the user's panel now, so Cleanup must be left to the
+            // window that owns it.
+            if (!IsOnScreen(host, pluginName))
             {
-                plugin.Cleanup();
+                try
+                {
+                    plugin.Cleanup();
+                }
+                catch
+                {
+                    // Best effort.
+                }
             }
-            catch
-            {
-                // Best effort.
-            }
-
         }
+    }
+
+    /// <summary>
+    /// Whether the preview on screen right now is handled by this family.
+    /// </summary>
+    private static bool IsOnScreen(ViewerWindow host, string pluginName)
+    {
+        var live = host.Plugin;
+
+        return live != null && string.Equals(
+            live.GetType().Assembly.GetName().Name, pluginName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

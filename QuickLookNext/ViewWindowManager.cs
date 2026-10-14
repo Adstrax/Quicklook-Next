@@ -324,6 +324,13 @@ public class ViewWindowManager : IDisposable
         _session.Opened(Environment.TickCount64);
         ArmSessionTimer();
 
+        // v5.8.0: the family warm-up follows the session the same way the window warm-up
+        // does. The normal mode has already prepared the families while nobody was
+        // waiting (this call is then a no-op); the low memory mode deliberately prepares
+        // nothing while idle and starts here instead, on the first preview of the
+        // session, so the next file - of any kind - does not pay the one-time cost.
+        Helpers.PreviewWarmUp.Start(afterFirstPreview: true);
+
         EnsureViewerWindow().UnloadPlugin();
 
         _viewerWindow.BeginShow(matchedPlugin, path, CurrentPluginFailed);

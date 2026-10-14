@@ -25,17 +25,18 @@ namespace QuickLookNext.Helpers;
 /// <para>
 /// Both startup warm-ups exist to make the first preview fast, and both pay for it with
 /// memory that stays resident for the life of the tray process. Measured on this machine
-/// (single 200% display, nothing previewed, 60 s idle):
+/// (single 200 % display, nothing previewed):
 /// </para>
 /// <list type="table">
-///   <item><description>nothing warmed: 61 MB private / 122 MB working set</description></item>
+///   <item><description>low memory mode, after an idle release: 61 MB private / 122 MB working set</description></item>
 ///   <item><description>preview window warmed off-screen: +51 MB (112-118 MB)</description></item>
-///   <item><description>plus the two most-used preview families: +51 MB (169 MB)</description></item>
+///   <item><description>window plus every preview family: 217 MB private / 320 MB working set</description></item>
 /// </list>
 /// <para>
 /// The window warm-up buys ~200 ms, the family warm-up 100-200 ms per family (text
 /// 289-&gt;96 ms, image 170-&gt;100 ms). Users who would rather have the memory back than
 /// those milliseconds turn this on and the app idles at the 61 MB baseline.
+/// </para>
 ///
 /// <para>
 /// v5.6.2: the older wording here said "the price is paid once, on the first preview of
@@ -45,9 +46,15 @@ namespace QuickLookNext.Helpers;
 /// after the first. The window warm-up now follows the preview session (see
 /// <see cref="PreviewSession"/>): nothing is warmed before the user previews something,
 /// everything is warmed while they keep previewing, and the parked window is released
-/// after 90 s of no previews. The family warm-up is still skipped outright - that one
-/// really is a per-session cost.
+/// after 90 s of no previews.
 /// </para>
+///
+/// <para>
+/// v5.8.0: the family warm-up follows the session too. It is still a per-session cost -
+/// a user who is not previewing anything should not be paying for preview panels - so it
+/// does not run before the first preview; it now runs <em>at</em> the first preview
+/// instead of being skipped for the whole session, which is what left the second format
+/// of a session as slow as the first one ever was.
 /// </para>
 /// </summary>
 internal static class StartupWarmUp
