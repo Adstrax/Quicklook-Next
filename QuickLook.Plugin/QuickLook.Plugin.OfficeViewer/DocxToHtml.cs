@@ -862,18 +862,28 @@ internal static class DocxToHtml
     /// that may live on another page, and every page but the current one is display:none - so the click has
     /// to bring the row's page up first, or the browser scrolls to a hidden element and nothing appears to
     /// happen.
+    /// <para>
+    /// A sheet is also scaled down to the window when it is taller than it, which is what the PDF panel does
+    /// with the page of a PDF: a whole page is what a reader compares at a glance, and the alternative - a
+    /// page at its printing size - is taller than this window and has to be scrolled.
+    /// </para>
     /// </summary>
     private const string PageScript =
-        "<script>window._pages=[].slice.call(document.querySelectorAll('.page'));" +
-        "function showPage(i){i=Math.max(0,Math.min(window._pages.length-1,i));" +
+        "<script>window._pages=[].slice.call(document.querySelectorAll('.page'));window._current=0;" +
+        "function showPage(i){i=Math.max(0,Math.min(window._pages.length-1,i));window._current=i;" +
         "for(var n=0;n<window._pages.length;n++)window._pages[n].className=(n===i?'page active':'page');" +
-        "window.scrollTo(0,0);}" +
+        "fitPage();window.scrollTo(0,0);}" +
+        "function fitPage(){var p=window._pages[window._current];if(!p)return;p.style.zoom=1;" +
+        "var natural=p.offsetHeight,available=window.innerHeight-44;" +
+        "p.style.zoom=natural>available?(available/natural):1;}" +
+        "window.addEventListener('resize',fitPage);" +
         "document.addEventListener('click',function(e){" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a)return;" +
         "var el=document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)));" +
         "if(!el)return;e.preventDefault();" +
         "var p=el.closest('.page');if(p)showPage(window._pages.indexOf(p));" +
-        "setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},40);});</script>";
+        "setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},40);});" +
+        "fitPage();</script>";
 
     /// <summary>
     /// v5.6.19: where Word last laid a page out. <c>w:lastRenderedPageBreak</c> records the boundary from the
