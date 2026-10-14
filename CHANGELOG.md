@@ -7,6 +7,41 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 5.8.0
+
+### Every preview family is prepared, and it starts when you do
+
+The warm-up prepared the two most-used preview families, and the low memory mode skipped it outright.
+Both halves of that cost more than they saved.
+
+- **The whole family list is prepared by default now.** The old default of two was chosen on the
+  assumption that the WebView2 families are expensive to leave behind. Measured on the 5.7.1 build
+  (single 200 % display, tray process, nothing previewed, 75 s after start): 147 MB private /
+  228 MB working set with the warm-up off, 179 / 267 MB with the two families of the old default, and
+  217 / 320 MB with all eight. Every family therefore costs 70 MB private, and the six the old default
+  left out cost 32 MB between them - a third of what the window warm-up already pays in the normal
+  mode, for the formats a user is most likely to open next. The usage history still decides the
+  *order*, so the family this user opens most is ready first. `<WarmUpFamilyCount>` (0-8) and
+  `<WarmUpPreviewFamilies>` still cap or switch the whole thing off, and the 5.7.x behaviour is one
+  setting away (`<WarmUpFamilyCount>2</WarmUpFamilyCount>`).
+- **The low memory mode no longer skips the families for the whole session.** It is a per-session
+  cost, so it must not be paid while the app is idle - but "not while idle" had been implemented as
+  "never", which left the second format of a session as slow as the first one ever was. The warm-up
+  follows the preview session now, the way the window warm-up has since 5.6.2: the first preview of a
+  session starts it, and every preview after that one is prepared. Measured in that mode: 75 MB
+  private with nothing previewed (unchanged), and every family prepared once the first preview is on
+  screen.
+- **The family that is on screen is skipped.** A plugin keeps its panel in its own fields - `View`
+  assigns them, `Cleanup` disposes them - so preparing the family the user is looking at would take
+  that panel out from under them. It is compared by name rather than by instance: the same plugin can
+  be loaded more than once (the built-in folder and the data folder are both discovered) and the
+  instance the warm-up resolves is not necessarily the one the window is showing - the first version
+  of this check compared instances, and silently never fired.
+
+Verified against the real app in both modes with `ql-smoke/verify-warmup-session.ps1`: normal mode
+prepares all eight families while idle; the low memory mode prepares none until the first preview and
+then all of them except the one on screen, with the open preview still rendering afterwards.
+
 ## QuickLook-Next 5.7.1
 
 ### A Word table is the width Word made it, and the preview shows a page instead of an empty surface
