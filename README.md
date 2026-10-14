@@ -187,12 +187,15 @@ fixes or implements is noted where there is one.
   leftover update files, settings, logs, the WebView2 profile) and clears only the rebuildable
   parts: sign-in data, settings, statistics and logs survive. (upstream #1933)
 - **Low memory mode** — the two startup warm-ups become a switch. Measured idle memory on a single
-  200% screen: 64 MB with both off, 112–118 MB with the window only, 169–179 MB by default; the
-  warm-ups in exchange buy roughly 200 ms per preview. Since 5.6.2 the mode does not slow previewing
-  down: the window warm-up follows the preview session, so consecutive previews stay at ~120 ms.
-  Since 5.6.3 the memory also really comes back — the tray process restarts itself once you have
-  stopped previewing, after a wait you choose in the *Low memory mode* group (90 seconds by default,
-  "never"); measured 67 MB idle before a preview and 69 MB after the release.
+  200% screen: 64 MB with both off, 112–118 MB with the window only, 217 MB with the window and every
+  preview family (the 5.8.0 default; the two most-used families of 5.7.x were 179 MB); the warm-ups in
+  exchange buy roughly 200 ms per preview. Since 5.6.2 the mode does not slow previewing down: the
+  window warm-up follows the preview session, so consecutive previews stay at ~120 ms. Since 5.8.0 the
+  family warm-up follows it too — nothing is prepared while the app is idle, the first preview of a
+  session starts the preparation, and the family that preview is showing is skipped. Since 5.6.3 the
+  memory also really comes back — the tray process restarts itself once you have stopped previewing,
+  after a wait you choose in the *Low memory mode* group (90 seconds by default, "never"); measured
+  67 MB idle before a preview and 69 MB after the release.
 - **Huge-image protection** — a 40 MP decode cap, plus zoom and memory accounting in the coordinate
   space the image was actually decoded in: a 64 MP image dropped from a 1705 MB peak to 1156 MB
   without changing how it looks. (upstream #1054)
