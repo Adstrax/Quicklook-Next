@@ -118,8 +118,26 @@ public sealed class Plugin : IViewer
 
     public void Prepare(string path, ContextObject context)
     {
-        // v5.6.19: the self-rendered panels carry a rail on the left (Word's outline, the slide list, the
-        // worksheets), so the page keeps its 1200 px and the window grows by the rail's width.
+        // v5.6.19: a Word page is portrait and the panel draws it as a sheet of the document's own paper, so
+        // the window is sized around that sheet instead of around the landscape window the slide and
+        // spreadsheet previews want - the page was previously fitted into a window more than twice its width,
+        // which left the sheet tiny in a sea of backdrop. The host scales the request down to the screen and
+        // the page's own script then fits the sheet into whatever it gets, so a small screen still works.
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".docx", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".docm", StringComparison.OrdinalIgnoreCase))
+        {
+            var paper = DocxToHtml.ReadPaperSize(path);
+            if (paper is not null)
+            {
+                context.SetPreferredSizeFit(
+                    new Size { Width = OfficePanelBase.RailWidth + paper.Width + 4, Height = paper.Height + 48 },
+                    0.9d);
+                return;
+            }
+        }
+
+        // The slide list and the worksheets sit in a rail on the left too, so those windows grow by its width.
         context.SetPreferredSizeFit(new Size { Width = 1410, Height = 800 }, 0.8d);
     }
 

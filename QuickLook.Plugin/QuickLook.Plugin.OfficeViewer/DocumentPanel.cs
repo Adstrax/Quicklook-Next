@@ -10,8 +10,9 @@
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v3.11.0: the page for a .docx/.docm. v5.6.19: the document is shown as the pages it is made of - the rail
-/// lists them, as the PDF panel's list of page thumbnails does, and picking one turns to that page.
+/// v3.11.0: the page for a .docx/.docm. v5.6.19: the document is shown as the pages it is made of, one at a
+/// time, while the rail keeps the document's own outline - its headings and its table of contents - as the
+/// way around it, and a row that names a paragraph on another page turns to that page.
 /// </summary>
 public sealed class DocumentPanel : OfficePanelBase
 {
@@ -31,6 +32,8 @@ public sealed class DocumentPanel : OfficePanelBase
         if (index < 0 || index >= Navigation.Count)
             return;
 
-        RunScript($"showPage({index})");
+        var target = Navigation[index].Target;
+        if (!string.IsNullOrEmpty(target))
+            RunScript($"goTo({System.Text.Json.JsonSerializer.Serialize(target)})");
     }
 }

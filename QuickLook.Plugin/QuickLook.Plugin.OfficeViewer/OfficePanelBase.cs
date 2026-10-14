@@ -36,6 +36,9 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// </summary>
 public abstract class OfficePanelBase : UserControl, IDisposable
 {
+    /// <summary>v5.6.19: how wide the rail is, so a preview whose page is portrait can size its window around it.</summary>
+    internal const double RailWidth = 208;
+
     /// <summary>
     /// The host name the preview's own pictures are served under (see OfficeImageStore); the converters put
     /// it in front of every image they reference.
@@ -109,14 +112,13 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
     /// <summary>
     /// v5.6.19: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
-    /// colours are fixed (light) like the paper surface next to them.
+    /// rail itself is transparent and its rows keep the app's own colours (see BuildRailHost).
     /// </summary>
     private ListBox BuildRail()
     {
         var rail = new ListBox
         {
-            // The background lives on the host border: the app's theme dictionaries give ListBox a
-            // transparent background of their own, which is not what a paper-like rail wants.
+            // The background lives on the host border, so the rail is one surface rather than two.
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -138,23 +140,24 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
     private static Border BuildRailHost(ListBox rail) => new()
     {
-        Width = 208,
-        Background = new SolidColorBrush(WpfColor.FromRgb(0xF7, 0xF7, 0xF7)),
-        BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0xE3, 0xE3, 0xE3)),
-        BorderThickness = new Thickness(0, 0, 1, 0),
+        Width = RailWidth,
+        // v5.6.19: transparent, so the window's own backdrop shows through the rail the way it does behind the
+        // PDF panel's thumbnails, and the rail and the colours of its rows follow the app's theme. The page
+        // area beside it is an opaque grey (a transparent WebView2 page composites to black), which is what
+        // makes the rail read as a surface of its own instead of another grey band.
+        Background = Brushes.Transparent,
+        BorderThickness = new Thickness(0),
         Child = rail,
     };
 
     /// <summary>
-    /// v5.6.19: a plain, light row. The rail sits next to the white page, so it does not follow the app
-    /// theme - and it deliberately keeps the stock item visuals: a custom template here turned out to be the
-    /// one thing between the outline and the reader.
+    /// v5.6.19: a plain row - padding for a comfortable target, and a size that fits the rail. It deliberately
+    /// keeps the stock item visuals: a custom template here turned out to be the one thing between the outline
+    /// and the reader.
     /// </summary>
     private static Style RailItemStyle()
     {
         var style = new Style(typeof(ListBoxItem));
-        style.Setters.Add(new Setter(Control.ForegroundProperty,
-            new SolidColorBrush(WpfColor.FromRgb(0x1A, 0x1A, 0x1A))));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 5, 10, 5)));
         style.Setters.Add(new Setter(Control.FontSizeProperty, 12.5d));
         return style;
@@ -376,9 +379,6 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                 _rail.Items.Add(new TextBlock
                 {
                     Text = entry.Label,
-                    // Set on the row itself: the app's theme dictionaries give list items a light foreground
-                    // that is meant for a dark surface, and this rail is light.
-                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0x1A, 0x1A, 0x1A)),
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     Margin = new Thickness(entry.Level * 12, 0, 0, 0),
                 });

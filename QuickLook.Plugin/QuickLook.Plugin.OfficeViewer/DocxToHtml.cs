@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -68,9 +69,8 @@ internal static class DocxToHtml
             var body = document.Root?.Element(W + "body");
             var geometry = ReadPageGeometry(document);
             var pages = new List<StringBuilder>();
-            var pageLabels = new List<string>();
             var page = new StringBuilder();
-            string pageLabel = null;
+            var outline = new List<OfficeNavEntry>();
             var listBuffer = new List<string>();
             var listRun = 0;
             var paragraphCount = 0;
@@ -88,9 +88,7 @@ internal static class DocxToHtml
                     return;
 
                 pages.Add(page);
-                pageLabels.Add(pageLabel);
                 page = new StringBuilder();
-                pageLabel = null;
             }
 
             // Emits the pending list items into the page being built. listRun counts the items already
@@ -145,20 +143,11 @@ internal static class DocxToHtml
                     byText[text] = i;
             }
 
-            // The heading each page opens with, taken from the table of contents: a thesis like the one this
-            // was written against carries no heading styles at all (its body headings are ordinary paragraphs
-            // with a bold run), so the TOC is the only place that says what a section is called - and a TOC row
-            // pointing at a paragraph is exactly the mapping needed.
             var tocTargets = new Dictionary<int, int>();
-            var targetLabels = new Dictionary<int, string>();
             foreach (var (index, row) in tocRows)
             {
                 if (byText.TryGetValue(row.Text, out var target))
-                {
                     tocTargets[index] = target;
-                    if (row.Text.Length > 0 && !targetLabels.ContainsKey(target))
-                        targetLabels[target] = row.Text;
-                }
             }
 
             var navTargets = new HashSet<int>(tocTargets.Values);
@@ -171,11 +160,8 @@ internal static class DocxToHtml
                     if (++paragraphCount > MaxParagraphs)
                         return;
 
-                    if (pageLabel is null && targetLabels.TryGetValue(index, out var label))
-                        pageLabel = label;
-
                     var item = ParagraphToHtml(node, styleNames, numberingFormats, rels, archive,
-                        imageFolder, imageHost, ref imageCount, ref headingIndex,
+                        imageFolder, imageHost, ref imageCount, outline, ref headingIndex,
                         index, tocByIndex.TryGetValue(index, out var row) ? row : null,
                         tocTargets.TryGetValue(index, out var target) ? target : (int?)null,
                         navTargets);
@@ -225,38 +211,24 @@ internal static class DocxToHtml
             }
 
             if (pages.Count == 0)
-            {
                 pages.Add(page);
-                pageLabels.Add(pageLabel);
-            }
 
             var sb = new StringBuilder();
-            var navigation = new List<OfficeNavEntry>();
             sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>");
             AppendCss(sb, geometry);
             sb.Append("</style></head><body><div class=\"pages\">");
 
             for (var i = 0; i < pages.Count; i++)
-            {
-                var content = pages[i].ToString();
                 sb.Append("<div class=\"page").Append(i == 0 ? " active" : string.Empty)
-                  .Append("\" id=\"page-").Append(i + 1).Append("\">").Append(content).Append("</div>");
+                  .Append("\" id=\"page-").Append(i + 1).Append("\">")
+                  .Append(pages[i].ToString()).Append("</div>");
 
-                // The rail reads as an outline of the pages: the number, then the heading the page opens
-                // with, so a reader can go to "第二章" without stepping through thumbnails. The heading comes
-                // from the TOC where there is one, and from the document's own heading elements otherwise.
-                var heading = i < pageLabels.Count ? pageLabels[i] : null;
-                heading ??= FirstHeading(content);
-                navigation.Add(new OfficeNavEntry(
-                    heading is null ? $"Page {i + 1}" : $"{i + 1} · {heading}", $"page-{i + 1}"));
-            }
-
-            sb.Append("</div>").Append(PageScript).Append("</body></html>");
+            sb.Append("</div>").Append(PageScript(geometry)).Append("</body></html>");
 
             return new OfficePanelContent
             {
                 Html = sb.ToString(),
-                Navigation = navigation,
+                Navigation = outline,
                 ImageFolder = imageFolder,
             };
         }
@@ -405,6 +377,7 @@ internal static class DocxToHtml
         string imageFolder,
         string imageHost,
         ref int imageCount,
+        List<OfficeNavEntry> outline,
         ref int headingIndex,
         int index,
         OfficeTocRow tocRow,
@@ -422,7 +395,7 @@ internal static class DocxToHtml
         var isListItem = numId is not null;
 
         if (tocLevel > 0)
-            return new ParagraphResult(TocRowToHtml(tocRow, tocLevel, tocTarget), false);
+            return new ParagraphResult(TocRowToHtml(tocRow, tocLevel, tocTarget, outline), false);
 
         var sb = new StringBuilder();
         AppendInline(sb, paragraph, rels, archive, imageFolder, imageHost, ref imageCount);
@@ -450,6 +423,9 @@ internal static class DocxToHtml
         {
             var h = Math.Min(headingLevel, 6);
             var id = navId ?? anchor ?? $"h{++headingIndex}";
+            var text = Flatten(paragraph).Trim();
+            if (text.Length > 0)
+                outline.Add(new OfficeNavEntry(text, id, Math.Min(headingLevel - 1, 3)));
 
             return new ParagraphResult($"<h{h}{idAttr}{styleAttr}>{sb}</h{h}>", false);
         }
@@ -462,7 +438,8 @@ internal static class DocxToHtml
     /// the paragraph the entry names. When the field is stale the link uses the paragraph's own id; when the
     /// entry cannot be matched at all the row still reads as text rather than pointing nowhere.
     /// </summary>
-    private static string TocRowToHtml(OfficeTocRow row, int level, int? targetIndex)
+    private static string TocRowToHtml(
+        OfficeTocRow row, int level, int? targetIndex, List<OfficeNavEntry> outline)
     {
         if (row is null)
             return string.Empty;
@@ -470,6 +447,13 @@ internal static class DocxToHtml
         var target = targetIndex is { } index
             ? $"nav-{index}"
             : row.Anchor;
+
+        // The rail is the document's outline, which for a table of contents is the table itself: a thesis
+        // carries no heading styles at all, so its TOC rows are the only record of what its sections are
+        // called and where each one starts.
+        if (!string.IsNullOrEmpty(row.Text))
+            outline.Add(new OfficeNavEntry(
+                row.Text, target ?? $"toc-{outline.Count}", Math.Min(level - 1, 3)));
 
         var style = row.Bold ? " class=\"toc-text toc-bold\"" : " class=\"toc-text\"";
         var body =
@@ -756,7 +740,7 @@ internal static class DocxToHtml
                     var para = ParagraphToHtml(p, new Dictionary<string, string>(),
                         new Dictionary<string, string>(), rels,
                         archive, imageFolder, imageHost, ref imageCount,
-                        ref UnusedHeadingIndex,
+                        new List<OfficeNavEntry>(), ref UnusedHeadingIndex,
                         -1, null, null, EmptyNavTargets);
                     cellHtml.Append(para.IsListItem ? "<div>" + para.Html + "</div>" : para.Html);
                 }
@@ -825,9 +809,10 @@ internal static class DocxToHtml
 
         // v5.6.19: the document is drawn as the pages it is made of - a white sheet of the section's own
         // paper size, with the section's own margins as its padding, one page at a time (showPage()).
-        sb.Append($".page{{display:none;box-sizing:border-box;width:{geometry.Width}px;" +
-            $"min-height:{geometry.Height}px;" +
-            $"padding:{geometry.Top}px {geometry.Right}px {geometry.Bottom}px {geometry.Left}px;" +
+        sb.Append($".page{{display:none;box-sizing:border-box;width:{Number(geometry.Width)}px;" +
+            $"min-height:{Number(geometry.Height)}px;" +
+            $"padding:{Number(geometry.Top)}px {Number(geometry.Right)}px " +
+            $"{Number(geometry.Bottom)}px {Number(geometry.Left)}px;" +
             "margin:22px auto;background:#FFFFFF;overflow-wrap:break-word;" +
             "box-shadow:0 1px 2px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.06)}");
         sb.Append(".page.active{display:block}");
@@ -863,27 +848,28 @@ internal static class DocxToHtml
     /// to bring the row's page up first, or the browser scrolls to a hidden element and nothing appears to
     /// happen.
     /// <para>
-    /// A sheet is also scaled down to the window when it is taller than it, which is what the PDF panel does
-    /// with the page of a PDF: a whole page is what a reader compares at a glance, and the alternative - a
-    /// page at its printing size - is taller than this window and has to be scrolled.
+    /// The sheets are scaled to the window the way the PDF panel fits the page of a PDF, and by the *paper*
+    /// rather than by each page's own height: the window is already sized to the paper, so the scale is
+    /// usually one, and pages keep one scale between them instead of each turning to whatever its content
+    /// happens to measure. A page whose content runs past the paper - our layout does not reflow text the way
+    /// Word does - simply scrolls.
     /// </para>
     /// </summary>
-    private const string PageScript =
+    private static string PageScript(PageGeometry geometry) =>
         "<script>window._pages=[].slice.call(document.querySelectorAll('.page'));window._current=0;" +
+        $"var paper={{w:{Number(geometry.Width)},h:{Number(geometry.Height)}}};" +
+        "function fitPage(){var scale=Math.min((window.innerHeight-44)/paper.h,(window.innerWidth-8)/paper.w);" +
+        "for(var n=0;n<window._pages.length;n++)window._pages[n].style.zoom=scale;}" +
         "function showPage(i){i=Math.max(0,Math.min(window._pages.length-1,i));window._current=i;" +
         "for(var n=0;n<window._pages.length;n++)window._pages[n].className=(n===i?'page active':'page');" +
-        "fitPage();window.scrollTo(0,0);}" +
-        "function fitPage(){var p=window._pages[window._current];if(!p)return;p.style.zoom=1;" +
-        "var natural=p.offsetHeight,available=window.innerHeight-44;" +
-        "p.style.zoom=natural>available?(available/natural):1;}" +
-        "window.addEventListener('resize',fitPage);" +
+        "window.scrollTo(0,0);}" +
+        "function goTo(id){var el=document.getElementById(id);if(!el)return;" +
+        "var p=el.closest('.page');if(p)showPage(window._pages.indexOf(p));" +
+        "setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},40);}" +
         "document.addEventListener('click',function(e){" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a)return;" +
-        "var el=document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)));" +
-        "if(!el)return;e.preventDefault();" +
-        "var p=el.closest('.page');if(p)showPage(window._pages.indexOf(p));" +
-        "setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},40);});" +
-        "fitPage();</script>";
+        "e.preventDefault();goTo(decodeURIComponent(a.getAttribute('href').slice(1)));});" +
+        "window.addEventListener('resize',fitPage);fitPage();</script>";
 
     /// <summary>
     /// v5.6.19: where Word last laid a page out. <c>w:lastRenderedPageBreak</c> records the boundary from the
@@ -922,64 +908,125 @@ internal static class DocxToHtml
         return false;
     }
 
-    /// <summary>
-    /// v5.6.19: the heading a page opens with, which is what the rail labels the page with - the heading is
-    /// already in the page's own HTML, so there is nothing to collect while rendering.
-    /// </summary>
-    private static string FirstHeading(string html)
-    {
-        var match = Regex.Match(html, "<h[1-6][^>]*>(.*?)</h[1-6]>", RegexOptions.Singleline);
-        if (!match.Success)
-            return null;
+    /// <summary>v5.6.19: the white sheet a page is drawn as, in CSS pixels.</summary>
+    internal sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);
 
-        var text = Regex.Replace(match.Groups[1].Value, "<[^>]+>", string.Empty);
-        return WebUtility.HtmlDecode(text).Trim() is { Length: > 0 } heading ? heading : null;
+    /// <summary>
+    /// v5.6.19: the paper of a .docx, read before there is a panel to read it in - the preview window is sized
+    /// around the sheet it is about to show (see Plugin.Prepare), which is what keeps a portrait Word page
+    /// from sitting in a landscape window. The body's section properties are the last thing in
+    /// word/document.xml, so the part is streamed past with only its tail kept.
+    /// </summary>
+    internal static PageGeometry ReadPaperSize(string path)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(path);
+            var entry = archive.GetEntry("word/document.xml");
+            if (entry is null)
+                return null;
+
+            using var stream = entry.Open();
+            var tail = ReadTail(stream, 8192);
+            var size = Regex.Match(tail, "<w:pgSz\\b[^>]*>");
+            if (!size.Success)
+                return null;
+
+            var margin = Regex.Match(tail, "<w:pgMar\\b[^>]*>");
+            return Geometry(size.Value, margin.Success ? margin.Value : null);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+            return null;
+        }
     }
 
-    /// <summary>v5.6.19: the white sheet a page is drawn as, in CSS pixels.</summary>
-    private sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);
+    /// <summary>The last <paramref name="count"/> characters of a stream, without holding the whole part.</summary>
+    private static string ReadTail(Stream stream, int count)
+    {
+        var buffer = new byte[count];
+        var filled = 0;
+        int read;
+        while ((read = stream.Read(buffer, filled, count - filled)) > 0)
+        {
+            filled += read;
+            if (filled < count)
+                continue;
 
-    /// <summary>
-    /// v5.6.19: the section's own paper, so a Word page in the preview is the size it would print at. A twip
-    /// is a twentieth of a point and a CSS pixel is 1/96 inch, so a pixel is fifteen twips. A document that
-    /// says nothing usable falls back to A4 with one-inch margins.
-    /// </summary>
+            Array.Copy(buffer, count / 2, buffer, 0, count / 2);
+            filled = count / 2;
+        }
+
+        return Encoding.UTF8.GetString(buffer, 0, filled);
+    }
+
     private static PageGeometry ReadPageGeometry(XDocument document)
     {
-        var fallback = new PageGeometry(794, 1123, 96, 96, 96, 96);
         try
         {
             var body = document?.Root?.Element(W + "body");
             var section = body?.Elements(W + "sectPr").LastOrDefault() ??
                           body?.Descendants(W + "pPr").Elements(W + "sectPr").LastOrDefault();
-            var size = section?.Element(W + "pgSz");
-            if (size is null)
-                return fallback;
-
-            var width = Pixels((double?)size.Attribute(W + "w") ?? 0);
-            var height = Pixels((double?)size.Attribute(W + "h") ?? 0);
-            if (width < 200 || width > 4000 || height < 200 || height > 4000)
-                return fallback;
-
-            var margin = section.Element(W + "pgMar");
-            var top = Pixels((double?)margin?.Attribute(W + "top") ?? 0);
-            var right = Pixels((double?)margin?.Attribute(W + "right") ?? 0);
-            var bottom = Pixels((double?)margin?.Attribute(W + "bottom") ?? 0);
-            var left = Pixels((double?)margin?.Attribute(W + "left") ?? 0);
-
-            return new PageGeometry(
-                width, height,
-                top > 0 ? top : 96, right > 0 ? right : 96,
-                bottom > 0 ? bottom : 96, left > 0 ? left : 96);
+            return Geometry(section?.Element(W + "pgSz")?.ToString(), section?.Element(W + "pgMar")?.ToString());
         }
         catch (Exception e)
         {
             Debug.WriteLine(e.Message);
-            return fallback;
+            return Geometry(null, null);
         }
     }
 
+    /// <summary>
+    /// v5.6.19: the sheet a page is drawn as, in CSS pixels, from the section's own paper - A4 with one-inch
+    /// margins when the document says nothing usable. A twip is a twentieth of a point and a CSS pixel is
+    /// 1/96 inch, so a pixel is fifteen twips.
+    /// </summary>
+    private static PageGeometry Geometry(string pgSz, string pgMar)
+    {
+        var fallback = new PageGeometry(794, 1123, 96, 96, 96, 96);
+        if (string.IsNullOrEmpty(pgSz))
+            return fallback;
+
+        var size = Attributes(pgSz);
+        var width = Pixels(Value(size, "w:w"));
+        var height = Pixels(Value(size, "w:h"));
+        if (width < 200 || width > 4000 || height < 200 || height > 4000)
+            return fallback;
+
+        var margin = pgMar is null ? [] : Attributes(pgMar);
+        var top = Pixels(Value(margin, "w:top"));
+        var right = Pixels(Value(margin, "w:right"));
+        var bottom = Pixels(Value(margin, "w:bottom"));
+        var left = Pixels(Value(margin, "w:left"));
+
+        return new PageGeometry(
+            width, height,
+            top > 0 ? top : 96, right > 0 ? right : 96,
+            bottom > 0 ? bottom : 96, left > 0 ? left : 96);
+
+        static double Value(Dictionary<string, double> source, string name) =>
+            source.TryGetValue(name, out var value) ? value : 0;
+    }
+
+    /// <summary>The numeric attributes of a tag such as <c>&lt;w:pgSz w:w="12240" w:h="15840"/&gt;</c>.</summary>
+    private static Dictionary<string, double> Attributes(string tag)
+    {
+        var values = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match match in Regex.Matches(tag, "[\\w:]+=\"(-?\\d+)\""))
+        {
+            var name = match.Value[..match.Value.IndexOf('=')];
+            if (double.TryParse(match.Groups[1].Value, out var value))
+                values[name] = value;
+        }
+
+        return values;
+    }
+
     private static double Pixels(double twips) => Math.Round(twips / 15d, 2);
+
+    /// <summary>A number the way CSS and JavaScript want it, whatever the machine's decimal separator is.</summary>
+    private static string Number(double value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static string ErrorHtml(string message)
     {
