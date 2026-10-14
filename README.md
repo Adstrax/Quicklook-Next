@@ -89,7 +89,11 @@ highlighting; content scrolls smoothly.
 
 Excel / Word / PowerPoint all use in-house rendering (OOXML parsing + WebView2)
 instead of the Windows system preview component — no Office installation
-required. The screenshot shows Excel as an example.
+required. Each opens as the PDF preview does: the file's own structure in a rail
+down the left (Word's outline and table of contents, the deck's slides, the
+workbook's worksheets) and the page beside it. Word lays the document out as the
+sheet of paper it would print and fills the window with it. The screenshot shows
+Excel as an example.
 
 ![Office preview (Excel example)](docs/screenshots/preview-excel.png)
 
@@ -226,6 +230,15 @@ fixes or implements is noted where there is one.
   - is handed back to Explorer as real input, so its own middle click still opens a folder in a new tab.
   The item under the cursor is found with UI Automation (MSAA as a fallback) for its name and the shell
   view of that window for its path; desktop icons are matched against the entries of the desktop folder.
+- **Office previews (5.7.0)** — Excel, Word and PowerPoint are drawn the way the PDF panel is: the
+  file's own structure in a rail on the left and the page beside it. Word's rail is the document's
+  outline (its headings, and its table of contents where it has one); the page is the sheet of paper the
+  document would print, filled to the window, and reading on is a scroll rather than a step through
+  pages. Word's own page breaks are not drawn, because they record its last layout rather than the one
+  this renderer produces. PowerPoint's rail is the deck, and grouped shapes are composed through their
+  group transform, so a design template comes out whole instead of nearly empty. Excel's rail is the
+  workbook's worksheets, the page says what is on screen ("rows 1-300 of 66,353"), and a footer walks or
+  jumps through the file.
 
 ### Performance & size
 
