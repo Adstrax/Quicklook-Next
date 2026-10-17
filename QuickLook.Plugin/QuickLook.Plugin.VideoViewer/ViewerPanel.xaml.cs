@@ -28,6 +28,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -49,6 +50,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     private DispatcherTimer _lyricTimer;
     private LrcLine[] _lyricLines;
     private MidiPlayer _midiPlayer;
+    private CancellationTokenSource _metaCancellation;
 
     private bool _hasVideo;
     private bool _isPlaying;
@@ -58,8 +60,11 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     private bool _disposed;
     private bool _quiesced;
     private bool _mediaSettled;
+    private bool _mediaFailed;
+    private string _path;
     private string _pendingMetaPath;
     private MediaInfoSnapshot _pendingMetaInfo;
+    private int _metaVersion;
 
     public ViewerPanel(ContextObject context)
     {
@@ -167,7 +172,6 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         private set
         {
             if (ReferenceEquals(value, _coverArt)) return;
-            if (value == null) return;
             _coverArt = value;
             OnPropertyChanged();
         }
@@ -177,6 +181,8 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     {
         _quiesced = true;
         _disposed = true;
+        Interlocked.Increment(ref _metaVersion);
+        CancelPendingMeta();
 
         videoThumbnail.Source = null;
         videoThumbnail.Visibility = Visibility.Collapsed;
@@ -201,9 +207,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             Debug.WriteLine(e);
         }
 
-        _lyricTimer?.Stop();
-        _lyricTimer = null;
-        _lyricLines = null;
+        StopLyrics();
         _midiPlayer?.Dispose();
         _midiPlayer = null;
     }
@@ -218,7 +222,9 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             return;
 
         _quiesced = true;
-        _lyricTimer?.Stop();
+        Interlocked.Increment(ref _metaVersion);
+        CancelPendingMeta();
+        StopLyrics();
         _pendingMetaPath = null;
         _pendingMetaInfo = null;
 
@@ -300,6 +306,21 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
         HasVideo = mediaElement.HasVideo;
 
+        // The first placement may have used the extension-only guess. Now
+        // that the graph is open, the natural video size is also available as
+        // a fallback when MediaInfo could not read the container header.
+        if (HasVideo)
+        {
+            if (_pendingMetaInfo is { Width: > 0, Height: > 0 })
+                FitWindowToInfo(_pendingMetaInfo);
+            else
+                FitWindowToPlayer();
+        }
+        else
+        {
+            FitAudioWindow();
+        }
+
         _context.IsBusy = false;
 
         // v1.2.13: tags/cover art are filled in after the frame is showing so
@@ -315,6 +336,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     private void MediaFailed(object sender, MediaFailedEventArgs e)
     {
         _mediaSettled = true;
+        _mediaFailed = true;
 
         // v5.0.9: WPFMediaKit raises this on its own worker thread. The two lines that clear the
         // thumbnail used to run right here, and touching the visual tree from that thread throws -
@@ -409,23 +431,17 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         if (HasVideo)
             return;
 
+        var version = Interlocked.Increment(ref _metaVersion);
+        CancelPendingMeta();
+        StopLyrics();
+
         try
         {
-            if (info == null)
-                throw new NullReferenceException();
-
-            var title = info.Title;
-            var artist = info.Artist;
-            var album = info.Album;
-
-            metaTitle.Text = !string.IsNullOrWhiteSpace(title) ? title : Path.GetFileName(path);
-            metaArtists.Text = artist;
-            metaAlbum.Text = album;
-
-            // Extract cover art
-            var coverData = info.CoverData;
-            var coverBytes = CoverDataExtractor.Extract(coverData);
-            CoverArt = CoverDataExtractor.Extract(coverBytes);
+            metaTitle.Text = !string.IsNullOrWhiteSpace(info?.Title)
+                ? info.Title
+                : Path.GetFileName(path);
+            metaArtists.Text = info?.Artist;
+            metaAlbum.Text = info?.Album;
         }
         catch (Exception e)
         {
@@ -434,53 +450,216 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             metaArtists.Text = metaAlbum.Text = string.Empty;
         }
 
+        UpdateMetaVisibility();
+
+        var cancellation = new CancellationTokenSource();
+        _metaCancellation = cancellation;
+        _ = LoadAudioArtifactsAsync(path, info, version, cancellation);
+    }
+
+    private void UpdateMetaVisibility()
+    {
         metaArtists.Visibility = string.IsNullOrEmpty(metaArtists.Text)
             ? Visibility.Collapsed
             : Visibility.Visible;
         metaAlbum.Visibility = string.IsNullOrEmpty(metaAlbum.Text)
             ? Visibility.Collapsed
             : Visibility.Visible;
+    }
 
-        var lyricPath = Path.ChangeExtension(path, ".lrc");
-
-        // Stop previous timer if any.
-        _lyricTimer?.Stop();
-        _lyricTimer = null;
-        _lyricLines = null;
-
-        if (File.Exists(lyricPath))
+    private async Task LoadAudioArtifactsAsync(
+        string path,
+        MediaInfoSnapshot info,
+        int version,
+        CancellationTokenSource cancellation)
+    {
+        try
         {
-            var buffer = File.ReadAllBytes(lyricPath);
-            var encoding = CharsetDetector.DetectFromBytes(buffer).Detected?.Encoding ?? Encoding.Default;
+            var artifacts = await Task.Run(
+                () => BuildAudioArtifacts(path, info, cancellation.Token),
+                cancellation.Token).ConfigureAwait(false);
 
-            _lyricLines = [.. LrcHelper.ParseText(encoding.GetString(buffer))];
+            if (cancellation.IsCancellationRequested ||
+                version != Volatile.Read(ref _metaVersion) ||
+                _disposed ||
+                _quiesced)
+                return;
+
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => ApplyAudioArtifacts(path, artifacts, version)),
+                DispatcherPriority.Background);
         }
-        else
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            // Use embedded lyrics from MediaInfo if present.
-            // Common tag: General/Lyrics (may contain LRC formatted content).
-            var embeddedLyrics = info.Lyrics;
+            // A newer metadata update or Close superseded this one.
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _metaCancellation, null, cancellation);
+            cancellation.Dispose();
+        }
+    }
 
-            // Only check whether the tag of lyrics is present by MediaInfo
-            if (!string.IsNullOrWhiteSpace(embeddedLyrics))
+    private static AudioMetaArtifacts BuildAudioArtifacts(
+        string path,
+        MediaInfoSnapshot info,
+        CancellationToken cancellationToken)
+    {
+        BitmapSource cover = null;
+        LrcLine[] lyrics = null;
+        TagLib.File tagFile = null;
+        var lyricPath = Path.ChangeExtension(path, ".lrc");
+        var hasSidecarLyrics = File.Exists(lyricPath);
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var coverBytes = CoverDataExtractor.Extract(info?.CoverData);
+            cover = DecodeCover(coverBytes);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // MediaInfo is the fastest source, but it does not report every
+            // cover or lyrics tag. TagLib is only opened when it can add
+            // something, and both parsers stay on this background thread.
+            if (cover is null || !hasSidecarLyrics)
             {
-                var file = TagLib.File.Create(path);
-                embeddedLyrics = file.Tag.Lyrics;
+                tagFile = TagLib.File.Create(path);
 
-                // Check whether the tag of lyrics is present by TagLib#
-                if (!string.IsNullOrWhiteSpace(embeddedLyrics))
+                if (cover is null)
+                    cover = DecodeCover(FindEmbeddedPicture(tagFile));
+
+                if (!hasSidecarLyrics)
                 {
-                    _lyricLines = [.. LrcHelper.ParseText(embeddedLyrics)];
+                    var embeddedLyrics = FindEmbeddedLyrics(tagFile);
+                    if (!string.IsNullOrWhiteSpace(embeddedLyrics))
+                        lyrics = [.. LrcHelper.ParseText(embeddedLyrics)];
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+        finally
+        {
+            tagFile?.Dispose();
+        }
+
+        if (hasSidecarLyrics)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var buffer = File.ReadAllBytes(lyricPath);
+                var encoding = CharsetDetector.DetectFromBytes(buffer).Detected?.Encoding ?? Encoding.Default;
+                lyrics = [.. LrcHelper.ParseText(encoding.GetString(buffer))];
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e);
+            }
+        }
+
+        return new AudioMetaArtifacts(cover, lyrics);
+    }
+
+    private static BitmapSource DecodeCover(byte[] coverBytes)
+    {
+        var cover = CoverDataExtractor.Extract(coverBytes);
+
+        if (cover is { CanFreeze: true, IsFrozen: false })
+            cover.Freeze();
+
+        return cover;
+    }
+
+    private static byte[] FindEmbeddedPicture(TagLib.File file)
+    {
+        foreach (var picture in file.Tag?.Pictures ?? [])
+        {
+            var data = picture?.Data?.Data;
+            if (data is { Length: > 0 })
+                return data;
+        }
+
+        return null;
+    }
+
+    private static string FindEmbeddedLyrics(TagLib.File file)
+    {
+        var lyrics = file.Tag?.Lyrics;
+        if (!string.IsNullOrWhiteSpace(lyrics))
+            return lyrics;
+
+        // ffmpeg and a few other taggers write lyrics to a TXXX frame
+        // ("LYRICS", "UNSYNCEDLYRICS" or even "USLT") instead of the standard
+        // USLT frame that TagLib maps to Tag.Lyrics.
+        if (file.GetTag(TagLib.TagTypes.Id3v2) is not TagLib.Id3v2.Tag id3)
+            return null;
+
+        foreach (var frame in id3.GetFrames<TagLib.Id3v2.UserTextInformationFrame>())
+        {
+            var description = frame.Description ?? string.Empty;
+            if (!description.Contains("LYRIC", StringComparison.OrdinalIgnoreCase) &&
+                !description.Equals("USLT", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            foreach (var text in frame.Text ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+        }
+
+        return null;
+    }
+
+    private void ApplyAudioArtifacts(string path, AudioMetaArtifacts artifacts, int version)
+    {
+        if (_disposed || _quiesced || HasVideo)
+            return;
+
+        if (version != Volatile.Read(ref _metaVersion) ||
+            !string.Equals(path, _path, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        CoverArt = artifacts?.Cover;
+
+        StopLyrics();
+        _lyricLines = artifacts?.Lyrics;
 
         if (_lyricLines != null && _lyricLines.Length != 0)
         {
             _lyricTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _lyricTimer.Tick += (sender, e) =>
             {
-                if (_lyricLines != null && _lyricLines.Length != 0)
+                if (!_disposed && !_quiesced &&
+                    mediaElement != null &&
+                    _lyricLines != null && _lyricLines.Length != 0)
                 {
                     var lyric = LrcHelper.GetNearestLrc(_lyricLines, new TimeSpan(mediaElement.MediaPosition));
                     metaLyric.Text = lyric?.LrcText?.Trim();
@@ -500,6 +679,33 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             metaLyric.Visibility = Visibility.Collapsed;
         }
     }
+
+    private void CancelPendingMeta()
+    {
+        var cancellation = Interlocked.Exchange(ref _metaCancellation, null);
+        if (cancellation == null)
+            return;
+
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The background load finished between the exchange and Cancel.
+        }
+    }
+
+    private void StopLyrics()
+    {
+        _lyricTimer?.Stop();
+        _lyricTimer = null;
+        _lyricLines = null;
+        metaLyric.Text = null;
+        metaLyric.Visibility = Visibility.Collapsed;
+    }
+
+    private sealed record AudioMetaArtifacts(BitmapSource Cover, LrcLine[] Lyrics);
 
     public double LinearVolume
     {
@@ -568,10 +774,18 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
     public void LoadAndPlay(string path, MediaInfoSnapshot info)
     {
+        var isNewMedia = !string.Equals(path, _path, StringComparison.OrdinalIgnoreCase);
+        _path = path;
+
         // v1.2.15: know upfront whether this is a video, so the audio cover
         // panel (music note + tags) never flashes while the playback graph is
         // being built - it would render as a gray area until MediaOpened.
         HasVideo = info?.HasVideo == true;
+
+        // Never let the previous track's cover linger while this file's tags
+        // are decoded in the background.
+        if (isNewMedia && !HasVideo)
+            CoverArt = null;
 
         // v1.2.15: show the shell thumbnail while the media opens so the start
         // of a video preview has no blank/gray loading surface.
@@ -595,15 +809,171 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         _pendingMetaInfo = info;
 
         // detect rotation (already normalized in the MediaInfo snapshot)
-        var rotation = info?.Rotation ?? 0d;
-        if (Math.Abs(rotation) > 0.1d)
-            mediaElement.LayoutTransform = new RotateTransform(rotation, 0.5d, 0.5d);
+        ApplyRotation(info?.Rotation ?? 0d);
 
         mediaElement.Source = new Uri(path);
         // old plugin use an int-typed "Volume" config key ranged from 0 to 100. Let's use a new one here.
         LinearVolume = Math.Max(0d, Math.Min(1d, SettingHelper.Get("VolumeDouble", 1d, "QuickLook.Plugin.VideoViewer")));
 
         mediaElement.Play();
+    }
+
+    /// <summary>
+    /// Applies the result of the background MediaInfo probe. The panel is
+    /// already visible and may already be playing; only the parts that needed
+    /// the native header read are updated here.
+    /// </summary>
+    public void ObserveDeferredInfo(string path, Task<MediaInfoSnapshot> infoTask)
+    {
+        if (infoTask == null)
+            return;
+
+        _ = ObserveDeferredInfoAsync(path, infoTask);
+    }
+
+    private async Task ObserveDeferredInfoAsync(string path, Task<MediaInfoSnapshot> infoTask)
+    {
+        MediaInfoSnapshot info;
+        try
+        {
+            info = await infoTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (info == null || info.IsEstimated || _disposed || _quiesced || _mediaFailed)
+            return;
+
+        try
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => ApplyDeferredInfo(path, info)),
+                DispatcherPriority.Background);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+    }
+
+    private void ApplyDeferredInfo(string path, MediaInfoSnapshot info)
+    {
+        if (_disposed || _quiesced || _mediaFailed)
+            return;
+
+        if (!string.Equals(path, _path, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // A container with neither stream is a failed read, not new information
+        // about the preview.
+        if (!info.HasVideo && !info.HasAudio)
+            return;
+
+        // Once playback has opened, the playback graph has the final say on
+        // whether there is a video stream (MediaInfo can miss unusual
+        // containers). Before that, trust the probe for the panel choice.
+        var hasVideo = _mediaSettled ? mediaElement?.HasVideo == true : info.HasVideo;
+        HasVideo = hasVideo;
+
+        if (hasVideo)
+        {
+            ApplyRotation(info.Rotation);
+        }
+        else
+        {
+            videoThumbnail.Source = null;
+            videoThumbnail.Visibility = Visibility.Collapsed;
+        }
+
+        _pendingMetaPath = path;
+        _pendingMetaInfo = info;
+
+        if (!hasVideo && (_mediaSettled || _midiPlayer != null))
+        {
+            UpdateMeta(path, info);
+            _pendingMetaPath = null;
+            _pendingMetaInfo = null;
+        }
+
+        if (hasVideo)
+        {
+            if (info.HasVideo)
+                FitWindowToInfo(info);
+            else
+                FitWindowToPlayer();
+        }
+        else
+        {
+            FitAudioWindow();
+        }
+    }
+
+    private void ApplyRotation(double rotation)
+    {
+        mediaElement.LayoutTransform = Math.Abs(rotation) > 0.1d
+            ? new RotateTransform(rotation, 0.5d, 0.5d)
+            : null;
+    }
+
+    private void FitWindowToInfo(MediaInfoSnapshot info)
+    {
+        if (info is not { HasVideo: true })
+        {
+            FitAudioWindow();
+            return;
+        }
+
+        if (info.Width <= 0 || info.Height <= 0)
+        {
+            FitWindowToPlayer();
+            return;
+        }
+
+        FitVideoWindow(info.Width, info.Height, info.Rotation);
+    }
+
+    private void FitWindowToPlayer()
+    {
+        try
+        {
+            var player = mediaElement?.MediaUriPlayer;
+            if (player == null)
+                return;
+
+            FitVideoWindow(player.NaturalVideoWidth, player.NaturalVideoHeight, 0d);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+    }
+
+    private void FitVideoWindow(int width, int height, double rotation)
+    {
+        if (width <= 0 || height <= 0)
+            return;
+
+        if (Math.Abs(rotation) % 180 > 0.1d)
+            (width, height) = (height, width);
+
+        var before = _context.PreferredSize;
+        _context.SetPreferredSizeFit(new Size(width, height), 0.8d);
+        _context.CanResize = true;
+
+        if (_context.PreferredSize != before)
+            _context.ApplyPreferredSizeNow();
+    }
+
+    private void FitAudioWindow()
+    {
+        var before = _context.PreferredSize;
+        _context.PreferredSize = new Size(500, 300);
+        _context.CanResize = false;
+
+        if (_context.PreferredSize != before)
+            _context.ApplyPreferredSizeNow();
     }
 
     private void LoadThumbnailAsync(string path)

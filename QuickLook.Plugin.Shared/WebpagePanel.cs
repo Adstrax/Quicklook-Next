@@ -95,9 +95,10 @@ public class WebpagePanel : UserControl
           window.__quicklookReadyWatching = true;
           var timer = 0;
 
-          function hasContent() {
+          function hasContent(treatCompleteAsContent) {
             var preview = document.getElementById('preview');
-            if (preview && (preview.childElementCount > 0 || document.readyState === 'complete'))
+            if (preview && (preview.childElementCount > 0 ||
+                (treatCompleteAsContent && document.readyState === 'complete')))
               return true;
 
             var content = document.getElementById('content-html');
@@ -130,11 +131,19 @@ public class WebpagePanel : UserControl
           }
 
           function schedule() {
-            if (window.__quicklookReadyPosted || timer)
+            if (window.__quicklookReadyPosted) {
+              // The failure message is only a stand-in; drop it if the page
+              // recovers and renders real content afterwards.
+              if (document.getElementById('__quicklook_failure'))
+                removeFailure();
+              return;
+            }
+
+            if (timer)
               return;
             timer = setTimeout(function () {
               timer = 0;
-              if (!hasContent())
+              if (!hasContent(true))
                 return;
 
               window.__quicklookPostReady();
@@ -153,6 +162,73 @@ public class WebpagePanel : UserControl
           else
             start();
           window.addEventListener('load', schedule);
+
+          // v6.0.0: structured pages opt in with data-quicklook-failures="1".
+          // A page whose script failed can otherwise leave the previous preview
+          // waiting for the three-second fallback, or hand over silently blank.
+          // Report the failure as soon as it is clear nothing will be rendered.
+          function failuresEnabled() {
+            var root = document.documentElement;
+            return !!root && root.getAttribute('data-quicklook-failures') === '1';
+          }
+
+          function removeFailure() {
+            var failure = document.getElementById('__quicklook_failure');
+            if (failure && hasContent(false))
+              failure.remove();
+          }
+
+          var failureTimer = 0;
+
+          function showFailure(detail) {
+            if (window.__quicklookReadyPosted || hasContent(false))
+              return;
+            if (document.getElementById('__quicklook_failure'))
+              return;
+
+            var message = document.createElement('div');
+            message.id = '__quicklook_failure';
+            message.setAttribute('style',
+              'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+              'padding:32px;font:14px/1.6 "Segoe UI",sans-serif;color:#888;text-align:center;' +
+              'white-space:pre-wrap;pointer-events:none');
+            message.textContent = 'This preview could not be rendered.' +
+              (detail ? '\n' + String(detail).slice(0, 300) : '');
+            (document.body || document.documentElement).appendChild(message);
+
+            window.__quicklookPostReady();
+          }
+
+          function reportFailure(detail) {
+            if (!failuresEnabled() || failureTimer)
+              return;
+
+            // Give the page a moment to recover: an optional resource failing
+            // must not replace a preview that is about to render anyway.
+            failureTimer = setTimeout(function () {
+              failureTimer = 0;
+              showFailure(detail);
+            }, 700);
+          }
+
+          window.addEventListener('error', function (e) {
+            if (!failuresEnabled())
+              return;
+
+            var target = e && e.target;
+            var detail = e && e.message;
+            if (!detail && target && target !== window)
+              detail = target.src || target.href || '';
+            reportFailure(detail);
+          }, true);
+
+          window.addEventListener('unhandledrejection', function (e) {
+            if (!failuresEnabled())
+              return;
+
+            var reason = e && e.reason;
+            reportFailure(reason && (reason.message || String(reason)));
+          });
         })();
         """;
 
@@ -312,6 +388,10 @@ public class WebpagePanel : UserControl
     {
         CancelShowWait();
         _acceptedContentToken = null;
+        // A reused panel may still have the previous document's navigation
+        // accepted. Retire it before the new load starts, otherwise a late
+        // completion could mark the new document ready before it has loaded.
+        _navigationGate.Reset();
         return _contentLoadState.Begin();
     }
 
@@ -321,20 +401,20 @@ public class WebpagePanel : UserControl
     /// content frame. The previous content stays on screen meanwhile; a page
     /// that never reports readiness falls back to a swap after three seconds.
     /// </summary>
-    public void ShowInContext(ContextObject context)
+    public void ShowInContext(ContextObject context, bool waitForFirstFrame = false)
     {
-        if (context == null || _disposed)
+        if (context == null || _disposed || _quiesced)
             return;
 
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action(() => ShowInContext(context)));
+            Dispatcher.BeginInvoke(new Action(() => ShowInContext(context, waitForFirstFrame)));
             return;
         }
 
         CancelShowWait();
 
-        if (context.ViewerContent == null ||
+        if ((context.ViewerContent == null && !waitForFirstFrame) ||
             ReferenceEquals(context.ViewerContent, this) ||
             IsContentReady(ContentLoadVersion))
         {
@@ -344,6 +424,9 @@ public class WebpagePanel : UserControl
         }
 
         var version = ContentLoadVersion;
+        if (context.ViewerContent == null)
+            context.IsBusy = true;
+
         context.PendingViewerContent = this;
 
         EventHandler readyHandler = null;
@@ -364,6 +447,13 @@ public class WebpagePanel : UserControl
             readyHandler = null;
 
             if (_disposed)
+                return;
+
+            // A newer panel may have taken over the handoff while this document
+            // was still loading. Only the panel the host waits for may complete it,
+            // otherwise a late frame from an abandoned preview can be shown again.
+            if (context.PendingViewerContent != null &&
+                !ReferenceEquals(context.PendingViewerContent, this))
                 return;
 
             context.PendingViewerContent = this;
@@ -415,7 +505,7 @@ public class WebpagePanel : UserControl
     /// </summary>
     private void RecreateForNewScale()
     {
-        if (_disposed || _webView == null)
+        if (_disposed || _quiesced || _webView == null)
             return;
 
         var uri = _currentUri ?? _webView.Source;
@@ -438,6 +528,8 @@ public class WebpagePanel : UserControl
 
         if (control == null)
             return;
+
+        CancelShowWait();
 
         // Derived panels clean up first - _webView is still valid for them.
         try
@@ -516,18 +608,19 @@ public class WebpagePanel : UserControl
         // 0x8007139F right after a controller was torn down, so one retry is
         // enough to keep the preview working. The CoreWebView2 check runs on the
         // UI thread because the WebView2 control is a DispatcherObject.
-        _ = NavigateWhenReadyAsync(html);
+        _ = NavigateWhenReadyAsync(html, _contentLoadState.Version);
     }
 
-    private async Task NavigateWhenReadyAsync(string html)
+    private async Task NavigateWhenReadyAsync(string html, int version)
     {
-        if (_webView == null)
-            return;
-
         const int attempts = 3;
 
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
+            if (_disposed || _quiesced || _webView == null ||
+                version != _contentLoadState.Version)
+                return;
+
             try
             {
                 await _webView.EnsureCoreWebView2Async();
@@ -543,6 +636,9 @@ public class WebpagePanel : UserControl
                     return;
                 }
 
+                if (_disposed || _quiesced || version != _contentLoadState.Version)
+                    return;
+
                 // v3.36.0: give the browser process group a clean restart before
                 // trying again - that is what makes a stale profile recoverable.
                 // v3.40.0: the recovery repairs the profile first and only rebuilds
@@ -552,14 +648,16 @@ public class WebpagePanel : UserControl
                 continue;
             }
 
-            if (_disposed || _quiesced)
+            if (_disposed || _quiesced || version != _contentLoadState.Version)
                 return;
 
             // Touching CoreWebView2 requires the UI thread; marshalling keeps
             // this working when a plugin calls NavigateToHtml off-thread.
             await Dispatcher.InvokeAsync(() =>
             {
-                if (_disposed || _webView?.CoreWebView2 == null)
+                if (_disposed || _quiesced ||
+                    version != _contentLoadState.Version ||
+                    _webView?.CoreWebView2 == null)
                     return;
 
                 _webView.NavigateToString(html);
@@ -600,14 +698,31 @@ public class WebpagePanel : UserControl
 
     protected virtual void Webview_NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (e.Uri.StartsWith("data:")) // when using NavigateToString
+        // The pool parks controls on about:blank. That navigation may still be
+        // in flight when the next panel subscribes; it is not a user link.
+        if (e.Uri.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (_disposed || _quiesced)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        if (e.Uri.StartsWith("data:", StringComparison.Ordinal)) // when using NavigateToString
         {
             _acceptedContentToken = string.Empty;
             _navigationGate.Accept(e.NavigationId);
             return;
         }
 
-        var newUri = new Uri(e.Uri);
+        if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var newUri))
+        {
+            e.Cancel = true;
+            Debug.WriteLine($"Invalid URI format: {e.Uri}");
+            return;
+        }
+
         if (newUri == _currentUri)
         {
             _acceptedContentToken = GetNavigationToken(newUri);
@@ -704,38 +819,38 @@ public class WebpagePanel : UserControl
 
     protected void SignalContentReady()
     {
-        if (_disposed || _quiesced || _contentLoadState.IsReady(_contentLoadState.Version))
+        SignalContentReady(_contentLoadState.Version);
+    }
+
+    /// <summary>
+    /// Completes the first-frame handoff only when <paramref name="version"/> is
+    /// still the newest document load. A reused panel can finish an old script
+    /// after the next document has already started.
+    /// </summary>
+    protected void SignalContentReady(int version)
+    {
+        if (version <= 0 ||
+            version != _contentLoadState.Version ||
+            _disposed ||
+            _quiesced ||
+            _contentLoadState.IsReady(version))
             return;
 
         _contentLoadState.MarkReady();
         ContentReady?.Invoke(this, EventArgs.Empty);
     }
 
-    private static string GetNavigationToken(Uri uri)
-    {
-        var query = uri?.Query;
-        if (string.IsNullOrEmpty(query))
-            return string.Empty;
-
-        foreach (var part in query.TrimStart('?').Split('&'))
-        {
-            var separator = part.IndexOf('=');
-            if (separator > 0 &&
-                string.Equals(part.Substring(0, separator), "v", StringComparison.Ordinal))
-                return Uri.UnescapeDataString(part.Substring(separator + 1));
-        }
-
-        return string.Empty;
-    }
+    private static string GetNavigationToken(Uri uri) => WebpageNavigationUri.GetToken(uri);
 
     protected virtual void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        if (!IsCurrentNavigation(e))
+        var webView = _webView;
+        if (_disposed || webView == null || !IsCurrentNavigation(e))
             return;
 
         if (_quiesced)
         {
-            PausePageContents(_webView);
+            PausePageContents(webView);
             return;
         }
 
@@ -745,17 +860,17 @@ public class WebpagePanel : UserControl
         // The document-created hook may have been registered after this page
         // started loading (fresh controller). Install it in the loaded document
         // as well; the script guards against a second observer.
-        _ = InstallDocumentReadyObserverAsync();
+        _ = InstallDocumentReadyObserverAsync(webView);
 
         // Keep the background transparent so Mica stays visible.
-        _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0, 0, 0, 0);
+        webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0, 0, 0, 0);
     }
 
-    private async Task InstallDocumentReadyObserverAsync()
+    private static async Task InstallDocumentReadyObserverAsync(WebView2 webView)
     {
         try
         {
-            var core = _webView?.CoreWebView2;
+            var core = webView?.CoreWebView2;
             if (core != null)
                 await core.ExecuteScriptAsync(DocumentReadyScript);
         }
@@ -816,6 +931,10 @@ public class WebpagePanel : UserControl
 
     protected virtual void WebView_WebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs args)
     {
+        var webView = _webView;
+        if (_disposed || webView == null)
+            return;
+
         if (string.IsNullOrWhiteSpace(_fallbackPath) || !Directory.Exists(_fallbackPath))
         {
             return;
@@ -835,7 +954,9 @@ public class WebpagePanel : UserControl
                     var fileDirectoryName = Path.GetDirectoryName(requestedUri.LocalPath);
 
                     // Convert the primary path to fallback path
-                    if (fileDirectoryName.StartsWith(_primaryPath))
+                    if (!string.IsNullOrEmpty(_primaryPath) &&
+                        fileDirectoryName != null &&
+                        fileDirectoryName.StartsWith(_primaryPath, StringComparison.OrdinalIgnoreCase))
                     {
                         var fallbackFilePath = Path.Combine(
                             _fallbackPath.Trim('/', '\\'), // Make it combinable
@@ -847,7 +968,7 @@ public class WebpagePanel : UserControl
                         {
                             // Serve the file from the fallback directory
                             var fileStream = new FileStream(fallbackFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                            var response = _webView.CoreWebView2.Environment.CreateWebResourceResponse(
+                            var response = webView.CoreWebView2.Environment.CreateWebResourceResponse(
                                 fileStream, 200, "OK", "Content-Type: application/octet-stream");
                             args.Response = response;
                         }
@@ -859,7 +980,7 @@ public class WebpagePanel : UserControl
                     if (File.Exists(requestedUri.LocalPath))
                     {
                         var fileStream = new FileStream(requestedUri.LocalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                        var response = _webView.CoreWebView2.Environment.CreateWebResourceResponse(
+                        var response = webView.CoreWebView2.Environment.CreateWebResourceResponse(
                             fileStream, 200, "OK", MimeTypes.GetContentType(Path.GetExtension(requestedUri.LocalPath)));
                         args.Response = response;
                     }
@@ -894,6 +1015,7 @@ public class WebpagePanel : UserControl
             return;
 
         _quiesced = true;
+        CancelShowWait();
 
         var control = _webView;
         if (control == null)
@@ -909,6 +1031,23 @@ public class WebpagePanel : UserControl
         }
 
         PausePageContents(control);
+    }
+
+    /// <summary>
+    /// Re-arms a panel that was quiesced for the previous preview. Reusable
+    /// panels call this before loading the next document; every readiness
+    /// message and navigation from the suspended document is retired.
+    /// </summary>
+    public void Resume()
+    {
+        if (_disposed || !_quiesced)
+            return;
+
+        _quiesced = false;
+        CancelShowWait();
+        _contentLoadState.Reset();
+        _navigationGate.Reset();
+        _acceptedContentToken = null;
     }
 
     private void PausePageContents(WebView2 control)
@@ -929,7 +1068,7 @@ public class WebpagePanel : UserControl
             // The pool may have handed this control to another panel between the
             // BeginInvoke and this callback. Only the panel that still owns the
             // control is allowed to freeze its document.
-            if (_disposed || !ReferenceEquals(_webView, control))
+            if (_disposed || !_quiesced || !ReferenceEquals(_webView, control))
                 return;
 
             var core = control.CoreWebView2;

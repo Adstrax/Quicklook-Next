@@ -26,7 +26,7 @@ using System.Windows;
 
 namespace QuickLook.Plugin.HtmlViewer;
 
-public sealed partial class Plugin : IViewer, IMoreMenu
+public sealed partial class Plugin : IViewer, IMoreMenu, IPreviewQuiesce
 {
     private static readonly string[] _extensions = [".mht", ".mhtml", ".htm", ".html"];
     private static readonly string[] _supportedProtocols = ["http", "https"];
@@ -78,5 +78,10 @@ public sealed partial class Plugin : IViewer, IMoreMenu
 
         _panel?.Dispose();
         _panel = null;
+    }
+
+    public void Quiesce()
+    {
+        _panel?.Quiesce();
     }
 }

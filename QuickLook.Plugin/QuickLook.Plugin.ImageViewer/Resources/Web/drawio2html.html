@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-quicklook-failures="1">
 <head>
   <meta charset="UTF-8" />
   <title>Draw.io Preview</title>
@@ -45,9 +45,29 @@
       }));
       container.appendChild(div);
 
-      if (window.GraphViewer && window.GraphViewer.processElements) {
-        window.GraphViewer.processElements();
+      try {
+        if (window.GraphViewer && window.GraphViewer.processElements) {
+          window.GraphViewer.processElements();
+        }
+      } catch (error) {
+        showRenderFailure(error);
       }
+    }
+
+    function showRenderFailure(error) {
+      if (document.getElementById('__quicklook_drawio_error'))
+        return;
+
+      var message = document.createElement('div');
+      message.id = '__quicklook_drawio_error';
+      message.textContent = 'This diagram could not be rendered.' +
+        (error && error.message ? '\n' + error.message : '');
+      message.style.cssText =
+        'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+        'padding:32px;font:14px/1.6 "Segoe UI",sans-serif;color:#888;text-align:center;' +
+        'white-space:pre-wrap;';
+      document.body.appendChild(message);
+      window.__quicklookPostReady?.();
     }
 
     window.__DRAWIO_RENDER = function(xml) {

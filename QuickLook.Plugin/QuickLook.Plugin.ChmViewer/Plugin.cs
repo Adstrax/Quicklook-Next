@@ -22,7 +22,7 @@ using System.Windows;
 
 namespace QuickLook.Plugin.ChmViewer;
 
-public sealed class Plugin : IViewer
+public sealed class Plugin : IViewer, IPreviewQuiesce
 {
     private ChmWebpagePanel _panel;
 
@@ -63,5 +63,10 @@ public sealed class Plugin : IViewer
         _panel?.Dispose();
         _panel = null;
         GC.SuppressFinalize(this);
+    }
+
+    public void Quiesce()
+    {
+        _panel?.Quiesce();
     }
 }

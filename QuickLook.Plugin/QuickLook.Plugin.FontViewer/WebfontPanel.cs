@@ -27,6 +27,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace QuickLook.Plugin.FontViewer;
 
@@ -82,45 +83,37 @@ public class WebfontPanel : WebpagePanel, IFontPreviewPanel
     {
         _pendingIconFontPath = null;
         _fontStream = null;
+        _navigationFailed = false;
         FallbackPath = Path.GetDirectoryName(path);
 
         var html = GenerateFontHtml(path);
         byte[] bytes = Encoding.UTF8.GetBytes(html);
         _homePage = bytes;
 
-        // v3.36.2: reload only while the preview page is really still loaded, and use
-        // a fresh URL - Chromium's (cross session) disk cache can otherwise answer
-        // the page or the font itself, so our resource hook never runs, _fontStream
-        // stays null and WaitForFontSent() waits for nothing.
-        if (IsShowingHomePage())
-            _webView.CoreWebView2.Reload();
-        else
-            NavigateToUri(new Uri($"file://quicklook/?{Guid.NewGuid():N}"));
+        // v6.1.0: every load gets its own readiness token. The page reports
+        // ready only after document.fonts.ready, so switching to a WOFF/WOFF2
+        // font no longer exposes the browser's empty first frame.
+        var version = BeginContentLoad();
+        NavigateToUri(WebpageNavigationUri.CreateFresh(new Uri("file://quicklook/"), version));
     }
 
     public void PreviewIconFont(string path)
     {
         _fontStream = null;
+        _navigationFailed = false;
         FallbackPath = Path.GetDirectoryName(path);
         _pendingIconFontPath = path;
         _homePage = _resources["/iconfont2html.html"];
 
-        if (IsShowingHomePage())
-            _webView.CoreWebView2.Reload();
-        else
-            NavigateToUri(new Uri($"file://quicklook/?{Guid.NewGuid():N}"));
+        var version = BeginContentLoad();
+        NavigateToUri(WebpageNavigationUri.CreateFresh(new Uri("file://quicklook/"), version));
     }
 
-    private bool IsShowingHomePage()
+    protected override async void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        return _webView?.CoreWebView2 != null &&
-               _currentUri != null &&
-               string.Equals(_currentUri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(_currentUri.Host, "quicklook", StringComparison.OrdinalIgnoreCase);
-    }
+        if (!IsCurrentNavigation(e))
+            return;
 
-    protected override void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
-    {
         base.WebView_NavigationCompleted(sender, e);
 
         // v3.36.0: a failed navigation - a WebView2 controller that could not be
@@ -128,16 +121,72 @@ public class WebfontPanel : WebpagePanel, IFontPreviewPanel
         // the font request, so WaitForFontSent() would spin for its whole 1.5 s
         // timeout and leave the preview blank. Stop waiting right away instead.
         if (!e.IsSuccess)
+        {
             _navigationFailed = true;
+            SignalContentReady(ContentLoadVersion);
+            return;
+        }
 
-        if (!e.IsSuccess || string.IsNullOrEmpty(_pendingIconFontPath) || _webView?.CoreWebView2 == null)
+        if (_webView?.CoreWebView2 == null)
             return;
 
-        var path = _pendingIconFontPath;
-        _pendingIconFontPath = null;
+        await InstallFontReadyObserverAsync();
 
-        var script = BuildIconFontLoadScript(path);
-        _ = _webView.CoreWebView2.ExecuteScriptAsync(script);
+        if (!string.IsNullOrEmpty(_pendingIconFontPath))
+        {
+            var path = _pendingIconFontPath;
+            _pendingIconFontPath = null;
+
+            var script = BuildIconFontLoadScript(path);
+            await _webView.CoreWebView2.ExecuteScriptAsync(script);
+            return;
+        }
+
+        await WaitForPageFontAsync();
+    }
+
+    private async Task InstallFontReadyObserverAsync()
+    {
+        const string script = """
+            (function () {
+              if (window.__quicklookPostFontReady)
+                return;
+
+              window.__quicklookPostFontReady = function () {
+                if (window.__quicklookFontReadyPosted)
+                  return;
+
+                window.__quicklookFontReadyPosted = true;
+                var token = new URLSearchParams(location.search).get('v') || '';
+                try {
+                  window.chrome.webview.postMessage('quicklook-ready:' + token);
+                } catch (_) { }
+              };
+            })();
+            """;
+
+        await _webView.CoreWebView2.ExecuteScriptAsync(script);
+    }
+
+    private async Task WaitForPageFontAsync()
+    {
+        const string script = """
+            (async function () {
+              try {
+                if (document.fonts && document.fonts.ready)
+                  await document.fonts.ready;
+              } catch (_) { }
+
+              requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                  if (window.__quicklookPostFontReady)
+                    window.__quicklookPostFontReady();
+                });
+              });
+            })();
+            """;
+
+        await _webView.CoreWebView2.ExecuteScriptAsync(script);
     }
 
     protected string GenerateFontHtml(string path)
@@ -205,7 +254,7 @@ public class WebfontPanel : WebpagePanel, IFontPreviewPanel
 
         var metaObject = string.Join(",", parts);
 
-        return $"(function(){{var meta={{{metaObject}}};function run(){{if(typeof window.__ICONFONT2HTML_LOAD!=='function'){{setTimeout(run,20);return;}}fetch('/'+encodeURI(meta.fileName)).then(function(r){{return r.arrayBuffer();}}).then(function(buf){{var bytes=new Uint8Array(buf);var chunk=8192;var binary='';for(var i=0;i<bytes.length;i+=chunk){{binary+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk));}}var payload={{fontBase64:btoa(binary),fileName:meta.fileName,mimeType:meta.mimeType}};if(meta.cssText)payload.cssText=meta.cssText;if(meta.familyName)payload.familyName=meta.familyName;window.__ICONFONT2HTML_LOAD(payload);}}).catch(function(err){{console.error(err);}});}}run();}})();";
+        return $"(function(){{var meta={{{metaObject}}};function ready(){{requestAnimationFrame(function(){{requestAnimationFrame(function(){{if(window.__quicklookPostFontReady)window.__quicklookPostFontReady();}});}});}}function run(){{if(typeof window.__ICONFONT2HTML_LOAD!=='function'){{setTimeout(run,20);return;}}fetch('/'+encodeURI(meta.fileName)).then(function(r){{return r.arrayBuffer();}}).then(function(buf){{var bytes=new Uint8Array(buf);var chunk=8192;var binary='';for(var i=0;i<bytes.length;i+=chunk){{binary+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk));}}var payload={{fontBase64:btoa(binary),fileName:meta.fileName,mimeType:meta.mimeType}};if(meta.cssText)payload.cssText=meta.cssText;if(meta.familyName)payload.familyName=meta.familyName;return window.__ICONFONT2HTML_LOAD(payload);}}).then(function(){{return document.fonts&&document.fonts.ready?document.fonts.ready:null;}}).then(ready).catch(function(err){{console.error(err);ready();}});}}run();}})();";
     }
 
     private static string TryReadCompanionCss(string fontPath)

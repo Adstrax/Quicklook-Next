@@ -246,20 +246,50 @@ class SvgViewer {
      * @async
      */
     async render() {
-        const rawSvg = await chrome.webview.hostObjects.external.GetSvgContent();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(rawSvg, 'image/svg+xml');
-        this.svgElement = doc.documentElement;
+        try {
+            const rawSvg = await chrome.webview.hostObjects.external.GetSvgContent();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(rawSvg, 'image/svg+xml');
+            this.svgElement = doc.documentElement;
 
-        // Fix SVG size and get viewBox dimensions
-        this.fixSvgSize(this.svgElement);
+            // DOMParser reports malformed XML as a parsererror element instead
+            // of throwing; show a readable message rather than the browser's
+            // raw error node.
+            if (!this.svgElement ||
+                this.svgElement.nodeName === 'parsererror' ||
+                doc.getElementsByTagName('parsererror').length > 0) {
+                this.showFailure();
+                return;
+            }
 
-        this.wrapper.innerHTML = '';
-        this.wrapper.appendChild(this.svgElement);
+            // Fix SVG size and get viewBox dimensions
+            this.fixSvgSize(this.svgElement);
 
-        this.fitToWindow();
-        this.bindEvents();
-        this.updateTransform();
+            this.wrapper.innerHTML = '';
+            this.wrapper.appendChild(this.svgElement);
+
+            this.fitToWindow();
+            this.bindEvents();
+            this.updateTransform();
+        } catch (error) {
+            this.showFailure(error);
+        }
+    }
+
+    showFailure(error) {
+        if (!document.getElementById('__quicklook_svg_error')) {
+            const message = document.createElement('div');
+            message.id = '__quicklook_svg_error';
+            message.textContent = 'This SVG could not be rendered.' +
+                (error && error.message ? '\n' + error.message : '');
+            message.style.cssText =
+                'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+                'padding:32px;font:14px/1.6 "Segoe UI",sans-serif;color:#888;text-align:center;' +
+                'white-space:pre-wrap;pointer-events:none;';
+            document.body.appendChild(message);
+        }
+
+        window.__quicklookPostReady?.();
     }
 }
 

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using QuickLook.Common.Plugin.MoreMenu;
 using QuickLook.Plugin.TextViewer.Detectors;
@@ -32,6 +33,12 @@ namespace QuickLook.Plugin.TextViewer;
 
 public partial class Plugin : IViewer, IMoreMenu
 {
+    /// <summary>
+    /// RichTextBox parses the whole RTF document on the UI thread. Past this
+    /// size that parse freezes the preview window, so show a notice instead.
+    /// </summary>
+    private const long MaxRichTextLength = 2 * 1024 * 1024;
+
     private static readonly HashSet<string> WellKnownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".txt", ".rtf",
@@ -98,6 +105,33 @@ public partial class Plugin : IViewer, IMoreMenu
 
         if (path.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase))
         {
+            ViewRichText(path, context);
+        }
+        else
+        {
+            _tvp = new TextViewerPanel();
+            _tvp.LoadFileAsync(path, context);
+            context.ViewerContent = _tvp;
+        }
+        context.Title = Path.GetFileName(path);
+    }
+
+    private static void ViewRichText(string path, ContextObject context)
+    {
+        var noticeDomain = "QuickLook.Plugin.TextViewer";
+
+        if (new FileInfo(path).Length > MaxRichTextLength)
+        {
+            context.ViewerContent = CreateNotice(TranslationHelper.Get(
+                "RTF_PreviewTooLarge",
+                failsafe: "This RTF file is too large for a rich preview (limit 2 MB).\nOpen it in the default app to view it.",
+                domain: noticeDomain));
+            context.IsBusy = false;
+            return;
+        }
+
+        try
+        {
             var rtfBox = new RichTextBox();
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             rtfBox.Background = new SolidColorBrush(Colors.Transparent);
@@ -109,13 +143,28 @@ public partial class Plugin : IViewer, IMoreMenu
             context.ViewerContent = rtfBox;
             context.IsBusy = false;
         }
-        else
+        catch (Exception e)
         {
-            _tvp = new TextViewerPanel();
-            _tvp.LoadFileAsync(path, context);
-            context.ViewerContent = _tvp;
+            ProcessHelper.WriteLog($"RTF preview failed for \"{path}\": {e}");
+            context.ViewerContent = CreateNotice(TranslationHelper.Get(
+                "RTF_PreviewFailed",
+                failsafe: "This RTF file could not be previewed.",
+                domain: noticeDomain));
+            context.IsBusy = false;
         }
-        context.Title = Path.GetFileName(path);
+    }
+
+    private static TextBlock CreateNotice(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(24),
+        };
     }
 
     public void Cleanup()

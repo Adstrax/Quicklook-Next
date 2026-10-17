@@ -80,16 +80,16 @@
             <Name>QuickLook.Common</Name>
             <Private>False</Private>
         </ProjectReference>
+        <ProjectReference Include="..\..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj">
+            <Name>QuickLook.Shared</Name>
+            <Private>False</Private>
+        </ProjectReference>
     </ItemGroup>
 
     <ItemGroup>
         <Compile Include="..\..\GitVersion.cs">
             <Link>Properties\GitVersion.cs</Link>
         </Compile>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Include="QuickLook.MediaInfo" Version="26.5.0" />
     </ItemGroup>
 
     <ItemGroup>

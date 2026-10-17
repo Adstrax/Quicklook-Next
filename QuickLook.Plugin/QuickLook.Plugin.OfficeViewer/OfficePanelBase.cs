@@ -57,6 +57,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     private EventHandler<CoreWebView2WebMessageReceivedEventArgs> _messageHandler;
     private string _imageFolder;
     private bool _suppressRail;
+    private bool _quiesced;
     private bool _disposed;
 
     /// <summary>
@@ -337,6 +338,9 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
+            if (_disposed || _quiesced)
+                return;
+
             try
             {
                 await _webView.EnsureCoreWebView2Async();
@@ -352,6 +356,9 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                     return;
                 }
 
+                if (_disposed || _quiesced)
+                    return;
+
                 // v3.36.0: restart our Chromium process group before retrying.
                 // v3.40.0: repairs the profile first, rebuilds it in place second.
                 WebView2Lifecycle.RecoverFromFailedInitialization(attempt);
@@ -359,7 +366,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                 continue;
             }
 
-            if (_disposed)
+            if (_disposed || _quiesced)
                 return;
 
             // v5.7.1: the sheet goes down first, and this waits for it, because the order between the two is
@@ -367,13 +374,13 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             // document's page takes the surface (see LaySheetAsync). It costs what a blank page costs to load.
             await Dispatcher.InvokeAsync(LaySheetAsync).Task.Unwrap();
 
-            if (_disposed)
+            if (_disposed || _quiesced)
                 return;
 
             // Touching CoreWebView2 requires the UI thread.
             await Dispatcher.InvokeAsync(() =>
             {
-                if (_disposed || _webView.CoreWebView2 == null)
+                if (_disposed || _quiesced || _webView.CoreWebView2 == null)
                     return;
 
                 // v5.7.0: the pictures this page references live in a temp folder; the page asks for them
@@ -464,7 +471,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         {
             dispatcher.BeginInvoke(() =>
             {
-                if (_disposed)
+                if (_disposed || _quiesced)
                     return;
 
                 if (t.IsFaulted || t.Result is null)
@@ -552,6 +559,27 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         // as gone, then hand it back to the pool.
         WebView2Lifecycle.Unregister(control);
         WebView2ControlPool.Release(control);
+    }
+
+    /// <summary>
+    /// Stops the old document when another preview is requested. The last
+    /// rendered sheet stays on screen until the host swaps in the next preview.
+    /// </summary>
+    public void Quiesce()
+    {
+        if (_disposed || _quiesced)
+            return;
+
+        _quiesced = true;
+
+        try
+        {
+            _webView.CoreWebView2?.Stop();
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"[OfficePanel] stopping the old page failed: {e.Message}");
+        }
     }
 
     private static string ErrorHtml(Exception error)

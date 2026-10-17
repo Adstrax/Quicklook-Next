@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-quicklook-failures="1">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -232,6 +232,22 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
 
   <!-- Hidden file input kept for API compatibility -->
   <input id="file-input" type="file" accept=".excalidraw,application/json" style="display:none" />
-
+  <script>
+    // A render error only updates the status bar; report it so the host can
+    // hand the preview over instead of waiting for its fallback timer.
+    (function () {
+      var status = document.getElementById('status');
+      if (!status) return;
+      function check() {
+        if (status.classList.contains('error') && status.textContent)
+          window.__quicklookPostReady?.();
+      }
+      new MutationObserver(check).observe(status, {
+        attributes: true, childList: true, characterData: true, subtree: true
+      });
+      check();
+    })();
+  </script>
+
 </body>
 </html>

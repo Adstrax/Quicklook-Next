@@ -57,6 +57,39 @@ internal static class OfficeImageStore
     }
 
     /// <summary>
+    /// Drops folders left behind by a session that was killed before its panel
+    /// could dispose. A day is well past any parse, so no live preview owns
+    /// one of these.
+    /// </summary>
+    internal static void CleanupStaleFolders()
+    {
+        try
+        {
+            var root = Path.Combine(Path.GetTempPath(), "QuickLookNext-office");
+            if (!Directory.Exists(root))
+                return;
+
+            var cutoff = DateTime.UtcNow.AddDays(-1);
+            foreach (var directory in Directory.EnumerateDirectories(root))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTimeUtc(directory) < cutoff)
+                        Directory.Delete(directory, true);
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine(e.Message);
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+        }
+    }
+
+    /// <summary>
     /// v5.7.1: writes the page itself beside its pictures and returns the file name, so the panel can
     /// navigate to it over the same virtual host instead of handing the whole document over as a string.
     /// <c>NavigateToString</c> destroys the page that was showing the moment it is called, which leaves the

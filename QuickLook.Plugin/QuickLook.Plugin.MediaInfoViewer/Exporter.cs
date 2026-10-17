@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using QuickLook.MediaInfo;
+using QuickLook.Plugin.Shared;
 using System.ComponentModel.Composition;
 
 namespace QuickLook.Plugin.MediaInfoViewer;
@@ -23,11 +23,8 @@ namespace QuickLook.Plugin.MediaInfoViewer;
 [Export]
 public static class Exporter
 {
-    public static MediaInfoNative Open(string path)
+    public static string Open(string path)
     {
-        MediaInfoNative lib = new();
-        lib.Open(path);
-
-        return lib;
+        return MediaInfoSession.ReadText(path);
     }
 }

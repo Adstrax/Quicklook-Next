@@ -7,6 +7,34 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.1.0
+
+### A steadier preview pipeline, with a smaller runtime
+
+6.1.0 hardens the handoff between previews and removes work that used to keep stale files,
+pages and metadata alive after a switch.
+
+- **Web previews finish only when they still own the window.** Markdown, HTML, Office, CHM,
+  Mail and font previews now cancel or ignore a navigation that belongs to a superseded
+  document. Closing or switching a preview quiesces the old WebView2 page, and late resource
+  or ready events can no longer replace the new content.
+- **Office temporary files are bounded.** A preview drops its image/page folder when it goes
+  away, and folders left behind by a crash are removed at the next Office plugin start.
+- **Slow reads no longer freeze the preview.** CSV parsing and MediaInfo text scans run off
+  the UI thread with cancellation, so a quick switch does not wait for the previous file.
+  RTF files above 2 MB show a clear notice instead of blocking the window.
+- **Unknown media is identified from its header.** Files without a known media extension are
+  checked by signature before MediaInfo is opened, including the TypeScript-versus-MPEG-TS
+  distinction; confirmed non-media results are cached.
+- **Video metadata has a real cache policy.** Entries are validated against the file version,
+  evicted by least-recent use under a bounded byte budget, and completed background probes no
+  longer remain in the table.
+- **Smaller release directory.** Shared WebView2 and MediaInfo assemblies now live once in the
+  application root instead of being copied into every plugin folder. The build check rejects
+  those duplicates, as well as the removed WinRT projection, before packaging.
+- **Release quality.** 214 unit tests pass, the Release build has 0 warnings, and a repeatable
+  `QKN-Test` generator creates a broad local preview test set.
+
 ## QuickLook-Next 6.0.0
 
 ### A preview switch that hands over instead of flashing through

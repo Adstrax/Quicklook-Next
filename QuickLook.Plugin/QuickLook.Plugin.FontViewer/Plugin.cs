@@ -22,12 +22,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
 
 namespace QuickLook.Plugin.FontViewer;
 
-public sealed partial class Plugin : IViewer, IMoreMenu
+public sealed partial class Plugin : IViewer, IMoreMenu, IPreviewQuiesce
 {
     private const string ConfigDomain = "QuickLook.Plugin.FontViewer";
 
@@ -71,24 +70,25 @@ public sealed partial class Plugin : IViewer, IMoreMenu
         // fonts the fastest format instead of the slowest. Only the compressed web
         // font formats still need the browser engine.
         var native = !IsWebFont(path);
-        _panel = native ? new NativeFontPanel() : new WebfontPanel();
+        IFontPreviewPanel panel = native ? new NativeFontPanel() : new WebfontPanel();
+        _panel = panel;
+
         ApplyPreviewMode(path);
 
-        context.ViewerContent = _panel.View;
         context.Title = Path.GetFileName(path);
 
         if (native)
         {
             // Nothing to wait for - the WPF render tree is already built.
+            context.ViewerContent = panel.View;
             context.IsBusy = false;
             return;
         }
 
-        _ = Task.Run(() =>
-        {
-            _ = _panel.WaitForFontSent();
-            context.IsBusy = false;
-        });
+        // The old preview stays visible until the font has loaded and painted
+        // its first frame. On the first open the hidden preload slot renders
+        // behind the busy indicator.
+        ((WebfontPanel)panel).ShowInContext(context, waitForFirstFrame: true);
     }
 
     private static bool IsWebFont(string path)
@@ -99,6 +99,9 @@ public sealed partial class Plugin : IViewer, IMoreMenu
 
     private void ApplyPreviewMode(string path)
     {
+        if (_panel == null || string.IsNullOrEmpty(path))
+            return;
+
         if (_previewMode == PreviewMode.IconFont)
             _panel.PreviewIconFont(path);
         else
@@ -111,5 +114,11 @@ public sealed partial class Plugin : IViewer, IMoreMenu
 
         _panel?.Dispose();
         _panel = null;
+    }
+
+    public void Quiesce()
+    {
+        if (_panel is WebfontPanel webfontPanel)
+            webfontPanel.Quiesce();
     }
 }

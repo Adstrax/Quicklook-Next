@@ -23,34 +23,43 @@ class SvgaViewer {
      * @async
      */
     async play() {
-        const path = await chrome.webview.hostObjects.external.GetPath();
+        try {
+            const path = await chrome.webview.hostObjects.external.GetPath();
 
-        if (this.useLite) {
-            const parser = new SVGA.Parser(); // Only SVGA 2.x supported
+            if (this.useLite) {
+                const parser = new SVGA.Parser(); // Only SVGA 2.x supported
 
-            // Because the path is a local file, we need to convert it to a URL format
-            parser.load('https://' + path).then(svga => {
-                const player = new SVGA.Player(document.getElementById('canvas'));
-                player.mount(svga).then(() => {
-                    player.start();
+                // Because the path is a local file, we need to convert it to a URL format
+                parser.load('https://' + path).then(svga => {
+                    const player = new SVGA.Player(document.getElementById('canvas'));
+                    player.mount(svga).then(() => {
+                        player.start();
+                        SvgaViewer.markReady();
+                    });
+                }).catch(() => SvgaViewer.markFailed());
+            } else {
+                const size = JSON.parse(await chrome.webview.hostObjects.external.GetSize());
+                const parser = new SVGA.Parser('#canvas'); // Only SVGA 2.x supported
+                const player = new SVGA.Player('#canvas');
+                const canvas = document.getElementById('canvas');
+
+                canvas.width = size.width;
+                canvas.height = size.height;
+
+                // Because the path is a local file, we need to convert it to a URL format
+                parser.load('https://' + path, function (videoItem) {
+                    if (!videoItem) {
+                        SvgaViewer.markFailed();
+                        return;
+                    }
+
+                    player.setVideoItem(videoItem);
+                    player.startAnimation();
                     SvgaViewer.markReady();
                 });
-            });
-        } else {
-            const size = JSON.parse(await chrome.webview.hostObjects.external.GetSize());
-            const parser = new SVGA.Parser('#canvas'); // Only SVGA 2.x supported
-            const player = new SVGA.Player('#canvas');
-            const canvas = document.getElementById('canvas');
-
-            canvas.width = size.width;
-            canvas.height = size.height;
-            
-            // Because the path is a local file, we need to convert it to a URL format
-            parser.load('https://' + path, function (videoItem) {
-                player.setVideoItem(videoItem);
-                player.startAnimation();
-                SvgaViewer.markReady();
-            });
+            }
+        } catch (error) {
+            SvgaViewer.markFailed();
         }
     }
 
@@ -60,7 +69,21 @@ class SvgaViewer {
             canvas.dataset.quicklookReady = '1';
         window.__quicklookPostReady?.();
     }
+
+    static markFailed() {
+        if (!document.getElementById('__quicklook_svga_error')) {
+            const message = document.createElement('div');
+            message.id = '__quicklook_svga_error';
+            message.textContent = 'This animation could not be rendered.';
+            message.style.cssText =
+                'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+                'padding:32px;font:14px/1.6 "Segoe UI",sans-serif;color:#888;text-align:center;';
+            document.body.appendChild(message);
+        }
+
+        window.__quicklookPostReady?.();
+    }
 }
 
 // Create the SVGA viewer and play
-new SvgaViewer().play();
+new SvgaViewer().play().catch(() => SvgaViewer.markFailed());

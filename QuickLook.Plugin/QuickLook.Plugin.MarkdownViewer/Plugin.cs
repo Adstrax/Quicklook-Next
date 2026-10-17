@@ -25,7 +25,7 @@ using System.Windows.Threading;
 
 namespace QuickLook.Plugin.MarkdownViewer;
 
-public sealed class Plugin : IViewer
+public sealed class Plugin : IViewer, IPreviewQuiesce
 {
     private WebpagePanel _panel;
     private EventHandler _contentReadyHandler;
@@ -91,30 +91,35 @@ public sealed class Plugin : IViewer
         if (AsciiDocPanel.CanHandle(path))
         {
             var panel = ReuseAsciiDocPanel(context);
+            panel.Resume();
             panel.PreviewAsciiDoc(path);
             _panel = panel;
         }
         else if (IpynbPanel.CanHandle(path))
         {
             var panel = ReuseIpynbPanel(context);
+            panel.Resume();
             panel.PreviewIpynb(path);
             _panel = panel;
         }
         else if (MermaidPanel.CanHandle(path))
         {
             var panel = ReuseMermaidPanel(context);
+            panel.Resume();
             panel.PreviewMermaid(path);
             _panel = panel;
         }
         else if (RstPanel.CanHandle(path))
         {
             var panel = ReuseRstPanel(context);
+            panel.Resume();
             panel.PreviewRst(path);
             _panel = panel;
         }
         else
         {
             var panel = ReuseMarkdownPanel(context);
+            panel.Resume();
             panel.PreviewMarkdown(path);
             _panel = panel;
         }
@@ -263,5 +268,10 @@ public sealed class Plugin : IViewer
         DetachContentReadyWait();
         _panel?.Dispose();
         _panel = null;
+    }
+
+    public void Quiesce()
+    {
+        _panel?.Quiesce();
     }
 }

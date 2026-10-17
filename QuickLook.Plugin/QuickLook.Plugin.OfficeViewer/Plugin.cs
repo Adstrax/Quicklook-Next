@@ -21,13 +21,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using UnblockZoneIdentifier;
 
 namespace QuickLook.Plugin.OfficeViewer;
 
-public sealed class Plugin : IViewer
+public sealed class Plugin : IViewer, IPreviewQuiesce
 {
     private static readonly string[] Extensions =
     [
@@ -55,6 +56,9 @@ public sealed class Plugin : IViewer
 
     public void Init()
     {
+        // A crash leaves its image/page folder behind; drop the ones no live
+        // preview can still own.
+        _ = Task.Run(OfficeImageStore.CleanupStaleFolders);
     }
 
     public bool CanHandle(string path)
@@ -262,5 +266,11 @@ public sealed class Plugin : IViewer
         else if (_panel is PresentationPanel presentationPanel)
             presentationPanel.Dispose();
         _panel = null;
+    }
+
+    public void Quiesce()
+    {
+        if (_panel is OfficePanelBase officePanel)
+            officePanel.Quiesce();
     }
 }

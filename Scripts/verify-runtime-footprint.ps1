@@ -1,6 +1,6 @@
 # v6.0.0: Share and OCR were removed, so the app must no longer carry the WinRT
-# projection. Fail fast if an incremental build or a stale output folder brings
-# either assembly back.
+# projection. v6.0.1 also keeps shared WebView2 and MediaInfo assemblies in the
+# application root instead of copying them into every plugin folder.
 
 param(
     [string]$ReleasePath = ''
@@ -32,4 +32,26 @@ foreach ($name in @('Microsoft.Windows.SDK.NET', 'WinRT.Runtime')) {
     }
 }
 
-Write-Host 'Runtime footprint check passed: no WinRT projection or runtime in the output.'
+$sharedRuntime = @(
+    'QuickLook.Shared.dll',
+    'QuickLook.MediaInfo.dll',
+    'Microsoft.Web.WebView2.Core.dll',
+    'Microsoft.Web.WebView2.Wpf.dll',
+    'Microsoft.Web.WebView2.WinForms.dll',
+    'WebView2Loader.dll'
+)
+
+foreach ($name in $sharedRuntime) {
+    if (-not (Test-Path -LiteralPath (Join-Path $ReleasePath $name))) {
+        throw "Runtime footprint check failed: the shared $name is missing from the application root"
+    }
+
+    $pluginRoot = Join-Path $ReleasePath 'QuickLook.Plugin'
+    $duplicates = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -Filter $name)
+    if ($duplicates.Count -gt 0) {
+        $folders = ($duplicates | ForEach-Object { $_.Directory.FullName }) -join '; '
+        throw "Runtime footprint check failed: $name is duplicated in plugin folders: $folders"
+    }
+}
+
+Write-Host 'Runtime footprint check passed: no WinRT projection or duplicated shared runtime.'

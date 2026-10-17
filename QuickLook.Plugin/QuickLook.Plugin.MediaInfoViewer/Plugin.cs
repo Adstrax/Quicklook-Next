@@ -18,11 +18,13 @@
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using QuickLook.Common.Plugin.MoreMenu;
-using QuickLook.MediaInfo;
+using QuickLook.Plugin.Shared;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -31,7 +33,10 @@ namespace QuickLook.Plugin.MediaInfoViewer;
 
 public sealed partial class Plugin : IViewer, IMoreMenuExtended
 {
+    private const string Domain = "QuickLook.Plugin.MediaInfoViewer";
+
     private TextViewerPanel _tvp;
+    private CancellationTokenSource _scanCancellation;
 
     public int Priority => int.MinValue;
 
@@ -54,44 +59,126 @@ public sealed partial class Plugin : IViewer, IMoreMenuExtended
 
     public void View(string path, ContextObject context)
     {
-        using MediaInfoNative lib = new();
-        lib.Open(path);
+        CancelPendingScan();
 
-        _tvp = new TextViewerPanel(lib.Inform(), context);
-        AssignHighlightingManager(_tvp, context);
+        var panel = new TextViewerPanel(
+            TranslationHelper.Get("MediaInfo_Loading",
+                failsafe: "Reading media info...",
+                domain: Domain),
+            context);
+        _tvp = panel;
+        AssignHighlightingManager(panel, context);
 
-        _tvp.Tag = context;
-        _tvp.Drop += OnDrop;
+        panel.Tag = context;
+        panel.Drop += OnDrop;
 
-        context.ViewerContent = _tvp;
         context.Title = $"{Path.GetFileName(path)}";
-        context.IsBusy = false;
+
+        // MediaInfo can take a noticeable time on large or damaged files. Keep
+        // the previous preview on screen until the text is ready instead of
+        // scanning on the UI thread.
+        if (context.ViewerContent == null)
+        {
+            context.ViewerContent = panel;
+            context.IsBusy = true;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _scanCancellation = cancellation;
+        _ = LoadInfoAsync(panel, path, context, cancellation);
     }
 
     private void OnDrop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop))
-        {
-            if (e.Data.GetData(DataFormats.FileDrop) is string[] files
-                && files.FirstOrDefault() is string path)
-            {
-                if (_tvp!.Tag is ContextObject context)
-                {
-                    context.Title = $"{Path.GetFileName(path)}";
-                }
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop) ||
+            e.Data.GetData(DataFormats.FileDrop) is not string[] files ||
+            files.FirstOrDefault() is not string path ||
+            _tvp?.Tag is not ContextObject context)
+            return;
 
-                using MediaInfoNative lib = new();
-                lib.Open(path);
-                _tvp!.Text = lib.Inform();
-            }
-        }
+        CancelPendingScan();
+
+        var panel = _tvp;
+        panel.Text = TranslationHelper.Get("MediaInfo_Loading",
+            failsafe: "Reading media info...",
+            domain: Domain);
+        context.Title = $"{Path.GetFileName(path)}";
+
+        var cancellation = new CancellationTokenSource();
+        _scanCancellation = cancellation;
+        _ = LoadInfoAsync(panel, path, context, cancellation);
     }
 
     public void Cleanup()
     {
         GC.SuppressFinalize(this);
 
+        CancelPendingScan();
         _tvp = null!;
+    }
+
+    private async Task LoadInfoAsync(
+        TextViewerPanel panel,
+        string path,
+        ContextObject context,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var text = await Task.Run(() => ReadMediaInfo(path, cancellation.Token), cancellation.Token);
+
+            if (cancellation.IsCancellationRequested || !ReferenceEquals(_tvp, panel))
+                return;
+
+            panel.Text = text;
+            context.PendingViewerContent = panel;
+            context.IsBusy = false;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // A newer preview or Close superseded this scan.
+        }
+        catch (Exception e)
+        {
+            if (cancellation.IsCancellationRequested || !ReferenceEquals(_tvp, panel))
+                return;
+
+            ProcessHelper.WriteLog($"Media info failed for \"{path}\": {e}");
+            panel.Text = TranslationHelper.Get("MediaInfo_Failed",
+                failsafe: "Media info could not be read.",
+                domain: Domain);
+
+            context.PendingViewerContent = panel;
+            context.IsBusy = false;
+        }
+        finally
+        {
+            // Clear the field before disposing: Cleanup may race with this
+            // completion and must never cancel a disposed source.
+            Interlocked.CompareExchange(ref _scanCancellation, null, cancellation);
+            cancellation.Dispose();
+        }
+    }
+
+    private static string ReadMediaInfo(string path, CancellationToken cancellationToken)
+    {
+        return MediaInfoSession.ReadText(path, cancellationToken);
+    }
+
+    private void CancelPendingScan()
+    {
+        var cancellation = Interlocked.Exchange(ref _scanCancellation, null);
+        if (cancellation == null)
+            return;
+
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The scan finished between the exchange and the cancellation.
+        }
     }
 
     private void AssignHighlightingManager(TextViewerPanel tvp, ContextObject context)

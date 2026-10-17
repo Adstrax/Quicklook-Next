@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-quicklook-failures="1">
 <head>
   <meta charset="UTF-8" />
   <title>PlantUML Preview</title>
@@ -121,6 +121,7 @@
         diagImg.src = SERVER + encoded;
       } catch (e) {
         setStatus(String(e), true);
+        window.__quicklookPostReady?.();
       }
     }
 

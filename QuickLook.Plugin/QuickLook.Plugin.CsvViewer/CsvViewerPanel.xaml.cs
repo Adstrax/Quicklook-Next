@@ -23,6 +23,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -56,18 +58,69 @@ public partial class CsvViewerPanel : UserControl
     private readonly HashSet<(int RowIndex, int ColumnIndex)> _matchSet = [];
     private int _currentMatchIndex = -1;
 
-    public void LoadFile(string path)
+    /// <summary>
+    /// Parses the file off the UI thread and applies the rows when done. A
+    /// large file therefore no longer freezes the preview window, and a newer
+    /// preview can cancel the parse instead of waiting for it to finish.
+    /// </summary>
+    public async Task LoadFileAsync(string path, CancellationToken cancellationToken)
     {
-        const int limit = 10000;
-        var binded = false;
+        ResetView();
 
-        Rows.Clear();
+        var rows = await Task.Run(() => ParseFile(path, cancellationToken), cancellationToken);
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        ApplyFile(rows);
+    }
+
+    /// <summary>
+    /// Replaces the grid with a message, used when the file could not be parsed.
+    /// </summary>
+    public void ShowMessage(string message)
+    {
+        dataGrid.Visibility = Visibility.Collapsed;
+        messageLabel.Text = message;
+        messageLabel.Visibility = Visibility.Visible;
+    }
+
+    private void ResetView()
+    {
+        Rows = [];
         dataGrid.Columns.Clear();
         _matches.Clear();
         _matchSet.Clear();
         _currentMatchIndex = -1;
         searchPanel.SetMatchCount(0, 0);
         searchPanel.Visibility = Visibility.Collapsed;
+        messageLabel.Visibility = Visibility.Collapsed;
+        dataGrid.Visibility = Visibility.Visible;
+    }
+
+    private void ApplyFile(List<string[]> rows)
+    {
+        Rows = rows;
+
+        // The XAML binding cannot see a replaced list, so re-point the grid
+        // once instead of notifying once per parsed row.
+        dataGrid.ItemsSource = null;
+        dataGrid.Columns.Clear();
+
+        if (rows.Count > 0)
+        {
+            SetupColumnBinding(rows[0].Length);
+            dataGrid.ItemsSource = Rows;
+        }
+
+        dataGrid.Visibility = Visibility.Visible;
+        messageLabel.Visibility = Visibility.Collapsed;
+    }
+
+    private static List<string[]> ParseFile(string path, CancellationToken cancellationToken)
+    {
+        const int limit = 10000;
+        var rows = new List<string[]>();
 
         var encoding = CharsetDetector.DetectFromFile(path).Detected?.Encoding ??
                        Encoding.Default;
@@ -99,25 +152,23 @@ public partial class CsvViewerPanel : UserControl
         var i = 0;
         while (parser.Read())
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var row = parser.Record;
             if (row == null)
                 break;
             row = Concat([$"{i++ + 1}".PadLeft(6)], row);
 
-            if (!binded)
-            {
-                SetupColumnBinding(row.Length);
-                binded = true;
-            }
-
             if (i > limit)
             {
-                Rows.Add([.. Enumerable.Repeat("...", row.Length)]);
+                rows.Add([.. Enumerable.Repeat("...", row.Length)]);
                 break;
             }
 
-            Rows.Add(row);
+            rows.Add(row);
         }
+
+        return rows;
     }
 
     private void SetupColumnBinding(int rowLength)

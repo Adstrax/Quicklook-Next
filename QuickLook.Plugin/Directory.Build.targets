@@ -1,0 +1,42 @@
+<Project>
+  <!--
+    v6.0.1: the runtime libraries below are owned by the shared kit and already
+    live in the application root. CopyLocalLockFileAssemblies would otherwise
+    put the whole WebView2 managed stack and its loader into every web-based
+    plugin folder. The plugin loader resolves them from the app root, which is
+    the same copy the host itself uses.
+
+    The native MediaInfo.dll remains in the VideoViewer plugin, which owns the
+    runtime package and is located by the shared service at runtime.
+  -->
+  <Target Name="RemoveDuplicatedPluginDependencies" AfterTargets="Build">
+    <Delete Files="$(OutputPath)QuickLook.MediaInfo.dll"
+            Condition="Exists('$(OutputPath)QuickLook.MediaInfo.dll')" />
+
+    <Delete Files="$(OutputPath)QuickLook.Shared.dll;$(OutputPath)QuickLook.Shared.pdb"
+            Condition="Exists('$(OutputPath)..\..\QuickLook.Shared.dll')" />
+
+    <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Core.dll;$(OutputPath)Microsoft.Web.WebView2.Wpf.dll;$(OutputPath)Microsoft.Web.WebView2.WinForms.dll"
+            Condition="Exists('$(OutputPath)..\..\Microsoft.Web.WebView2.Core.dll')" />
+
+    <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Core.xml;$(OutputPath)Microsoft.Web.WebView2.Wpf.xml;$(OutputPath)Microsoft.Web.WebView2.WinForms.xml"
+            Condition="Exists('$(OutputPath)..\..\Microsoft.Web.WebView2.Core.dll')" />
+
+    <Delete Files="$(OutputPath)WebView2Loader.dll"
+            Condition="Exists('$(OutputPath)..\..\WebView2Loader.dll')" />
+  </Target>
+
+  <!--
+    flatten-native.ps1 runs after Build and copies the loader into each
+    plugin's runtimes\<rid>\native folder. The application root already has the
+    loader for the build's own architecture, so those nested copies are dead
+    weight. Running after that step is intentional: deleting the root-level copy
+    is not enough when the native copy happens later.
+  -->
+  <Target Name="RemoveNestedWebView2LoaderCopies" AfterTargets="FlattenRuntimeNative">
+    <ItemGroup>
+      <NestedWebView2Loader Include="$(OutputPath)runtimes\**\WebView2Loader.dll" />
+    </ItemGroup>
+    <Delete Files="@(NestedWebView2Loader)" />
+  </Target>
+</Project>

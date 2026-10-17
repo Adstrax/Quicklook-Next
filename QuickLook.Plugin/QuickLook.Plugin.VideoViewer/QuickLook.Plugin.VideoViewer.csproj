@@ -62,7 +62,6 @@
     <ItemGroup>
         <PackageReference Include="QuickLook.LAVFilters" Version="0.81.0" />
         <PackageReference Include="QuickLook.WPFMediaKit" Version="2.3.4" />
-        <PackageReference Include="QuickLook.MediaInfo" Version="26.5.0" />
         <PackageReference Include="QuickLook.MediaInfo.Native.win-x64" Version="26.5.0" />
         <!--<PackageReference Include="QuickLook.MediaInfo.Native.win-arm64" Version="26.5.0" />-->
         <PackageReference Include="UTF.Unknown" Version="2.6.0" />
@@ -74,6 +73,10 @@
         <ProjectReference Include="..\..\QuickLook.Common\QuickLook.Common.csproj">
             <Project>{85FDD6BA-871D-46C8-BD64-F6BB0CB5EA95}</Project>
             <Name>QuickLook.Common</Name>
+            <Private>False</Private>
+        </ProjectReference>
+        <ProjectReference Include="..\..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj">
+            <Name>QuickLook.Shared</Name>
             <Private>False</Private>
         </ProjectReference>
         <!--  Keep QuickLookNext reference here for glassLayer:GlassLayer testing  -->
