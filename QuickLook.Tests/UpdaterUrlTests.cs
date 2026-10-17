@@ -54,4 +54,19 @@ internal class UpdaterUrlTests
         Assert.False(Updater.IsTrustedDownloadUrl(null), "null");
         Assert.False(Updater.IsTrustedDownloadUrl("not a url"), "garbage");
     }
+
+    public void OnlyAFullSha256DigestIsAccepted()
+    {
+        Assert.True(Updater.TryParseSha256Digest(
+            "sha256:6878bef721b3986fa46820c14ac5f1d01d244c9218ad0bda9f59e4e0bc6a6576",
+            out var hash), "valid digest");
+        Assert.Equal(64, hash.Length, "normalized hash length");
+
+        Assert.False(Updater.TryParseSha256Digest(
+            "md5:6878bef721b3986fa46820c14ac5f1d01d244c9218ad0bda9f59e4e0bc6a6576",
+            out _), "wrong algorithm");
+        Assert.False(Updater.TryParseSha256Digest(
+            "sha256:abc123", out _), "short digest");
+        Assert.False(Updater.TryParseSha256Digest(null, out _), "missing digest");
+    }
 }

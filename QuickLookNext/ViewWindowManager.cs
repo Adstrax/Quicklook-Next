@@ -21,6 +21,7 @@ using QuickLookNext.Helpers;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -32,6 +33,8 @@ public class ViewWindowManager : IDisposable
     private static ViewWindowManager _instance;
 
     private string _invokedPath = string.Empty;
+    private long _previewRequestVersion;
+    private readonly PreviewSwitchCadence _switchCadence = new();
     private ViewerWindow _viewerWindow;
 
     // v5.6.2: which window gets warmed, and when the parked one is handed back -
@@ -115,6 +118,7 @@ public class ViewWindowManager : IDisposable
             return;
 
         StopFocusMonitor();
+        _switchCadence.Reset();
         window.Close();
     }
 
@@ -170,12 +174,32 @@ public class ViewWindowManager : IDisposable
             return;
 
         if (string.IsNullOrEmpty(path))
+        {
+            // The keyboard and the focus monitor both arrive here. Coalescing the read
+            // keeps rapid arrow presses from blocking the UI thread and then replaying
+            // a selection that has already moved on.
+            if (FocusMonitor.GetInstance().RequestSelectionSwitch())
+                return;
+
             path = NativeMethods.QuickLookNext.GetCurrentSelection();
+        }
 
         if (string.IsNullOrEmpty(path))
             return;
 
         InvokePreview(path);
+    }
+
+    /// <summary>
+    /// A side-button step already comes from a serialized navigator. It is a deliberate preview
+    /// switch, so it keeps the direct path instead of joining the keyboard's settle window.
+    /// </summary>
+    internal void SwitchPreviewNow(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        InvokePreviewCore(path, coalesceSelectionBurst: false);
     }
 
     public void InvokePreviewWithOption(string path = null, string options = null)
@@ -201,6 +225,11 @@ public class ViewWindowManager : IDisposable
 
     public void InvokePreview(string path = null)
     {
+        InvokePreviewCore(path, coalesceSelectionBurst: true);
+    }
+
+    private void InvokePreviewCore(string path, bool coalesceSelectionBurst)
+    {
         if (string.IsNullOrEmpty(path))
             path = NativeMethods.QuickLookNext.GetCurrentSelection();
 
@@ -220,7 +249,16 @@ public class ViewWindowManager : IDisposable
         if (!isDirectory && !ExtensionFilterHelper.IsExtensionAllowed(path))
             return;
 
+        var switching = window.IsVisible && !string.IsNullOrEmpty(_invokedPath);
+        if (switching)
+            window.QuiescePreview();
+
+        var settleDelayMs = switching && coalesceSelectionBurst
+            ? _switchCadence.GetDelayMs(Environment.TickCount64)
+            : 0;
+
         _invokedPath = path;
+        var requestVersion = ++_previewRequestVersion;
 
         RunFocusMonitor();
 
@@ -228,7 +266,7 @@ public class ViewWindowManager : IDisposable
         // preview of a format handled by a rarely-used built-in). FindMatchAsync
         // moves that work to the thread pool; the common case still completes
         // synchronously, so nothing about a normal preview changes.
-        _ = BeginShowAsync(path);
+        _ = BeginShowAsync(path, requestVersion, settleDelayMs);
     }
 
     /// <summary>
@@ -236,8 +274,18 @@ public class ViewWindowManager : IDisposable
     /// preview. A request that was superseded while the plugin search ran is
     /// dropped, and a failing search is reported like a failing plugin.
     /// </summary>
-    private async Task BeginShowAsync(string path)
+    private async Task BeginShowAsync(string path, long requestVersion, int settleDelayMs = 0)
     {
+        if (settleDelayMs > 0)
+        {
+            // Let a burst finish before paying for plugin matching and Prepare. A newer request
+            // bumps the version, so this one returns below without loading its intermediate file.
+            await Task.Delay(settleDelayMs).ConfigureAwait(true);
+
+            if (requestVersion != _previewRequestVersion || _invokedPath != path)
+                return;
+        }
+
         IViewer matchedPlugin;
 
         try
@@ -247,16 +295,16 @@ public class ViewWindowManager : IDisposable
         catch (Exception e)
         {
             ProcessHelper.WriteLog(e.ToString());
-            CurrentPluginFailed(path, ExceptionDispatchInfo.Capture(e));
+            CurrentPluginFailed(path, ExceptionDispatchInfo.Capture(e), requestVersion);
             return;
         }
 
         // A newer preview request (or a close) superseded this one while the
         // search was running on the thread pool.
-        if (_invokedPath != path)
+        if (requestVersion != _previewRequestVersion || _invokedPath != path)
             return;
 
-        BeginShowNewWindow(path, matchedPlugin);
+        BeginShowNewWindow(path, matchedPlugin, requestVersion);
     }
 
     public void InvokePluginPreview(string plugin, string path = null)
@@ -280,10 +328,8 @@ public class ViewWindowManager : IDisposable
         var pluginManager = PluginManager.GetInstance();
         pluginManager.EnsureLoaded();
 
-        var matchedPlugin = pluginManager.LoadedPlugins.Find(p =>
-        {
-            return p.GetType().Assembly.GetName().Name == plugin;
-        });
+        var matchedPlugin = pluginManager.GetLoadedPluginsSnapshot().FirstOrDefault(p =>
+            p.GetType().Assembly.GetName().Name == plugin);
 
         // v3.4.0: rare built-ins (e.g. MediaInfoViewer) are lazy-loaded; a
         // More-menu action can still target them by assembly name.
@@ -292,7 +338,10 @@ public class ViewWindowManager : IDisposable
         if (matchedPlugin != null)
         {
             pluginManager.EnsurePluginReady(matchedPlugin);
-            BeginShowNewWindow(path, matchedPlugin);
+            EnsureViewerWindow().QuiescePreview();
+            _invokedPath = path;
+            var requestVersion = ++_previewRequestVersion;
+            BeginShowNewWindow(path, matchedPlugin, requestVersion);
         }
     }
 
@@ -302,7 +351,9 @@ public class ViewWindowManager : IDisposable
         if (!window.IsVisible || string.IsNullOrEmpty(_invokedPath))
             return;
 
-        _ = BeginShowAsync(_invokedPath);
+        window.QuiescePreview();
+        var requestVersion = ++_previewRequestVersion;
+        _ = BeginShowAsync(_invokedPath, requestVersion);
     }
 
     public void ToggleFullscreen()
@@ -314,8 +365,16 @@ public class ViewWindowManager : IDisposable
         window.ToggleFullscreen();
     }
 
-    private void BeginShowNewWindow(string path, IViewer matchedPlugin)
+    private void BeginShowNewWindow(string path, IViewer matchedPlugin, long requestVersion)
     {
+        if (requestVersion != _previewRequestVersion || _invokedPath != path)
+            return;
+
+        // This is the last authoritative "show" point, including the default-plugin
+        // fallback after a failure. Keep the toggle state true even if parking the
+        // failed preview cleared it a moment ago.
+        _invokedPath = path;
+
         if (App.IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Snapshot("preview-open");
 
@@ -331,13 +390,21 @@ public class ViewWindowManager : IDisposable
         // session, so the next file - of any kind - does not pay the one-time cost.
         Helpers.PreviewWarmUp.Start(afterFirstPreview: true);
 
+        // A failed preview fallback parks and clears the focus monitor before it asks
+        // for the default plugin; make sure the replacement preview follows selection again.
+        RunFocusMonitor();
+
         EnsureViewerWindow().UnloadPlugin();
 
-        _viewerWindow.BeginShow(matchedPlugin, path, CurrentPluginFailed);
+        _viewerWindow.BeginShow(matchedPlugin, path,
+            (failedPath, exception) => CurrentPluginFailed(failedPath, exception, requestVersion));
     }
 
-    private void CurrentPluginFailed(string path, ExceptionDispatchInfo e)
+    private void CurrentPluginFailed(string path, ExceptionDispatchInfo e, long requestVersion)
     {
+        if (requestVersion != _previewRequestVersion || _invokedPath != path)
+            return;
+
         var plugin = _viewerWindow.Plugin?.GetType();
 
         _viewerWindow.Close();
@@ -350,7 +417,10 @@ public class ViewWindowManager : IDisposable
         ProcessHelper.WriteLog(e.SourceException.ToString());
 
         if (plugin != PluginManager.GetInstance().DefaultPlugin.GetType())
-            BeginShowNewWindow(path, PluginManager.GetInstance().DefaultPlugin);
+        {
+            _invokedPath = path;
+            BeginShowNewWindow(path, PluginManager.GetInstance().DefaultPlugin, requestVersion);
+        }
         else
             e.Throw();
     }
@@ -376,17 +446,17 @@ private void InitNewViewerWindow()
         _session.Closed(Environment.TickCount64);
         StopFocusMonitor();
         InitNewViewerWindow();
-    };
+        };
 
     // v1.2.36: warm up the first Show during startup idle, off-screen, so the
     // first preview appears instantly instead of waiting ~200 ms.
     // v5.2.0: skipped in the low memory mode - the window (and the rendering stack it
     // pulls in) is then created on the first preview instead, ~+51 MB idle either way.
-    // v5.6.2: but this runs on *every* close (the window is rebuilt here), so skipping
-    // it outright made every preview pay the first-Show cost. It now follows the
-    // session: nothing is warmed before the user previews anything, everything is
-    // warmed while they keep previewing, and the parked window is released after
-    // PreviewSession.IdleTimeout of no previews.
+    // v5.6.2: creation used to happen on every close, so skipping this outright made
+    // every preview pay the first-Show cost. It now follows the session: nothing is
+    // warmed before the user previews anything, everything is warmed while they keep
+    // previewing, and the parked window is released after PreviewSession.IdleTimeout
+    // of no previews.
     if (_session.ShouldWarm(Helpers.StartupWarmUp.IsLowMemoryMode))
         _viewerWindow.WarmUp();
 

@@ -24,13 +24,14 @@ class LottieViewer {
         const path = await chrome.webview.hostObjects.external.GetPath();
 
         // Because the path is a local file, we need to convert it to a URL format
-        lottie.loadAnimation({
+        const animation = lottie.loadAnimation({
             container: document.getElementById('bm'),
             renderer: 'svg',
             loop: true,
             autoplay: true,
             path: 'https://' + path, 
         });
+        animation.addEventListener('DOMLoaded', () => window.__quicklookPostReady?.());
     }
 }
 

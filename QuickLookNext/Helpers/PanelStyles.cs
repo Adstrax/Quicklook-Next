@@ -22,8 +22,8 @@ using System.Windows.Media;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v5.3.0: the button of every hand-drawn panel - update prompt, download panel, data &amp; cache,
-/// OCR - in one place. It used to be four copies of the same twenty lines, which is exactly how
+/// v5.3.0: the button of every hand-drawn panel - update prompt, download panel, data &amp; cache -
+/// in one place. It used to be four copies of the same twenty lines, which is exactly how
 /// they ended up with three different hover treatments and no keyboard focus state at all.
 /// </summary>
 internal static class PanelStyles

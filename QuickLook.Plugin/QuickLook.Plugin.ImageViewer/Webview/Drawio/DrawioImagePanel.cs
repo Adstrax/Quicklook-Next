@@ -61,10 +61,11 @@ public class DrawioImagePanel : SvgImagePanel
 
     public override void Preview(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
         _drawioContent = File.ReadAllText(path);
         _homePage = _resources["/drawio2html.html"];
-        NavigateToUri(new Uri("file://quicklook/"));
+        NavigateToHomePage();
     }
 
     protected override void OnControllerReady()

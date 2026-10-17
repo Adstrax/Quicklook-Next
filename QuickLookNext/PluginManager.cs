@@ -23,6 +23,7 @@ using QuickLookNext.Helpers;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -270,7 +271,18 @@ public sealed class PluginManager
 
     internal IViewer DefaultPlugin { get; }
 
-    internal List<IViewer> LoadedPlugins { get; private set; } = [];
+    internal ImmutableArray<IViewer> LoadedPlugins { get; private set; } = [];
+
+    /// <summary>
+    /// A stable copy for UI code. ImmutableArray is a struct, so exposing the
+    /// property directly to threads that do not hold <see cref="_matchLock"/>
+    /// could observe a partially published value.
+    /// </summary>
+    internal IViewer[] GetLoadedPluginsSnapshot()
+    {
+        lock (_matchLock)
+            return LoadedPlugins.ToArray();
+    }
 
     internal void EnsureLoaded()
     {
@@ -382,11 +394,9 @@ public sealed class PluginManager
 
         lock (_matchLock)
         {
-            // Snapshot: loading a lazy plugin inserts into LoadedPlugins and
-            // re-sorts, so the list must not be indexed live here.
-            var plugins = LoadedPlugins.ToArray();
+            var plugins = LoadedPlugins;
 
-            var cached = TryGetCachedMatch(path, out var cachedIndex);
+            var cached = TryGetCachedMatch(path, plugins, out var cachedIndex);
 
             if (cachedIndex >= 0 && cachedIndex < plugins.Length)
             {
@@ -399,7 +409,7 @@ public sealed class PluginManager
                         continue;
 
                     if (!ReferenceEquals(plugin, cached))
-                        RememberMatch(path, i);
+                        RememberMatch(path, plugins, i);
                     return (plugin, false);
                 }
 
@@ -413,7 +423,7 @@ public sealed class PluginManager
                 var plugin = plugins[i];
                 if (CanHandle(plugin, path))
                 {
-                    RememberMatch(path, i);
+                    RememberMatch(path, plugins, i);
                     return (plugin, false);
                 }
             }
@@ -443,7 +453,7 @@ public sealed class PluginManager
             {
                 var index = LoadedPlugins.IndexOf(lazy);
                 if (index >= 0)
-                    RememberMatch(path, index);
+                    RememberMatch(path, LoadedPlugins, index);
             }
 
             return lazy;
@@ -492,7 +502,8 @@ public sealed class PluginManager
         return can;
     }
 
-    private IViewer TryGetCachedMatch(string path, out int index)
+    private IViewer TryGetCachedMatch(
+        string path, ImmutableArray<IViewer> plugins, out int index)
     {
         index = -1;
         var key = GetMatchCacheKey(path);
@@ -506,8 +517,8 @@ public sealed class PluginManager
 
             // The plugin list changes when lazy plugins load or user plugins
             // are uninstalled; both paths clear the cache, but guard anyway.
-            if (entry.Index >= LoadedPlugins.Count ||
-                !ReferenceEquals(LoadedPlugins[entry.Index], entry.Plugin))
+            if (entry.Index >= plugins.Length ||
+                !ReferenceEquals(plugins[entry.Index], entry.Plugin))
             {
                 _matchCache.Remove(key);
                 return null;
@@ -518,7 +529,7 @@ public sealed class PluginManager
         }
     }
 
-    private void RememberMatch(string path, int index)
+    private void RememberMatch(string path, ImmutableArray<IViewer> plugins, int index)
     {
         var key = GetMatchCacheKey(path);
         if (key is null)
@@ -528,7 +539,8 @@ public sealed class PluginManager
         {
             if (_matchCache.Count >= MatchCacheMaxEntries)
                 _matchCache.Clear();
-            _matchCache[key] = (LoadedPlugins[index], index);
+            if (index >= 0 && index < plugins.Length)
+                _matchCache[key] = (plugins[index], index);
         }
     }
 
@@ -666,19 +678,25 @@ public sealed class PluginManager
         if (string.IsNullOrEmpty(assemblyName))
             return null;
 
-        lock (_lazyLock)
+        // Keep the same lock order as MatchLazyPlugin: match list, then pending
+        // lazy list. This method can be called from the tray menu while a preview
+        // is matching on the thread pool.
+        lock (_matchLock)
         {
-            for (var i = 0; i < _pendingLazy.Count; i++)
+            lock (_lazyLock)
             {
-                if (!string.Equals(
-                        Path.GetFileNameWithoutExtension(_pendingLazy[i].Path),
-                        assemblyName,
-                        StringComparison.OrdinalIgnoreCase))
+                for (var i = 0; i < _pendingLazy.Count; i++)
                 {
-                    continue;
-                }
+                    if (!string.Equals(
+                            Path.GetFileNameWithoutExtension(_pendingLazy[i].Path),
+                            assemblyName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
 
-                return LoadLazyPluginAt(i);
+                    return LoadLazyPluginAt(i);
+                }
             }
         }
 
@@ -718,19 +736,18 @@ public sealed class PluginManager
 
         _seqByPlugin[instance] = seq;
         EnsurePluginReady(instance);
-        LoadedPlugins.Add(instance);
+        LoadedPlugins = LoadedPlugins
+            .Add(instance)
+            .Sort((a, b) =>
+            {
+                var byPriority = b.Priority.CompareTo(a.Priority);
+                if (byPriority != 0)
+                    return byPriority;
 
-        // Keep the priority + discovery-order sort so ties stay deterministic.
-        LoadedPlugins.Sort((a, b) =>
-        {
-            var byPriority = b.Priority.CompareTo(a.Priority);
-            if (byPriority != 0)
-                return byPriority;
-
-            var seqA = _seqByPlugin.TryGetValue(a, out var sa) ? sa : long.MaxValue;
-            var seqB = _seqByPlugin.TryGetValue(b, out var sb) ? sb : long.MaxValue;
-            return seqA.CompareTo(seqB);
-        });
+                var seqA = _seqByPlugin.TryGetValue(a, out var sa) ? sa : long.MaxValue;
+                var seqB = _seqByPlugin.TryGetValue(b, out var sb) ? sb : long.MaxValue;
+                return seqA.CompareTo(seqB);
+            });
 
         // v3.22.0: the plugin list changed, so cached extension -> plugin
         // entries may point at stale indexes; drop them.
@@ -744,6 +761,11 @@ public sealed class PluginManager
         List<IViewer> loaded = null;
         try
         {
+            // A plugin update keeps the old directory outside the plugin tree
+            // until the new copy is in place. Restore it if the process died
+            // between the two moves; otherwise it is safe to discard.
+            CleanupReplacementBackups();
+
             // v1.3.11: finish uninstalls that were parked because a plugin
             // file was locked while the previous instance was still running.
             CleanupPendingUninstalls(App.UserPluginPath);
@@ -782,7 +804,8 @@ public sealed class PluginManager
         {
             // Publish whatever was discovered and open the gate so previews can
             // start matching even if a plugin failed to load.
-            LoadedPlugins = loaded ?? [];
+            lock (_matchLock)
+                LoadedPlugins = loaded is null ? [] : [.. loaded];
             _loadGate.Set();
         }
 
@@ -1068,27 +1091,28 @@ public sealed class PluginManager
     /// </summary>
     internal void RemovePluginsUnder(string folder)
     {
-        if (LoadedPlugins is null)
-            return;
-
         var prefix = folder.TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
-        LoadedPlugins.RemoveAll(plugin =>
-        {
-            try
-            {
-                var location = plugin.GetType().Assembly.Location;
-                return !string.IsNullOrEmpty(location) &&
-                    location.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        });
 
-        // v3.22.0: the plugin list changed, so cached extension -> plugin
-        // entries may point at plugins that no longer exist; drop them.
-        ClearMatchCache();
+        lock (_matchLock)
+        {
+            LoadedPlugins = LoadedPlugins.RemoveAll(plugin =>
+            {
+                try
+                {
+                    var location = plugin.GetType().Assembly.Location;
+                    return !string.IsNullOrEmpty(location) &&
+                        location.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+
+            // The plugin list changed, so cached extension -> plugin entries may
+            // point at plugins that no longer exist; drop them under the same lock.
+            ClearMatchCache();
+        }
     }
 
     private static void CollectPlugins(string root, bool user, List<PluginEntry> list)
@@ -1189,6 +1213,52 @@ public sealed class PluginManager
             catch (Exception ex)
             {
                 ProcessHelper.WriteLog($"Failed to finish uninstall of {dir}: {ex}");
+            }
+        }
+    }
+
+    private static void CleanupReplacementBackups()
+    {
+        var pluginRoot = Path.TrimEndingDirectorySeparator(App.UserPluginPath);
+        var rollbackRoot = Path.Combine(
+            Path.GetDirectoryName(pluginRoot)!,
+            "PluginRollback");
+        if (!Directory.Exists(rollbackRoot))
+            return;
+
+        foreach (var backup in Directory.GetDirectories(
+                     rollbackRoot, "*", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                var marker = Path.Combine(backup, ".original");
+                var folderName = File.Exists(marker)
+                    ? File.ReadAllText(marker).Trim()
+                    : string.Empty;
+
+                if (!PluginInstallService.IsValidNamespace(folderName))
+                {
+                    Directory.Delete(backup, recursive: true);
+                    continue;
+                }
+
+                var target = Path.Combine(App.UserPluginPath, folderName);
+                var oldPlugin = Path.Combine(backup, "plugin");
+
+                if (!Directory.Exists(target) && Directory.Exists(oldPlugin))
+                {
+                    Directory.CreateDirectory(App.UserPluginPath);
+                    Directory.Move(oldPlugin, target);
+                    ProcessHelper.WriteLog(
+                        $"Restored interrupted plugin update from {backup} to {target}");
+                }
+
+                Directory.Delete(backup, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog(
+                    $"Failed to repair plugin update backup {backup}: {ex}");
             }
         }
     }

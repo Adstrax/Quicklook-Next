@@ -49,6 +49,9 @@ public partial class ViewerWindow : Window
     private Size _customWindowSize = Size.Empty;
     private bool _ignoreNextWindowSizeChange;
     private string _path = string.Empty;
+    private readonly PreviewShowGate _showGate = new();
+    private readonly PreviewQuiesceGate _quiesceGate = new();
+    private readonly PreviewContextLease _contextLease;
     private FileSystemWatcher _autoReloadWatcher;
     private readonly bool _autoReload;
     private int _lastCursorX;
@@ -75,6 +78,11 @@ public partial class ViewerWindow : Window
     // smoke tests can assert the acrylic call really succeeded.
     private bool _lastAcrylicOk;
 
+    // v6.0.0: re-applying the backdrop rebuilds the DWM/WCA surface. Doing that on every
+    // preview switch flashed through the transparent pages (Markdown especially), so an
+    // unchanged backdrop is applied only once.
+    private string _lastBackgroundKey;
+
     internal ViewerWindow()
     {
         // v1.3.1: Win11's DWM SystembackdropType.Acrylic renders a solid tint
@@ -94,13 +102,9 @@ public partial class ViewerWindow : Window
         }
 
         // this object should be initialized before loading UI components, because many of which are binding to it.
-        ContextObject = new ContextObject() { Source = this };
-
-        ContextObject.PropertyChanged += ContextObject_PropertyChanged;
-
-        // v3.31.0: plugins ask for a resize through ContextObject instead of
-        // reflecting into this window (see ContextObject.ApplyPreferredSizeNow).
-        ContextObject.ResizeRequested += ApplyResizeRequest;
+        _contextLease = new PreviewContextLease(
+            this, ContextObject_PropertyChanged, ApplyResizeRequest);
+        ContextObject = _contextLease.Initialize(Themes.None);
 
         InitializeComponent();
 
@@ -199,25 +203,18 @@ public partial class ViewerWindow : Window
         buttonWindowStatus.Click += (_, _) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
-        buttonShare.Click += (_, _) => ShareHelper.Share(_path, this);
-        buttonOpenWith.Click += (_, _) => ShareHelper.Share(_path, this, true);
+        buttonOpenWith.Click += (_, _) => OpenWithHelper.Open(_path);
 
         buttonReload.Visibility = SettingHelper.Get("ShowReload", false) ? Visibility.Visible : Visibility.Collapsed;
 
         buttonMore.Click += (_, _) => ToggleMoreMenu();
 
-        // v5.0.11: the OCR entry moved out of the More menu into the toolbar; it is
-        // shown only while the image viewer owns the preview (see BeginShow).
-        buttonOcr.Click += (_, _) => ExtractText();
-
         // Set UI translations
         buttonTop.ToolTip = TranslationHelper.Get("MW_StayTop");
         buttonPin.ToolTip = TranslationHelper.Get("MW_PreventClosing");
         buttonOpenWith.ToolTip = TranslationHelper.Get("MW_OpenWithMenu");
-        buttonShare.ToolTip = TranslationHelper.Get("MW_Share");
         buttonReload.ToolTip = TranslationHelper.Get("MW_Reload", failsafe: "Reload");
         buttonMore.ToolTip = TranslationHelper.Get("MW_More", failsafe: "More");
-        buttonOcr.ToolTip = TranslationHelper.Get("MW_ExtractText", failsafe: "Extract text (OCR)");
 
         // v5.3.0: the caption is icon-only; screen readers need a name for each button.
         SetCaptionAutomationNames();
@@ -231,9 +228,7 @@ public partial class ViewerWindow : Window
             (buttonPin, "Prevent Closing"),
             (buttonOpenWith, "Open With"),
             (buttonOpen, "Open"),
-            (buttonShare, "Share"),
             (buttonReload, "Reload"),
-            (buttonOcr, "Extract text (OCR)"),
             (buttonMore, "More"),
             (buttonTheme, "Toggle Light/Dark Theme"),
             (buttonWindowStatus, "Maximize"),
@@ -274,11 +269,42 @@ public partial class ViewerWindow : Window
 
     public new void Close()
     {
+        // A View callback queued by the previous file must not run against a window
+        // that is being recycled for the next preview.
+        _showGate.Invalidate();
+        _contextLease.Detach();
+
         // Workaround to prevent DPI jump animation when closing window in .NET Framework 4.6.2
         // Safe to remove this line if QuickLookNext no longer targets .NET Framework 4.6.2
         Hide();
 
         base.Close();
+    }
+
+    private void ReplaceContextObject()
+    {
+        var previousContent = ContextObject?.ViewerContent;
+        ContextObject = _contextLease.Replace(Themes.None);
+        UpdatePendingContentHost();
+
+        // Keep the visual attached while the window switches to the new context. The
+        // new context starts with a null ViewerContent, so announcing it first made the
+        // ContentControl detach the old WebView and attach it again on every switch -
+        // visible as a flash through transparent pages such as Markdown.
+        if (previousContent != null)
+        {
+            _restoringStaleContent = true;
+            try
+            {
+                ContextObject.ViewerContent = previousContent;
+            }
+            finally
+            {
+                _restoringStaleContent = false;
+            }
+        }
+
+        OnPropertyChanged(nameof(ContextObject));
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -374,6 +400,13 @@ public partial class ViewerWindow : Window
             && SystemParameters.IsGlassEnabled
             && !App.IsGPUInBlacklist;
         var backdrop = GetBackdropOption();
+        var customColor = SettingHelper.Get("WindowBackgroundColor", string.Empty, "QuickLookNext");
+
+        var key = $"{useTransparency}|{backdrop}|{CurrentTheme}|{customColor}";
+        if (string.Equals(key, _lastBackgroundKey, StringComparison.Ordinal))
+            return;
+
+        _lastBackgroundKey = key;
 
         if (useTransparency)
         {
@@ -386,7 +419,6 @@ public partial class ViewerWindow : Window
             Background = (Brush)FindResource("MainWindowBackgroundNoTransparent");
         }
 
-        var customColor = SettingHelper.Get("WindowBackgroundColor", string.Empty, "QuickLookNext");
         if (!string.IsNullOrEmpty(customColor))
         {
             try

@@ -292,6 +292,8 @@ internal class Updater
             var tag = (string)release["tag_name"];
 
             string downloadUrl = null;
+            long expectedSize = 0;
+            string expectedSha256 = null;
             foreach (var asset in release["assets"] ?? new JArray())
             {
                 var name = (string)asset["name"];
@@ -303,6 +305,13 @@ internal class Updater
                 }
 
                 downloadUrl = (string)asset["browser_download_url"];
+                expectedSize = asset["size"]?.Value<long>() ?? 0;
+                if (!TryParseSha256Digest((string)asset["digest"], out expectedSha256))
+                {
+                    ProcessHelper.WriteLog(
+                        $"Auto update refused: release asset {name} has no valid SHA-256 digest");
+                    return UpdateOutcome.Unavailable;
+                }
                 break;
             }
 
@@ -317,6 +326,13 @@ internal class Updater
             if (!IsTrustedDownloadUrl(downloadUrl))
             {
                 ProcessHelper.WriteLog($"Auto update refused: untrusted download URL ({downloadUrl})");
+                return UpdateOutcome.Unavailable;
+            }
+
+            if (expectedSize <= 0 || expectedSize > MaxPackageBytes)
+            {
+                ProcessHelper.WriteLog(
+                    $"Auto update refused: release asset announces {expectedSize} bytes");
                 return UpdateOutcome.Unavailable;
             }
 
@@ -345,9 +361,9 @@ internal class Updater
             if (Directory.Exists(extractDir))
                 Directory.Delete(extractDir, recursive: true);
 
-            var sha256 = DownloadPackage(downloadUrl, zipPath, progress, cancellation);
-            if (sha256 == null)
-                return UpdateOutcome.Cancelled;
+            var sha256 = DownloadPackage(
+                downloadUrl, zipPath, expectedSize, expectedSha256,
+                progress, cancellation);
 
             ZipFile.ExtractToDirectory(zipPath, extractDir);
 
@@ -395,18 +411,11 @@ internal class Updater
     }
 
     /// <summary>
-    /// v3.31.0: downloads <paramref name="url"/> into <paramref name="targetPath"/>
-    /// and returns the SHA-256 of the downloaded package, or null when the
-    /// download was rejected.
-    /// </summary>
-    private static string DownloadPackage(string url, string targetPath)
-        => DownloadPackage(url, targetPath, null, default);
-
-    /// <summary>
-    /// v3.43.0: same download, but reporting progress and honouring cancellation.
-    /// Returns null when the download was cancelled.
+    /// Downloads a release package and verifies the size and SHA-256 published
+    /// by the GitHub release API before the caller extracts it.
     /// </summary>
     private static string DownloadPackage(string url, string targetPath,
+        long expectedSize, string expectedSha256,
         IProgress<DownloadProgress> progress, CancellationToken cancellation)
     {
         using var download = CreateHttpClient(TimeSpan.FromMinutes(5));
@@ -421,7 +430,7 @@ internal class Updater
         if (declaredLength > MaxPackageBytes)
         {
             ProcessHelper.WriteLog($"Auto update refused: package announces {declaredLength} bytes");
-            return null;
+            throw new InvalidDataException("The update package is larger than the download limit.");
         }
 
         progress?.Report(new DownloadProgress(0, declaredLength));
@@ -432,10 +441,45 @@ internal class Updater
             CopyWithLimit(content, file, MaxPackageBytes, declaredLength, progress, cancellation);
         }
 
+        var actualSize = new FileInfo(targetPath).Length;
+        if (actualSize != expectedSize)
+        {
+            throw new InvalidDataException(
+                $"Downloaded {actualSize} bytes; the release API lists {expectedSize}.");
+        }
+
         using var package = File.OpenRead(targetPath);
         using var sha = SHA256.Create();
+        var actualSha256 = Convert.ToHexString(sha.ComputeHash(package));
 
-        return Convert.ToHexString(sha.ComputeHash(package));
+        if (!actualSha256.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The update package does not match the published SHA-256.");
+
+        return actualSha256;
+    }
+
+    internal static bool TryParseSha256Digest(string digest, out string sha256)
+    {
+        sha256 = null;
+        if (string.IsNullOrWhiteSpace(digest))
+            return false;
+
+        const string prefix = "sha256:";
+        if (!digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var value = digest[prefix.Length..].Trim();
+        if (value.Length != 64)
+            return false;
+
+        foreach (var c in value)
+        {
+            if (!Uri.IsHexDigit(c))
+                return false;
+        }
+
+        sha256 = value.ToUpperInvariant();
+        return true;
     }
 
     // internal: reused by PluginInstallService for the plugin download.

@@ -43,6 +43,7 @@ public class ContextObject : INotifyPropertyChanged
     private bool _titlebarOverlap = true;
     private Themes _theme = Themes.None;
     private object _viewerContent;
+    private object _pendingViewerContent;
     private string _colorProfileName = null;
     private bool _isBlocked;
 
@@ -50,6 +51,12 @@ public class ContextObject : INotifyPropertyChanged
     /// Get the instance of Viewer window.
     /// </summary>
     public object Source { get; set; }
+
+    /// <summary>
+    /// True for the throwaway context used by the background warm-up. Panels that keep a
+    /// reusable instance for later previews must not hand that instance to a warm-up.
+    /// </summary>
+    public bool IsWarmUp { get; set; }
 
     /// <summary>
     /// Get or set the title of Viewer window.
@@ -82,7 +89,15 @@ public class ContextObject : INotifyPropertyChanged
     /// actually ready (e.g. the first image frame decoded). The viewer window
     /// applies this when <see cref="IsBusy"/> turns false.
     /// </summary>
-    public object PendingViewerContent { get; set; }
+    public object PendingViewerContent
+    {
+        get => _pendingViewerContent;
+        set
+        {
+            _pendingViewerContent = value;
+            OnPropertyChanged();
+        }
+    }
 
     /// <summary>
     /// v1.2.14: when true, the viewer window keeps the window (and the previous

@@ -22,7 +22,6 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
-using System.Windows.Threading;
 
 namespace QuickLook.Plugin.MailViewer;
 
@@ -51,12 +50,15 @@ public sealed class Plugin : IViewer
 
     public void View(string path, ContextObject context)
     {
-        _panel = new WebpagePanel();
-        context.ViewerContent = _panel;
+        _panel = new WebpagePanel
+        {
+            ReadyWhenNavigationCompleted = true,
+        };
+        _panel.BeginContentLoad();
         context.Title = Path.GetFileName(path);
 
         _panel.NavigateToFile(ExtractMailBody(path));
-        _panel.Dispatcher.Invoke(() => { context.IsBusy = false; }, DispatcherPriority.Loaded);
+        _panel.ShowInContext(context);
     }
 
     public void Cleanup()

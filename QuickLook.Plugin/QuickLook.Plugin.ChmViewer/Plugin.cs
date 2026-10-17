@@ -50,11 +50,12 @@ public sealed class Plugin : IViewer
     public void View(string path, ContextObject context)
     {
         _panel = new ChmWebpagePanel();
+        _panel.ReadyWhenNavigationCompleted = true;
+        _panel.BeginContentLoad();
         _panel.PreviewCompiledHtmlHelp(path);
 
-        context.ViewerContent = _panel;
         context.Title = Path.GetFileName(path);
-        context.IsBusy = false;
+        _panel.ShowInContext(context);
     }
 
     public void Cleanup()

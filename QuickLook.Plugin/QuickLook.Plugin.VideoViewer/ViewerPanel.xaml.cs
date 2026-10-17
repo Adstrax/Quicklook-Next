@@ -56,6 +56,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     private bool _shouldLoop;
     private bool _useHardwareAcceleration;
     private bool _disposed;
+    private bool _quiesced;
     private bool _mediaSettled;
     private string _pendingMetaPath;
     private MediaInfoSnapshot _pendingMetaInfo;
@@ -174,6 +175,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
     public void Dispose()
     {
+        _quiesced = true;
         _disposed = true;
 
         videoThumbnail.Source = null;
@@ -206,6 +208,34 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         _midiPlayer = null;
     }
 
+    /// <summary>
+    /// v6.0.0: stop playback as soon as a different file is selected. Pausing retains the last
+    /// frame for the host's stale-content bridge; Dispose closes and releases the graph later.
+    /// </summary>
+    public void Quiesce()
+    {
+        if (_quiesced || _disposed)
+            return;
+
+        _quiesced = true;
+        _lyricTimer?.Stop();
+        _pendingMetaPath = null;
+        _pendingMetaInfo = null;
+
+        _midiPlayer?.Dispose();
+        _midiPlayer = null;
+
+        try
+        {
+            mediaElement?.Pause();
+            IsPlaying = false;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+    }
+
     private void Panel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.LeftButton == MouseButtonState.Pressed)
@@ -226,10 +256,24 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         if (mediaElement == null)
             return;
 
+        _mediaSettled = true;
+        if (_quiesced || _disposed)
+        {
+            try
+            {
+                mediaElement.Pause();
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e);
+            }
+
+            return;
+        }
+
         // v1.2.36: the media is (or failed to become) ready - a slow shell
         // thumbnail task that completes after this point must not cover the
         // playing surface with a stale thumbnail.
-        _mediaSettled = true;
 
         // v1.2.15: the playback graph is ready. Reveal the surface under the
         // thumbnail and keep the thumbnail on top for a short grace period, so
@@ -282,6 +326,9 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         var dispatcher = (sender as MediaUriElement)?.Dispatcher ?? Dispatcher;
         dispatcher.BeginInvoke(new Action(() =>
         {
+            if (_disposed || _quiesced)
+                return;
+
             videoThumbnail.Source = null;
             videoThumbnail.Visibility = Visibility.Collapsed;
 
@@ -303,7 +350,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
     private void MediaEnded(object sender, RoutedEventArgs e)
     {
-        if (mediaElement == null)
+        if (mediaElement == null || _disposed || _quiesced)
             return;
 
         mediaElement.MediaPosition = 0L;
@@ -580,7 +627,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
                     // the thumbnail was still being extracted, the playing
                     // surface / error text is already visible - do not cover
                     // it with a late thumbnail.
-                    if (_disposed || _mediaSettled)
+                    if (_disposed || _quiesced || _mediaSettled)
                         return;
 
                     videoThumbnail.Source = source;

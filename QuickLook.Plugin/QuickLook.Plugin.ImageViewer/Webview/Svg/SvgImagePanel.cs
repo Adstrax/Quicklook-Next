@@ -28,6 +28,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace QuickLook.Plugin.ImageViewer.Webview.Svg;
@@ -38,6 +39,7 @@ public class SvgImagePanel : WebpagePanel, IWebImagePanel
     protected internal static readonly Dictionary<string, byte[]> _resources = [];
     protected byte[] _homePage;
     private object _objectForScripting;
+    private static long _navigationSerial;
 
     public object ObjectForScripting
     {
@@ -87,12 +89,28 @@ public class SvgImagePanel : WebpagePanel, IWebImagePanel
 
     public virtual void Preview(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
 
         ObjectForScripting ??= new ScriptHandler(path);
 
         _homePage = _resources["/svg2html.html"];
-        NavigateToUri(new Uri("file://quicklook/"));
+        NavigateToHomePage();
+    }
+
+    /// <summary>
+    /// Navigates to a fresh host URL so Chromium really loads the page instead
+    /// of keeping the previous one, and so the readiness message can name the
+    /// navigation it belongs to.
+    /// </summary>
+    protected void NavigateToHomePage()
+    {
+        var uri = new Uri($"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
+
+        // NavigationStarting may run before the Source setter returns; accept
+        // the navigation by publishing the expected URL first.
+        _currentUri = uri;
+        NavigateToUri(uri);
     }
 
     protected override void WebView_WebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs args)

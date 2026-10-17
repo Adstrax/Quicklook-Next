@@ -22,6 +22,7 @@ using QuickLook.Common.Plugin;
 using QuickLook.Plugin.ImageViewer.Helpers;
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -35,12 +36,12 @@ internal class ImageMagickProvider : AnimationProvider
 {
     public ImageMagickProvider(Uri path, MetaProvider meta, ContextObject contextObject) : base(path, meta, contextObject)
     {
-        Animator = new Int32AnimationUsingKeyFrames();
-        Animator.KeyFrames.Add(new DiscreteInt32KeyFrame(0,
-            KeyTime.FromTimeSpan(TimeSpan.Zero)));
     }
 
     public override Task<BitmapSource> GetThumbnail(Size renderSize)
+        => GetThumbnail(renderSize, CancellationToken.None);
+
+    public override Task<BitmapSource> GetThumbnail(Size renderSize, CancellationToken cancellationToken)
     {
         var fullSize = Meta.GetSize();
         var orientation = Meta.GetOrientation();
@@ -49,21 +50,44 @@ internal class ImageMagickProvider : AnimationProvider
         {
             try
             {
-                using var buffer = new MemoryStream(Meta.GetThumbnail());
-                if (buffer.Length == 0)
+                if (cancellationToken.IsCancellationRequested)
                     return null;
 
-                var img = new BitmapImage();
-                img.BeginInit();
-                img.StreamSource = buffer;
-                img.CacheOption = BitmapCacheOption.OnLoad;
-                img.EndInit();
+                using var buffer = new MemoryStream(Meta.GetThumbnail());
+                if (buffer.Length > 0)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return null;
 
-                var transformed = RotateAndScaleThumbnail(img, orientation, fullSize);
+                    var img = new BitmapImage();
+                    img.BeginInit();
+                    img.StreamSource = buffer;
+                    img.CacheOption = BitmapCacheOption.OnLoad;
+                    img.EndInit();
 
-                ImageHelper.DpiHack(transformed);
-                transformed.Freeze();
-                return transformed;
+                    if (cancellationToken.IsCancellationRequested)
+                        return null;
+
+                    // Do not show a thumbnail too small for the frame and replace it a moment
+                    // later: that is the visible blur-to-sharp transition. Decode the file up
+                    // front when the embedded thumbnail cannot carry the initial view.
+                    if (IsThumbnailDetailedEnough(img, renderSize))
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                            return null;
+
+                        var transformed = RotateThumbnail(img, orientation, fullSize);
+
+                        ImageHelper.DpiHack(transformed);
+                        transformed.Freeze();
+                        return cancellationToken.IsCancellationRequested ? null : transformed;
+                    }
+                }
+
+                // No usable embedded thumbnail, or the user zoomed past it: decode the file
+                // itself at the requested size, still capped by MaxDecodePixels.
+                var requested = RequestedDecodeSize(fullSize, renderSize);
+                return DecodeAt(DecodePixelLimit.Limit(requested), cancellationToken);
             }
             catch (Exception e)
             {
@@ -74,11 +98,24 @@ internal class ImageMagickProvider : AnimationProvider
     }
 
     public override Task<BitmapSource> GetRenderedFrame(int index)
+        => GetRenderedFrame(index, CancellationToken.None);
+
+    public override Task<BitmapSource> GetRenderedFrame(int index, CancellationToken cancellationToken)
     {
-        return new Task<BitmapSource>(GetRenderedFrame);
+        return new Task<BitmapSource>(() => GetRenderedFrame(cancellationToken));
     }
 
     protected virtual BitmapSource GetRenderedFrame()
+        => GetRenderedFrame(CancellationToken.None);
+
+    protected virtual BitmapSource GetRenderedFrame(CancellationToken cancellationToken)
+        => DecodeAt(DecodePixelLimit.Limit(Meta.GetSize()), cancellationToken);
+
+    /// <summary>
+    /// v6.1.0: decodes the file (not its embedded thumbnail) at a specific size. Large decodes
+    /// are serialized so a fast arrow-key walk cannot hold several full-size images at once.
+    /// </summary>
+    private BitmapSource DecodeAt(Size decodeSize, CancellationToken cancellationToken)
     {
         var fullSize = Meta.GetSize();
         var settings = new MagickReadSettings
@@ -97,51 +134,72 @@ internal class ImageMagickProvider : AnimationProvider
 
         try
         {
-            // Only flatten multi-layer gimp xcf files. Other formats (e.g. PSD) should avoid
-            // loading all layers via MagickImageCollection for performance.
-            if (Path.LocalPath.EndsWith(".xcf", StringComparison.OrdinalIgnoreCase))
+            if (!LargeImageDecodeGate.TryEnter(fullSize, cancellationToken, out var gate))
+                return null!;
+
+            using (gate)
             {
-                using var layers = new MagickImageCollection(Path.LocalPath, settings);
-                if (layers.Count > 1)
+                if (cancellationToken.IsCancellationRequested)
+                    return null!;
+
+                // Only flatten multi-layer gimp xcf files. Other formats (e.g. PSD) should avoid
+                // loading all layers via MagickImageCollection for performance.
+                if (Path.LocalPath.EndsWith(".xcf", StringComparison.OrdinalIgnoreCase))
                 {
-                    mi = layers.Flatten(MagickColor.FromRgba(0, 0, 0, 0));
-                    isImageOwned = true; // Flatten creates a new image instance we must dispose.
+                    using var layers = new MagickImageCollection(Path.LocalPath, settings);
+                    if (layers.Count > 1)
+                    {
+                        mi = layers.Flatten(MagickColor.FromRgba(0, 0, 0, 0));
+                        isImageOwned = true; // Flatten creates a new image instance we must dispose.
+                    }
+                    else
+                    {
+                        mi = layers[0];
+                    }
                 }
                 else
                 {
-                    mi = layers[0];
+                    mi = new MagickImage(Path.LocalPath, settings);
+                    isImageOwned = true; // New MagickImage created here must be disposed by this provider.
                 }
-            }
-            else
-            {
-                mi = new MagickImage(Path.LocalPath, settings);
-                isImageOwned = true; // New MagickImage created here must be disposed by this provider.
-            }
-            if (SettingHelper.Get("UseColorProfile", false, "QuickLook.Plugin.ImageViewer"))
-            {
-                if (mi.ColorSpace == ColorSpace.RGB || mi.ColorSpace == ColorSpace.sRGB || mi.ColorSpace == ColorSpace.scRGB)
+
+                if (cancellationToken.IsCancellationRequested)
+                    return null!;
+
+                if (SettingHelper.Get("UseColorProfile", false, "QuickLook.Plugin.ImageViewer"))
                 {
-                    mi.SetProfile(ColorProfiles.SRGB);
-                    if (ContextObject.ColorProfileName != null)
-                        mi.SetProfile(new ColorProfile(ContextObject.ColorProfileName)); // map to monitor color
+                    if (mi.ColorSpace == ColorSpace.RGB || mi.ColorSpace == ColorSpace.sRGB || mi.ColorSpace == ColorSpace.scRGB)
+                    {
+                        mi.SetProfile(ColorProfiles.SRGB);
+                        if (ContextObject.ColorProfileName != null)
+                            mi.SetProfile(new ColorProfile(ContextObject.ColorProfileName)); // map to monitor color
+                    }
                 }
+
+                mi.AutoOrient();
+
+                if (cancellationToken.IsCancellationRequested)
+                    return null!;
+
+                if (mi.Width != (int)decodeSize.Width || mi.Height != (int)decodeSize.Height)
+                    mi.Resize((uint)decodeSize.Width, (uint)decodeSize.Height);
+
+                if (cancellationToken.IsCancellationRequested)
+                    return null!;
+
+                var displayScale = ImageHelper.GetDisplayScaleFactor();
+                mi.Density = new Density(
+                    DisplayDeviceHelper.DefaultDpi * displayScale.Horizontal,
+                    DisplayDeviceHelper.DefaultDpi * displayScale.Vertical);
+
+                var img = mi.ToBitmapSourceWithDensity();
+
+                if (cancellationToken.IsCancellationRequested)
+                    return null!;
+
+                img.Freeze();
+                return img;
             }
-
-            mi.AutoOrient();
-
-            // v5.0.5: cap very large decodes the same way the WIC path does (some formats -
-            // TIFF/PSD/DICOM/RAW - come through ImageMagick instead).
-            var decodeSize = DecodePixelLimit.Limit(fullSize);
-            if (mi.Width != (int)decodeSize.Width || mi.Height != (int)decodeSize.Height)
-                mi.Resize((uint)decodeSize.Width, (uint)decodeSize.Height);
-
-            mi.Density = new Density(DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Horizontal,
-                DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Vertical);
-
-            var img = mi.ToBitmapSourceWithDensity();
-
-            img.Freeze();
-            return img;
         }
         catch (Exception e)
         {
@@ -159,10 +217,32 @@ internal class ImageMagickProvider : AnimationProvider
     {
     }
 
-    protected static TransformedBitmap RotateAndScaleThumbnail(BitmapImage image, Orientation orientation, Size fullSize)
+    private static Size RequestedDecodeSize(Size fullSize, Size requested)
     {
-        var swap = false;
+        if (fullSize.IsEmpty || requested.IsEmpty)
+            return fullSize;
 
+        var scale = Math.Min(1d,
+            Math.Min(requested.Width / fullSize.Width, requested.Height / fullSize.Height));
+
+        return new Size(
+            Math.Max(1d, Math.Round(fullSize.Width * scale)),
+            Math.Max(1d, Math.Round(fullSize.Height * scale)));
+    }
+
+    private static bool IsThumbnailDetailedEnough(BitmapImage image, Size requested)
+    {
+        if (requested.IsEmpty)
+            return true;
+
+        // 0.6 is deliberately generous: a slightly soft first frame is better than decoding
+        // the whole RAW/PSD for every initial preview. Zooming asks for the exact size.
+        return image.PixelWidth >= requested.Width * 0.6 &&
+               image.PixelHeight >= requested.Height * 0.6;
+    }
+
+    protected static BitmapSource RotateThumbnail(BitmapImage image, Orientation orientation, Size fullSize)
+    {
         var transforms = new TransformGroup();
 
         // some RAWs, like from RX100, have thumbnails already rotated.
@@ -185,31 +265,25 @@ internal class ImageMagickProvider : AnimationProvider
                 case Orientation.LeftTop:
                     transforms.Children.Add(new RotateTransform(90));
                     transforms.Children.Add(new ScaleTransform(-1, 1, 0, 0));
-                    swap = true;
                     break;
 
                 case Orientation.RightTop:
                     transforms.Children.Add(new RotateTransform(90));
-                    swap = true;
                     break;
 
                 case Orientation.RightBottom:
                     transforms.Children.Add(new RotateTransform(270));
                     transforms.Children.Add(new ScaleTransform(-1, 1, 0, 0));
-                    swap = true;
                     break;
 
                 case Orientation.LeftBottom:
                     transforms.Children.Add(new RotateTransform(270));
-                    swap = true;
                     break;
             }
 
-        transforms.Children.Add(swap
-            ? new ScaleTransform(fullSize.Width / image.PixelHeight, fullSize.Height / image.PixelWidth)
-            : new ScaleTransform(fullSize.Width / image.PixelWidth, fullSize.Height / image.PixelHeight));
-
-        return new TransformedBitmap(image, transforms);
+        return transforms.Children.Count == 0
+            ? image
+            : new TransformedBitmap(image, transforms);
     }
 
     protected bool IsImageMagickSupported(string path)

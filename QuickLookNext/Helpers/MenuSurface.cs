@@ -54,7 +54,7 @@ internal static class MenuSurface
 {
     /// <summary>
     /// v5.3.0: not every surface is a menu. The tray menu stays at the tuned 30% (see below),
-    /// while the panel windows - plugin manager, update prompts, data &amp; cache, OCR - are
+    /// while the panel windows - plugin manager, update prompts, data &amp; cache - are
     /// read rather than scanned and get a firmer 45%, which is what makes their text survive a
     /// bright wallpaper. Windows' own transient surfaces make the same distinction.
     /// </summary>

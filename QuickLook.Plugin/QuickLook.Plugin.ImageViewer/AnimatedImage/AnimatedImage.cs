@@ -17,10 +17,12 @@
 
 using QuickLook.Common.ExtensionMethods;
 using QuickLook.Common.Plugin;
+using QuickLook.Plugin.ImageViewer.Helpers;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -33,10 +35,14 @@ public class AnimatedImage : Image, IDisposable
 
     private AnimationProvider _animation;
     private bool _disposing;
+    private int _loadVersion;
+    private CancellationTokenSource _loadCancellation;
 
     public void Dispose()
     {
         _disposing = true;
+        _loadVersion++;
+        CancelPendingLoad();
 
         BeginAnimation(AnimationFrameIndexProperty, null);
         Source = null;
@@ -48,6 +54,13 @@ public class AnimatedImage : Image, IDisposable
     public event EventHandler ImageLoaded;
 
     public event EventHandler DoZoomToFit;
+
+    /// <summary>
+    /// v6.1.0: the loaded bitmap changed its own pixel size (the detail reload). The panel
+    /// uses this to keep the same visible size and scroll position while the zoom factor is
+    /// converted from the old bitmap's coordinate space to the new one.
+    /// </summary>
+    public event EventHandler<SourceSizeChangedEventArgs> SourceSizeChanged;
 
     private static AnimationProvider InitAnimationProvider(Uri path, MetaProvider meta, ContextObject contextObject)
     {
@@ -114,15 +127,47 @@ public class AnimatedImage : Image, IDisposable
     /// </summary>
     public void ReloadAt(Size renderSize) => ShowThumbnailAndStartAnimation(this, renderSize, keepView: true);
 
+    /// <summary>
+    /// v6.0.0: another preview is opening. Reject the result of work already in flight and stop
+    /// frame animation, but keep the last decoded source visible until the host swaps content.
+    /// </summary>
+    public void Quiesce()
+    {
+        if (_disposing)
+            return;
+
+        _loadVersion++;
+        CancelPendingLoad();
+        BeginAnimation(AnimationFrameIndexProperty, null);
+        _animation?.Pause();
+    }
+
     private static void ShowThumbnailAndStartAnimation(AnimatedImage instance, Size? renderSize = null,
         bool keepView = false)
     {
-        var task = instance._animation.GetThumbnail(renderSize ?? instance.ContextObject.PreferredSize);
+        instance.CancelPendingLoad();
+        var cancellation = new CancellationTokenSource();
+        instance._loadCancellation = cancellation;
+        var version = ++instance._loadVersion;
+
+        // The first request comes from the host in DIP. A detail request already carries device
+        // pixels, so only the initial size is converted here.
+        var requestedSize = renderSize ??
+                            ImageHelper.ToDevicePixels(instance.ContextObject.PreferredSize);
+        var task = instance._animation.GetThumbnail(requestedSize, cancellation.Token);
         if (task == null) return;
 
-        task.ContinueWith(_ => instance.Dispatcher.Invoke(() =>
+        task.ContinueWith(completed => instance.Dispatcher.Invoke(() =>
         {
-            if (instance._disposing)
+            instance.CompleteLoad(cancellation);
+
+            // v6.1.0: a newer decode (another file, or a newer detail request) supersedes this
+            // one. The native decoder cannot always be cancelled, but its result must not
+            // replace the picture the user is now looking at.
+            if (instance._disposing || version != instance._loadVersion)
+                return;
+
+            if (completed.IsCanceled || completed.IsFaulted)
                 return;
 
             // v5.6.14: a null thumbnail must not wipe a picture that is already on screen. Formats without
@@ -130,18 +175,18 @@ public class AnimatedImage : Image, IDisposable
             // and the detail reload runs *after* the first frame was rendered - so assigning it blanked the
             // preview: the image appeared, then became the window's own background. A static picture never
             // triggers another frame, so nothing brought it back.
-            if (_.Result != null)
-                instance.Source = _.Result;
+            if (completed.Result != null)
+                SetSource(instance, completed.Result);
 
-            if (_.Result != null && !keepView)
+            if (completed.Result != null && !keepView)
             {
                 instance.DoZoomToFit?.Invoke(instance, EventArgs.Empty);
                 instance.ImageLoaded?.Invoke(instance, EventArgs.Empty);
             }
 
             // A detail reload keeps the running frame animation rather than restarting it.
-            if (!keepView)
-                instance.BeginAnimation(AnimationFrameIndexProperty, instance._animation?.Animator);
+            if (!keepView && instance._animation?.Animator is { } animator)
+                instance.BeginAnimation(AnimationFrameIndexProperty, animator);
         }));
         task.Start();
     }
@@ -154,16 +199,26 @@ public class AnimatedImage : Image, IDisposable
         if (instance._disposing)
             return;
 
-        var task = instance._animation.GetRenderedFrame((int)ev.NewValue);
+        instance.CancelPendingLoad();
+        var cancellation = new CancellationTokenSource();
+        instance._loadCancellation = cancellation;
+        var version = ++instance._loadVersion;
+        var task = instance._animation.GetRenderedFrame((int)ev.NewValue, cancellation.Token);
 
-        task.ContinueWith(_ => instance.Dispatcher.Invoke(() =>
+        task.ContinueWith(completed => instance.Dispatcher.Invoke(() =>
         {
-            if (instance._disposing)
+            instance.CompleteLoad(cancellation);
+
+            if (instance._disposing || version != instance._loadVersion)
+                return;
+
+            if (completed.IsCanceled || completed.IsFaulted)
                 return;
 
             var firstLoad = instance.Source == null;
 
-            instance.Source = _.Result;
+            if (completed.Result != null)
+                SetSource(instance, completed.Result);
 
             if (firstLoad)
             {
@@ -173,4 +228,58 @@ public class AnimatedImage : Image, IDisposable
         }));
         task.Start();
     }
+
+    private void CancelPendingLoad()
+    {
+        var cancellation = _loadCancellation;
+        _loadCancellation = null;
+        if (cancellation == null)
+            return;
+
+        cancellation.Cancel();
+    }
+
+    private void CompleteLoad(CancellationTokenSource cancellation)
+    {
+        if (ReferenceEquals(_loadCancellation, cancellation))
+            _loadCancellation = null;
+
+        cancellation.Dispose();
+    }
+
+    private static void SetSource(AnimatedImage instance, System.Windows.Media.ImageSource source)
+    {
+        var previous = instance.Source;
+        var oldSize = previous == null
+            ? Size.Empty
+            : new Size(previous.Width, previous.Height);
+
+        instance.Source = source;
+
+        if (source == null || oldSize.IsEmpty)
+            return;
+
+        var newSize = new Size(source.Width, source.Height);
+
+        if (Math.Abs(oldSize.Width - newSize.Width) < 0.5 &&
+            Math.Abs(oldSize.Height - newSize.Height) < 0.5)
+        {
+            return;
+        }
+
+        instance.SourceSizeChanged?.Invoke(
+            instance, new SourceSizeChangedEventArgs(oldSize, newSize));
+    }
+}
+
+public sealed class SourceSizeChangedEventArgs : EventArgs
+{
+    public SourceSizeChangedEventArgs(Size oldSize, Size newSize)
+    {
+        OldSize = oldSize;
+        NewSize = newSize;
+    }
+
+    public Size OldSize { get; }
+    public Size NewSize { get; }
 }

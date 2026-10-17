@@ -67,8 +67,9 @@ internal static class ImageHelper
     {
         // a dirty hack... but is the fastest
 
-        var newDpiX = (double)DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Horizontal;
-        var newDpiY = (double)DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Vertical;
+        var scale = GetDisplayScaleFactor();
+        var newDpiX = (double)DisplayDeviceHelper.DefaultDpi * scale.Horizontal;
+        var newDpiY = (double)DisplayDeviceHelper.DefaultDpi * scale.Vertical;
 
         var dpiX = img.GetType().GetField("_dpiX",
             BindingFlags.NonPublic | BindingFlags.Instance);
@@ -76,6 +77,34 @@ internal static class ImageHelper
             BindingFlags.NonPublic | BindingFlags.Instance);
         dpiX?.SetValue(img, newDpiX);
         dpiY?.SetValue(img, newDpiY);
+    }
+
+    /// <summary>
+    /// v6.0.0: use the scale reported by the preview window instead of whichever window happens
+    /// to be in front. A background decode must use the monitor the image is being shown on, or
+    /// a mixed-DPI desktop produces a slightly soft first frame.
+    /// </summary>
+    internal static DisplayDeviceHelper.ScaleFactor GetDisplayScaleFactor()
+    {
+        var current = DisplayScale.Current;
+        if (current > 0 && !double.IsNaN(current))
+            return new DisplayDeviceHelper.ScaleFactor
+            {
+                Horizontal = (float)current,
+                Vertical = (float)current,
+            };
+
+        return DisplayDeviceHelper.GetCurrentScaleFactor();
+    }
+
+    /// <summary>
+    /// v6.0.0: the initial decode is requested by the panel in DIP. Decode in device pixels so
+    /// the first rendered frame already has the detail the monitor shows.
+    /// </summary>
+    internal static Size ToDevicePixels(Size displaySize)
+    {
+        var scale = GetDisplayScaleFactor();
+        return ImageZoom.ToDevicePixels(displaySize, scale.Horizontal, scale.Vertical);
     }
 
     public static Uri FilePathToFileUrl(string filePath)

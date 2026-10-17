@@ -30,12 +30,13 @@ public class TgsImagePanel : SvgImagePanel
 {
     public override void Preview(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
 
         ObjectForScripting ??= new TgsScriptHandler(path);
 
         _homePage = _resources["/lottie2html.html"];
-        NavigateToUri(new Uri("file://quicklook/"));
+        NavigateToHomePage();
     }
 
     protected override void WebView_WebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs args)

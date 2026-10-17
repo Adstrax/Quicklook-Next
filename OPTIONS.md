@@ -254,50 +254,19 @@ These keys are also stored in `QuickLookNext.config`.
 
   The two warm-ups exist to make the first preview fast, and both keep memory resident
   for the life of the tray process. Measured on one machine (single 200% display,
-  nothing previewed, 75 s after start; re-measured for 5.8.0, when the family warm-up
-  started preparing every family instead of the two most-used ones):
+  nothing previewed, 75 s after start):
 
   | configuration | private memory | working set |
   |---|---|---|
   | nothing warmed (no window, no families) | 61 MB | 122 MB |
   | preview window warmed off-screen | 112-118 MB | 199 MB |
-  | plus the two most-used preview families (the old default) | 179 MB | 267 MB |
-  | plus every preview family (the default since 5.8.0) | 217 MB | 320 MB |
+  | plus the two most-used preview families (the 5.7 default) | 179 MB | 267 MB |
 
   The window warm-up buys the first preview ~200 ms; the family warm-up buys 100-200 ms
-  on the first preview of each family (text 289 -> 96 ms, image 170 -> 100 ms).
-  Every family costs 70 MB private over nothing warmed, of which the two that used to be
-  the default are 38 MB - the six the old default left out are 32 MB between them, which
-  is why the whole list is prepared now.
+  on the first preview of each family (text 289 -> 96 ms, image 170 -> 100 ms). The
+  current policy prepares three families, not the whole list.
 - Example:
   - `<LowMemoryMode>True</LowMemoryMode>` to idle at the 61 MB baseline.
-
-### `<WarmUpPreviewFamilies>`
-- Default: `True`
-- Type: `Boolean`
-- Description: Whether the app prepares the preview families in the background. In the
-  normal mode it does that right after startup; in the low memory mode it waits for the
-  first preview of the session (that mode has no idle budget to spend) and the family on
-  screen at that moment is skipped. Turning it off saves the family share of the table
-  above (70 MB private with the default family count) and costs the one-time warm-up of
-  the first preview of each family. `<LowMemoryMode>` turns this off as well and is the
-  easier switch.
-- Example:
-  - `<WarmUpPreviewFamilies>False</WarmUpPreviewFamilies>`
-
-### `<WarmUpFamilyCount>`
-- Default: `8` (every family the warm-up knows: text, Markdown, HTML, CSV, image, PDF,
-  archive, font)
-- Type: `Integer`
-- Description: How many preview families the warm-up prepares per session, at most 8.
-  The families this user opens most (from the usage history) are prepared first, so a
-  preview that arrives while the warm-up is still running is most likely to be for one
-  that is already ready. Video, audio and Office are not in the list: preparing them
-  means starting playback, or synthesising a valid OOXML document and keeping a Chromium
-  environment for it.
-- Example:
-  - `<WarmUpFamilyCount>1</WarmUpFamilyCount>` to prepare only the most-used family.
-  - `<WarmUpFamilyCount>2</WarmUpFamilyCount>` for the 5.7.x default (text + image).
 
 ## QuickLook.Plugin.ImageViewer.config options
 

@@ -120,6 +120,7 @@ public partial class App : Application
 
     public static bool IsGPUInBlacklist => _gpuInBlacklist.Value;
 
+    private readonly CancellationTokenSource _lifetimeCts = new();
     private bool _cleanExit = true;
     private Mutex _isRunning;
     // v3.27.0: guards the exception-report window against re-entrancy. If the
@@ -151,11 +152,11 @@ public partial class App : Application
     {
         // Kick off the GPU blacklist check in the background so it overlaps
         // with the rest of startup instead of blocking it.
-        _ = Task.Run(() => _ = _gpuInBlacklist.Value);
+        RunBackground(() => _ = _gpuInBlacklist.Value, "GPU blacklist probe");
 
         // v3.28.0: preload the plugin-usage counter on a background thread so
         // the first preview never pays the one-time stats file read.
-        _ = Task.Run(PluginUsageTracker.Preload);
+        RunBackground(PluginUsageTracker.Preload, "Plugin usage preload");
 
         IsTimingEnabled = e.Args.Contains("/test-timing");
         IsStartupTimingEnabled = e.Args.Contains("/test-startup");
@@ -380,30 +381,6 @@ public partial class App : Application
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
-        // v5.0.8: /test-ocr runs the OCR path used by the preview's More menu on the image named
-        // in QL_TEST_OCR_FILE and writes the recognized text to <smokeDir>\ocr.txt.
-        if (e.Args.Contains("/test-ocr"))
-        {
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                try
-                {
-                    var file = Environment.GetEnvironmentVariable("QL_TEST_OCR_FILE");
-                    if (string.IsNullOrEmpty(file))
-                    {
-                        ProcessHelper.WriteLog("/test-ocr needs QL_TEST_OCR_FILE");
-                        return;
-                    }
-
-                    OcrWindow.ShowWindow(file, smokeMode: true);
-                }
-                catch (Exception ex)
-                {
-                    ProcessHelper.WriteLog($"/test-ocr failed: {ex}");
-                }
-            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        }
-
         // Hidden test hook (/test-update-now): runs the real "update now" path for
         // the fake release - progress panel, download, install, restart - so the
         // download UI can be verified against an actual package.
@@ -607,28 +584,21 @@ public partial class App : Application
         // Defer it to a background task: until the patch lands, MessageBox
         // calls simply use the default WPF dialog (same behavior, different
         // look), and the patch is process-wide once applied.
-        _ = Task.Delay(3000).ContinueWith(_ =>
+        RunAfterDelay(TimeSpan.FromSeconds(3), () =>
         {
             MessageBoxPatcher.Initialize();
             RecordStartupPhase("messagebox-patch-done");
-        });
+        }, "MessageBox patch");
         RecordStartupPhase("after-messagebox-patch-deferred");
 
         CheckUpdate();
 
         // v3.40.0: a failed update used to be silent (the app just came back at the
         // old version); tell the user what happened and where to get the package.
-        _ = Task.Delay(4000).ContinueWith(_ =>
-        {
-            try
-            {
-                Dispatcher.Invoke(Updater.ReportLastUpdateResult);
-            }
-            catch
-            {
-                // Reporting must never affect startup.
-            }
-        });
+        RunAfterDelay(
+            TimeSpan.FromSeconds(4),
+            () => Dispatcher.Invoke(Updater.ReportLastUpdateResult),
+            "Update result reporting");
 
         CheckAndRegisterPluginIcon();
         RecordStartupPhase("onstartup-end");
@@ -690,6 +660,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _lifetimeCts.Cancel();
         base.OnExit(e);
 
         if (!_cleanExit)
@@ -697,7 +668,22 @@ public partial class App : Application
 
         PluginUsageTracker.Flush();
 
-        _isRunning.ReleaseMutex();
+        var mutex = Interlocked.Exchange(ref _isRunning, null);
+        if (mutex != null)
+        {
+            try
+            {
+                mutex.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // The mutex was not owned by this thread; nothing to release.
+            }
+            finally
+            {
+                mutex.Dispose();
+            }
+        }
 
         PipeServerManager.GetInstance().Dispose();
         TrayIconManager.GetInstance().Dispose();
@@ -811,13 +797,76 @@ public partial class App : Application
         // v3.31.0: the "last checked" stamp is written by Updater itself, once
         // the release API call actually succeeded (see Updater.CheckForUpdates).
         // Writing it here marked the check as done even when it failed offline.
-        _ = Task.Delay(120 * 1000).ContinueWith(_ => Updater.CheckForUpdates(true));
+        RunAfterDelay(
+            TimeSpan.FromMinutes(2),
+            () => Updater.CheckForUpdates(true),
+            "Automatic update check");
     }
 
     private void CheckAndRegisterPluginIcon()
     {
         // TODO: only /register-plugin-icon command to register plugin icon immediately, and can be removed
-        _ = Task.Delay(3000).ContinueWith(_ => PluginIconRegistrationHelper.CheckAndRegisterPluginIcon());
+        RunAfterDelay(
+            TimeSpan.FromSeconds(3),
+            PluginIconRegistrationHelper.CheckAndRegisterPluginIcon,
+            "Plugin icon registration");
+    }
+
+    /// <summary>
+    /// Runs best-effort startup work after a delay and skips it when the application is
+    /// already exiting. Exceptions are logged instead of escaping an unobserved task.
+    /// </summary>
+    private void RunAfterDelay(TimeSpan delay, Action action, string operation)
+    {
+        _ = Task.Run(async () =>
+        {
+            var token = _lifetimeCts.Token;
+            try
+            {
+                await Task.Delay(delay, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                action();
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // Application shutdown won the race; there is no work left to do.
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog($"{operation} failed: {ex}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// Runs best-effort startup work off the UI thread. The app lifetime token only
+    /// prevents work that has not started yet; operations that accept a token should
+    /// use the overload so they can stop as soon as the app exits.
+    /// </summary>
+    private void RunBackground(Action action, string operation)
+        => RunBackground(_ => action(), operation);
+
+    private void RunBackground(Action<CancellationToken> action, string operation)
+    {
+        _ = Task.Run(() =>
+        {
+            var token = _lifetimeCts.Token;
+            if (token.IsCancellationRequested)
+                return;
+
+            try
+            {
+                action(token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // Shutdown won the race.
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog($"{operation} failed: {ex}");
+            }
+        });
     }
 
     private void RunListener(StartupEventArgs e)
@@ -847,6 +896,10 @@ public partial class App : Application
         // background network traffic gets any.
         var hiddenTestMode = e.Args.Any(a => a.StartsWith("/test-", StringComparison.OrdinalIgnoreCase));
         if (!hiddenTestMode && !SettingHelper.Get("DisableAutoUpdateCheck", false))
-            _ = Task.Run(() => Helpers.PluginCatalog.Load(out _, forceRefresh: true));
+        {
+            RunBackground(
+                token => Helpers.PluginCatalog.Load(out _, forceRefresh: true, cancellationToken: token),
+                "Plugin catalogue refresh");
+        }
     }
 }

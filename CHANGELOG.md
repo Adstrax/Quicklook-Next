@@ -7,6 +7,39 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.0.0
+
+### A preview switch that hands over instead of flashing through
+
+6.0.0 is the first release where a preview switch is one owned pipeline: the previous content
+stays on screen while the next one is prepared, and work that belongs to a superseded request is
+rejected instead of arriving late.
+
+- **One preview, one context.** Every preview gets its own `ContextObject`; theme and window
+  settings survive the change, but a plugin still holding the old context cannot write into the
+  new one. The same rule covers queued `View` calls, shell selection reads and WebView2
+  navigation: only the newest request may render.
+- **First-frame handoff for web content.** Markdown, RST, AsciiDoc, Jupyter, HTML, EML/MSG, CHM,
+  SVG, PlantUML, Graphviz, draw.io, Excalidraw, Lottie, SVGA and TGS are prepared off the visible
+  surface and replace the old page only after their first content frame exists. A page that never
+  reports readiness falls back to the swap after three seconds.
+- **Rapid input stays ordered.** Side-button steps are serialized and a burst is folded into one
+  net move; a late shell selection cannot replace a newer one; the switch cadence gives a burst a
+  short settle window without delaying the first switch after a pause.
+- **Images open at the size they are displayed.** The first frame is decoded in device pixels, so
+  the fit view no longer magnifies a DIP-sized bitmap - the visible "zoom-in" and the mismatch
+  with the window are gone. Zoom accounting keeps the visible size across re-decodes, and one
+  large decode at a time stops arrow-key browsing from piling up 20-60 MP decodes.
+- **The old preview is quiesced, not torn down.** Video pauses, image detail requests stop, and
+  web pages freeze their animations while the old frame remains the visual bridge.
+- **Smaller surface.** OCR and Share were removed; the preview-family warm-up is fixed to the
+  three most-used families, chosen from local usage history, with no extra switch.
+- **Hardening.** Plugin installs verify size, SHA-256 and the install target; the updater accepts
+  only GitHub hosts and full digests; settings and state files are written atomically; open-with
+  arguments are quoted correctly; background startup work is cancelled on exit.
+- **Release quality.** 180 unit tests, 0 warnings in the Release build, and CI now also runs the
+  runtime footprint check. The appx manifest and the assembly version are 6.0.0.
+
 ## QuickLook-Next 5.8.0
 
 ### Every preview family is prepared, and it starts when you do

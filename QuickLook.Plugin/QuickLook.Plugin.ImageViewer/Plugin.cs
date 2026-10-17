@@ -33,7 +33,7 @@ using ImageMagick;
 
 namespace QuickLook.Plugin.ImageViewer;
 
-public sealed partial class Plugin : IViewer, IMoreMenu
+public sealed partial class Plugin : IViewer, IMoreMenu, IPreviewQuiesce
 {
     private static readonly HashSet<string> WellKnownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -356,6 +356,10 @@ public sealed partial class Plugin : IViewer, IMoreMenu
         GC.SuppressFinalize(this);
         _active = false;
 
+        // v6.1.0: the on-demand detail decode can allocate a large frame even when the file is
+        // below the 40 MP cap, so the panel reports whether it actually did.
+        var hadLargeDecode = _decodeLimited || (_ip?.HadLargeDecode ?? false);
+
         _ip?.Dispose();
         _ip = null;
 
@@ -365,10 +369,17 @@ public sealed partial class Plugin : IViewer, IMoreMenu
         // v5.0.5: a capped (very large) image leaves hundreds of MB of managed buffers behind,
         // so collect them now instead of waiting for the next natural collection. Only in that
         // case - forcing a collection on every preview close would cost latency for nothing.
-        if (_decodeLimited)
+        if (hadLargeDecode)
         {
             _decodeLimited = false;
             GC.Collect(2, GCCollectionMode.Default, blocking: false, compacting: false);
         }
+    }
+
+    public void Quiesce()
+    {
+        _active = false;
+        _ip?.Quiesce();
+        _ipWeb?.Quiesce();
     }
 }

@@ -83,6 +83,26 @@ public static class ImageZoom
     }
 
     /// <summary>
+    /// v6.0.0: converts a WPF display size (DIP) to the device pixels the monitor actually
+    /// shows. A first image frame must be decoded in this space: the bitmap is tagged with the
+    /// display DPI, so decoding it at the DIP size leaves too few pixels and the fit view has to
+    /// magnify them.
+    /// </summary>
+    public static Size ToDevicePixels(Size displaySize, double pixelsPerDipX, double pixelsPerDipY)
+    {
+        if (displaySize.IsEmpty ||
+            pixelsPerDipX <= 0 || pixelsPerDipY <= 0 ||
+            double.IsNaN(pixelsPerDipX) || double.IsNaN(pixelsPerDipY))
+        {
+            return displaySize;
+        }
+
+        return new Size(
+            Math.Max(1d, Math.Ceiling(displaySize.Width * pixelsPerDipX)),
+            Math.Max(1d, Math.Ceiling(displaySize.Height * pixelsPerDipY)));
+    }
+
+    /// <summary>
     /// A re-decode is only worth it when it would add at least this much detail. Smaller gains
     /// would mean decoding the file again for every notch.
     /// </summary>
@@ -122,5 +142,57 @@ public static class ImageZoom
         }
 
         return needed;
+    }
+
+    /// <summary>
+    /// v6.1.0: how much of the file should be decoded for the current view when the loaded
+    /// bitmap keeps its own pixel coordinate space instead of being scaled to the file's
+    /// (or the decode cap's) coordinate space.
+    /// <para>
+    /// The bitmap on screen covers <c>sourceSize * zoomFactor</c> DIPs, so the pixels actually
+    /// being magnified are <c>sourceSize * zoomFactor * dpiScale</c>. A larger decode only adds
+    /// detail when that exceeds what is already loaded (<see cref="DetailGrowthFactor"/>), and
+    /// the file's own size is the ceiling.
+    /// </para>
+    /// </summary>
+    public static Size? NeededDetailSizeForSource(Size sourceSize, double zoomFactor,
+        double dpiScaleX, double dpiScaleY, Size realSize)
+    {
+        if (sourceSize.IsEmpty || realSize.IsEmpty || zoomFactor <= 0 ||
+            double.IsNaN(zoomFactor) || double.IsNaN(dpiScaleX) || double.IsNaN(dpiScaleY) ||
+            dpiScaleX <= 0 || dpiScaleY <= 0)
+        {
+            return null;
+        }
+
+        var loaded = new Size(sourceSize.Width * dpiScaleX, sourceSize.Height * dpiScaleY);
+        var needed = new Size(
+            Math.Min(realSize.Width, loaded.Width * zoomFactor),
+            Math.Min(realSize.Height, loaded.Height * zoomFactor));
+
+        if (needed.Width <= loaded.Width * DetailGrowthFactor &&
+            needed.Height <= loaded.Height * DetailGrowthFactor)
+        {
+            return null;
+        }
+
+        return needed;
+    }
+
+    /// <summary>
+    /// v6.1.0: the zoom that keeps the same visible size after a bitmap of
+    /// <paramref name="oldSourceSize"/> is replaced by one of <paramref name="newSourceSize"/>.
+    /// </summary>
+    public static double ZoomAfterSourceChange(double currentZoom, Size oldSourceSize, Size newSourceSize)
+    {
+        if (currentZoom <= 0 || double.IsNaN(currentZoom) ||
+            oldSourceSize.IsEmpty || newSourceSize.IsEmpty ||
+            oldSourceSize.Width <= 0 || oldSourceSize.Height <= 0 ||
+            newSourceSize.Width <= 0 || newSourceSize.Height <= 0)
+        {
+            return currentZoom;
+        }
+
+        return currentZoom * oldSourceSize.Width / newSourceSize.Width;
     }
 }

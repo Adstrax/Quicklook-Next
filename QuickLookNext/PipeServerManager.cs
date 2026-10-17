@@ -21,6 +21,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Pipes;
 using System.Security.Principal;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -43,45 +45,109 @@ public static class PipeMessages
 public class PipeServerManager : IDisposable
 {
     private static readonly string PipeName = "QuickLookNext.App.Pipe." + WindowsIdentity.GetCurrent().User?.Value;
+    private static readonly object InstanceLock = new();
     private static PipeServerManager _instance;
 
     private DispatcherOperation _lastOperation;
 
     private NamedPipeServerStream _server;
+    private readonly CancellationTokenSource _shutdown = new();
+    private const int MaxMessageChars = 64 * 1024;
 
     public PipeServerManager()
     {
-        _server = new NamedPipeServerStream(PipeName, PipeDirection.In);
+        _server = new NamedPipeServerStream(
+            PipeName,
+            PipeDirection.In,
+            maxNumberOfServerInstances: 1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
-        _ = Task.Factory.StartNew(() =>
-        {
-            using var reader = new StreamReader(_server);
-            Debug.WriteLine("PipeManager: Ready");
-
-            while (true)
-            {
-                _server.WaitForConnection();
-                var msg = reader.ReadLine();
-
-                Debug.WriteLine($"PipeManager: {msg}");
-
-                // dispatch message
-                if (MessageReceived(msg))
-                    return;
-
-                _server.Disconnect();
-            }
-        }, TaskCreationOptions.LongRunning);
+        _ = Task.Run(() => ListenAsync(_shutdown.Token));
     }
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
 
-        if (_server != null)
-            PostMessage(PipeMessages.Quit);
+        _shutdown.Cancel();
         _server?.Dispose();
         _server = null;
+    }
+
+    private async Task ListenAsync(CancellationToken cancellation)
+    {
+        Debug.WriteLine("PipeManager: Ready");
+
+        while (!cancellation.IsCancellationRequested && _server is not null)
+        {
+            try
+            {
+                await _server.WaitForConnectionAsync(cancellation).ConfigureAwait(false);
+
+                using var reader = new StreamReader(
+                    _server, Encoding.UTF8, detectEncodingFromByteOrderMarks: false,
+                    bufferSize: 1024, leaveOpen: true);
+                var msg = await ReadLineLimitedAsync(reader, cancellation).ConfigureAwait(false);
+
+                Debug.WriteLine($"PipeManager: {msg}");
+
+                if (msg is not null && MessageReceived(msg))
+                    return;
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                // A malformed or half-written request belongs to one client. It must
+                // never take the listener down for every later preview invocation.
+                Debug.WriteLine($"PipeManager: connection failed: {e}");
+            }
+            finally
+            {
+                try
+                {
+                    if (_server?.IsConnected == true)
+                        _server.Disconnect();
+                }
+                catch
+                {
+                    // The client or the server may already be gone.
+                }
+            }
+        }
+    }
+
+    private static async Task<string> ReadLineLimitedAsync(
+        StreamReader reader, CancellationToken cancellation)
+    {
+        var text = new StringBuilder(Math.Min(MaxMessageChars, 1024));
+        var buffer = new char[1024];
+
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(), cancellation).ConfigureAwait(false);
+            if (read == 0)
+                return text.Length == 0 ? null : text.ToString();
+
+            for (var i = 0; i < read; i++)
+            {
+                if (buffer[i] == '\n')
+                {
+                    if (text.Length > 0 && text[^1] == '\r')
+                        text.Length--;
+                    return text.ToString();
+                }
+
+                if (text.Length >= MaxMessageChars)
+                    throw new InvalidDataException(
+                        $"Pipe message exceeds the {MaxMessageChars} character limit.");
+
+                text.Append(buffer[i]);
+            }
+        }
     }
 
     [SuppressMessage("Style", "IDE0063:Use simple 'using' statement")]
@@ -120,6 +186,9 @@ public class PipeServerManager : IDisposable
 
     private bool MessageReceived(string msg)
     {
+        if (string.IsNullOrEmpty(msg))
+            return false;
+
         var split = msg.Split('|');
         if (split.Length <= 1)
             return false;
@@ -203,6 +272,7 @@ public class PipeServerManager : IDisposable
 
     public static PipeServerManager GetInstance()
     {
-        return _instance ??= new PipeServerManager();
+        lock (InstanceLock)
+            return _instance ??= new PipeServerManager();
     }
 }

@@ -67,6 +67,20 @@ internal class UpdateScriptTests
             "the cleanup has to keep UserData");
     }
 
+    public void TheScriptClearsOldRootFilesBeforeCopyingTheNewBuild()
+    {
+        var script = Script();
+
+        var clear = script.IndexOf(
+            "for %%f in (\"%QL_APP%\\*\") do del", StringComparison.Ordinal);
+        var copy = script.IndexOf(
+            "robocopy \"%QL_SRC%\"", StringComparison.Ordinal);
+
+        Assert.True(clear >= 0, "old root files are removed");
+        Assert.True(copy > clear,
+            "the replacement copy must happen after obsolete files such as the old WinRT runtime are gone");
+    }
+
     public void TheScriptWaitsForTheAppToExitBeforeReplacingFiles()
     {
         Assert.True(

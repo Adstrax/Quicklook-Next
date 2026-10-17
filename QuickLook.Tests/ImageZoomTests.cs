@@ -136,4 +136,105 @@ internal class ImageZoomTests
         Assert.Equal(1600d, needed.Value.Width, "device pixels, not DIP");
         Assert.Equal(1200d, needed.Value.Height, "and its height");
     }
+
+    public void AThumbnailKeepsItsOwnCoordinateSpace()
+    {
+        var source = new System.Windows.Size(1200, 900);
+        var real = new System.Windows.Size(8000, 6000);
+
+        Assert.Null(ImageZoom.NeededDetailSizeForSource(source, 1d, 1d, 1d, real),
+            "the first thumbnail already covers the fit view");
+
+        var needed = ImageZoom.NeededDetailSizeForSource(source, 2d, 1d, 1d, real);
+        Assert.NotNull(needed, "two times the thumbnail is worth a decode");
+        Assert.Equal(2400d, needed.Value.Width, "twice the source width");
+        Assert.Equal(1800d, needed.Value.Height, "and height");
+    }
+
+    public void TheFileIsTheCeilingForTheSourceSpace()
+    {
+        var source = new System.Windows.Size(800, 600);
+        var real = new System.Windows.Size(2000, 1500);
+
+        var needed = ImageZoom.NeededDetailSizeForSource(source, 4d, 1d, 1d, real);
+
+        Assert.NotNull(needed, "the file can still give more");
+        Assert.Equal(2000d, needed.Value.Width, "bounded by the file's own width");
+        Assert.Equal(1500d, needed.Value.Height, "and height");
+    }
+
+    public void ASmallGainIsNotWorthASecondDecode()
+    {
+        var source = new System.Windows.Size(1200, 900);
+        var real = new System.Windows.Size(8000, 6000);
+
+        Assert.Null(ImageZoom.NeededDetailSizeForSource(source, 1.1d, 1d, 1d, real),
+            "10% more than the loaded bitmap is not worth a decode");
+        Assert.NotNull(ImageZoom.NeededDetailSizeForSource(source, 1.3d, 1d, 1d, real),
+            "30% more is");
+    }
+
+    public void DisplayScalingCountsForTheSourceSpaceToo()
+    {
+        var source = new System.Windows.Size(800, 600);
+        var real = new System.Windows.Size(8000, 6000);
+
+        var needed = ImageZoom.NeededDetailSizeForSource(source, 1.5d, 2d, 2d, real);
+
+        Assert.NotNull(needed, "the device pixels are what matter");
+        Assert.Equal(2400d, needed.Value.Width, "800 * 1.5 * 2");
+        Assert.Equal(1800d, needed.Value.Height, "and its height");
+    }
+
+    public void ANewDecodeKeepsTheVisibleSize()
+    {
+        var oldSource = new System.Windows.Size(1200, 900);
+        var newSource = new System.Windows.Size(2400, 1800);
+
+        var newZoom = ImageZoom.ZoomAfterSourceChange(2d, oldSource, newSource);
+
+        Assert.True(Math.Abs(newZoom - 1d) < 0.0001, "a doubled bitmap halves the zoom");
+        Assert.True(Math.Abs(oldSource.Width * 2d - newSource.Width * newZoom) < 0.0001,
+            "the layout width does not change");
+    }
+
+    public void AnInvalidSourceChangeLeavesTheZoomAlone()
+    {
+        Assert.Equal(2d, ImageZoom.ZoomAfterSourceChange(
+            2d, new System.Windows.Size(1200, 900), new System.Windows.Size(0, 0)),
+            "a zero-sized new source is ignored");
+        Assert.Equal(2d, ImageZoom.ZoomAfterSourceChange(
+            2d, new System.Windows.Size(0, 0), new System.Windows.Size(1200, 900)),
+            "a zero-sized old source is ignored");
+    }
+
+    public void TheFirstDecodeCoversTheDevicePixelsOnScreen()
+    {
+        var preferredDip = new System.Windows.Size(800, 600);
+        var decodedPixels = ImageZoom.ToDevicePixels(preferredDip, 1.5d, 1.5d);
+
+        Assert.Equal(1200d, decodedPixels.Width, "the monitor shows 1.5 physical pixels per DIP");
+        Assert.Equal(900d, decodedPixels.Height, "in both directions");
+
+        // DpiHack stores the bitmap at the display scale, so its WPF size is back in DIP.
+        var sourceDip = new System.Windows.Size(
+            decodedPixels.Width / 1.5d,
+            decodedPixels.Height / 1.5d);
+
+        Assert.Null(ImageZoom.NeededDetailSizeForSource(
+                sourceDip, 1d, 1.5d, 1.5d, new System.Windows.Size(8000, 6000)),
+            "the fit view no longer needs a second decode just to become sharp");
+    }
+
+    public void AnInvalidDisplayScaleLeavesTheDecodeSizeAlone()
+    {
+        var display = new System.Windows.Size(800, 600);
+
+        Assert.Equal(display, ImageZoom.ToDevicePixels(display, 0d, 1.5d),
+            "zero scale is ignored");
+        Assert.Equal(display, ImageZoom.ToDevicePixels(display, double.NaN, 1.5d),
+            "NaN scale is ignored");
+        Assert.Equal(System.Windows.Size.Empty, ImageZoom.ToDevicePixels(
+            System.Windows.Size.Empty, 2d, 2d), "an empty request stays empty");
+    }
 }

@@ -74,6 +74,11 @@ internal class GfieProvider : AnimationProvider
         }
     }
 
+    public override void Pause()
+    {
+        _isPlaying = false;
+    }
+
     public override void Dispose()
     {
         _isPlaying = false;

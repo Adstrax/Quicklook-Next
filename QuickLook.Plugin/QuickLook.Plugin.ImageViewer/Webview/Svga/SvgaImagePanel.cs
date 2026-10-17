@@ -29,12 +29,13 @@ public class SvgaImagePanel(IWebMetaProvider metaWeb) : SvgImagePanel()
 
     public override void Preview(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
 
         ObjectForScripting ??= new ScriptHandler(path, _metaWeb);
 
         _homePage = _resources["/svga2html.html"];
-        NavigateToUri(new Uri("file://quicklook/"));
+        NavigateToHomePage();
     }
 }
 

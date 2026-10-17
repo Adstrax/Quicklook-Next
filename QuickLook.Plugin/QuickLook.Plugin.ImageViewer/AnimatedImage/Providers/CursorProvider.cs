@@ -118,6 +118,11 @@ internal class CursorProvider : ImageMagickProvider
         });
     }
 
+    public override void Pause()
+    {
+        _isPlaying = false;
+    }
+
     public override void Dispose()
     {
         _isPlaying = false;

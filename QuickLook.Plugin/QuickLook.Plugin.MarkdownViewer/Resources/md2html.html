@@ -3,6 +3,15 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 
+    <!-- v6.0.0: keep the page transparent from its very first frame. The previous
+         version made the background transparent only at DOMContentLoaded, which
+         painted an opaque frame and then flashed to the window backdrop. -->
+    <style>
+      html {
+        background-color: transparent !important;
+      }
+    </style>
+
     <script>
       // Load the saved TOC width and visibility immediately to prevent layout shift
       const savedWidth = localStorage.getItem("tocWidth") || "178px";
@@ -32,9 +41,15 @@
 
     <style>
       body {
-        background-color: var(--bgColor-default);
+        background-color: transparent !important;
         margin: 0;
         padding: 0;
+      }
+
+      /* github-markdown.css paints .markdown-body; the window backdrop must show
+         through from the first parsed frame instead of after DOMContentLoaded. */
+      .markdown-body {
+        background-color: transparent !important;
       }
 
       /* Add a wrapper div for the flex layout */

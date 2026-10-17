@@ -116,8 +116,8 @@
       setStatus('Rendering\u2026');
       try {
         const encoded = await encodePuml(text);
-        diagImg.onload  = () => { setStatus(''); fitToView(); };
-        diagImg.onerror = () => setStatus('Render failed', true);
+        diagImg.onload  = () => { setStatus(''); fitToView(); window.__quicklookPostReady?.(); };
+        diagImg.onerror = () => { setStatus('Render failed', true); window.__quicklookPostReady?.(); };
         diagImg.src = SERVER + encoded;
       } catch (e) {
         setStatus(String(e), true);

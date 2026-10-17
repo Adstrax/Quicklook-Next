@@ -126,9 +126,8 @@ internal static class PluginUsageTracker
         {
             var dir = SettingHelper.LocalDataPath;
             Directory.CreateDirectory(dir);
-            File.WriteAllText(
-                Path.Combine(dir, FileName),
-                JsonSerializer.Serialize(Counts));
+            FileHelper.WriteAllTextAtomic(
+                Path.Combine(dir, FileName), JsonSerializer.Serialize(Counts));
         }
         catch
         {

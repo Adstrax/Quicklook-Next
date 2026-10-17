@@ -28,7 +28,14 @@ if (-not (Test-Path $release)) {
     throw "build output not found: $release (run .\build.ps1 first)"
 }
 
-$version = & git -C $root describe --always --tags --exclude latest 2>$null
+& (Join-Path $PSScriptRoot 'verify-runtime-footprint.ps1') -ReleasePath $release
+
+$versionFile = Join-Path $root 'Version.txt'
+$version = if (Test-Path $versionFile) {
+    (Get-Content $versionFile -Raw).Trim()
+} else {
+    & git -C $root describe --always --tags --exclude latest 2>$null
+}
 if ([string]::IsNullOrWhiteSpace($version)) {
     $version = '0.0.0'
 }
@@ -251,11 +258,6 @@ QuickLook-Next 使用说明
 
 可选开关（写在 UserData\QuickLookNext.config 的 <Settings> 里）
 ----------------------------------------
-* <WarmUpPreviewFamilies>false</WarmUpPreviewFamilies>
-  关闭「启动后台预热常用格式」。关掉可省约 20-25MB 内存，
-  代价是每类格式第一次预览慢约 90ms。默认 true。
-* <WarmUpFamilyCount>3</WarmUpFamilyCount>
-  预热几个格式（默认 2，按使用统计选最常用的几个）。
 * <WebView2IdleTimeoutSeconds>60</WebView2IdleTimeoutSeconds>
   网页类预览（Markdown / HTML / Office）空闲多少秒后回收 Chromium 内存，
   默认 300，设为 0 表示一直保留。

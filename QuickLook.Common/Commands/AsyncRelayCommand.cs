@@ -16,6 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using System;
+using QuickLook.Common.Helpers;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
@@ -42,6 +43,12 @@ public class AsyncRelayCommand(Func<Task> execute, Func<bool> canExecute = null)
         try
         {
             await _execute();
+        }
+        catch (Exception e)
+        {
+            // ICommand.Execute is async void. Letting an exception escape here
+            // sends it to the dispatcher and terminates the host application.
+            ProcessHelper.WriteLog($"Async command failed: {e}");
         }
         finally
         {

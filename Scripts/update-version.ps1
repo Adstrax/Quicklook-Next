@@ -1,6 +1,17 @@
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$tag = & git -C $repoRoot describe --always --tags "--abbrev=0" --exclude latest 2>$null
+$versionFile = Join-Path $repoRoot 'Version.txt'
+$tag = if (Test-Path $versionFile) {
+    (Get-Content $versionFile -Raw).Trim()
+} else {
+    $null
+}
+
+if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '^\d+\.\d+\.\d+$') {
+    $tag = & git -C $repoRoot describe --always --tags "--abbrev=0" --exclude latest 2>$null
+}
+
 $revision = & git -C $repoRoot describe --always --tags --exclude latest 2>$null
+$informational = if ($tag -match '^\d+\.\d+\.\d+$') { $tag } else { $revision }
 
 # When the tree is not inside a git repository (for example a source snapshot
 # exported from an archive), fall back to a valid numeric version so the build
@@ -28,7 +39,7 @@ $text = @"
 using System.Reflection;
 
 [assembly: AssemblyVersion("$tag")]
-[assembly: AssemblyInformationalVersion("$revision")]
+[assembly: AssemblyInformationalVersion("$informational")]
 "@
 
 $text | Out-File $PSScriptRoot\..\GitVersion.cs -Encoding utf8

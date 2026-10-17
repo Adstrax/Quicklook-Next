@@ -179,9 +179,32 @@ public partial class ViewerWindow
             ? ResizeAndCentreExistingWindow(size)
             : ResizeAndCentreNewWindow(size);
 
+        // v6.0.0: switching between two Markdown files asks for the size the window
+        // already has. MoveWindow still forces DWM to recompose the whole window,
+        // which is visible as a flash through the transparent page.
+        if (IsLoaded && !_warmShown && IsSamePlacement(newRect))
+            return;
+
         this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
 
         WriteWindowRectDiag(size, DesktopSizeForNextPlacement());
+    }
+
+    /// <summary>
+    /// v6.0.0: <paramref name="rect"/> holds the location in pixels and the size in
+    /// DIPs (see <see cref="ResizeAndCentreExistingWindow"/>).
+    /// </summary>
+    private bool IsSamePlacement(Rect rect)
+    {
+        if (_warmShown)
+            return false;
+
+        var current = this.GetWindowRectInPixel();
+
+        return Math.Abs(rect.Width - Width) <= 0.5 &&
+               Math.Abs(rect.Height - Height) <= 0.5 &&
+               Math.Abs(rect.Left - current.Left) <= 1 &&
+               Math.Abs(rect.Top - current.Top) <= 1;
     }
 
     /// <summary>
@@ -293,6 +316,9 @@ public partial class ViewerWindow
             size, GetDesktopSizeInDip(new WindowInteropHelper(this).Handle));
 
         var newRect = ResizeAndCentreExistingWindow(size);
+
+        if (IsSamePlacement(newRect))
+            return;
 
         // v5.0.4: this resize comes from the plugin (PDF asks for the measured page size),
         // not from the user. Without the flag the SizeChanged handler would store it as the
@@ -447,6 +473,11 @@ public partial class ViewerWindow
 
     internal void UnloadPlugin()
     {
+        QuiescePreview();
+
+        // Anything queued by the preview being replaced is no longer allowed to render.
+        _showGate.Invalidate();
+
         // The focused element will not processed by GC: https://stackoverflow.com/questions/30848939/memory-leak-due-to-window-efectivevalues-retention
         FocusManager.SetFocusedElement(this, null);
         Keyboard.DefaultRestoreFocusMode =
@@ -476,10 +507,9 @@ public partial class ViewerWindow
             }
         }
 
-        ContextObject.Reset();
-
-        if (_staleViewerContent != null)
-            ContextObject.ViewerContent = _staleViewerContent;
+        // The old plugin may still finish work in the background. Cut its context off before
+        // the next preview starts so those continuations cannot change the window.
+        _contextLease.Detach();
 
         if (_autoReloadWatcher != null)
         {
@@ -493,19 +523,37 @@ public partial class ViewerWindow
         _path = string.Empty;
     }
 
+    /// <summary>
+    /// Stops work owned by the preview that is being replaced while keeping its last visible
+    /// frame on screen. This runs as soon as a switch is requested, before plugin matching and
+    /// Prepare, instead of waiting for the next preview to finish loading.
+    /// </summary>
+    internal void QuiescePreview()
+    {
+        var plugin = Plugin;
+        if (plugin == null)
+            return;
+
+        try
+        {
+            _quiesceGate.TryQuiesce(plugin);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            ProcessHelper.WriteLog($"Preview quiesce failed: {e}");
+        }
+    }
+
     internal void BeginShow(IViewer matchedPlugin, string path,
         Action<string, ExceptionDispatchInfo> exceptionHandler)
     {
+        var showVersion = _showGate.Begin();
         _path = path;
         Plugin = matchedPlugin;
+        _quiesceGate.Reset();
 
-        // v5.0.11: text recognition belongs to the toolbar now, and only the image
-        // viewer can offer it - every other preview hides the button again.
-        buttonOcr.Visibility = IsImagePreview() && !string.IsNullOrEmpty(path)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-        ContextObject.Reset();
+        ReplaceContextObject();
 
         // v5.0.10 (#827): hand the plugin the monitor this preview is going to
         // be shown on, so that the size it asks for and the screen the window is
@@ -519,7 +567,17 @@ public partial class ViewerWindow
         // over (avoids the blank gray window during switches); _staleViewerContent
         // is cleared by the ViewerContent change handler at the swap.
         if (_staleViewerContent != null)
-            ContextObject.ViewerContent = _staleViewerContent;
+        {
+            _restoringStaleContent = true;
+            try
+            {
+                ContextObject.ViewerContent = _staleViewerContent;
+            }
+            finally
+            {
+                _restoringStaleContent = false;
+            }
+        }
 
         // Assign monitor color profile
         ContextObject.ColorProfileName = DisplayDeviceHelper.GetMonitorColorProfileFromWindow(this);
@@ -662,16 +720,19 @@ public partial class ViewerWindow
             try
             {
                 // Avoid main thread scheduling lag
-                if (Plugin is null) return;
+                if (!_showGate.IsCurrent(showVersion) ||
+                    !ReferenceEquals(Plugin, matchedPlugin) ||
+                    !string.Equals(_path, path, StringComparison.Ordinal))
+                    return;
 
-                Plugin.View(path, ContextObject);
+                matchedPlugin.View(path, ContextObject);
 
                 // Initialize the more menu
                 ClearMoreMenuEntries();
                 var pluginManager = PluginManager.GetInstance();
                 pluginManager.EnsureLoaded();
                 foreach (var plugin in
-                    pluginManager.LoadedPlugins
+                    pluginManager.GetLoadedPluginsSnapshot()
                         .GroupBy(x => x.ToString()).Select(g => g.First()) // DistinctBy plugin name
                         .OrderBy(p => p.Priority)) // OrderBy plugin priority
                 {
@@ -805,25 +866,6 @@ public partial class ViewerWindow
     }
 
     /// <summary>
-    /// v5.0.8: whether the image viewer produced the current preview. It is the only plugin that
-    /// can offer text recognition, which is implemented in the app because the image plugin does
-    /// not reference the WinRT projection the OCR API lives in (see <see cref="OcrRecognizer"/>).
-    /// <para>
-    /// v5.0.11: this now drives the toolbar button instead of a "More" menu entry - the feature
-    /// was two clicks deep in a submenu and users did not find it.
-    /// </para>
-    /// </summary>
-    private bool IsImagePreview()
-        => Plugin?.GetType().Assembly.GetName().Name
-               ?.Equals("QuickLook.Plugin.ImageViewer", StringComparison.OrdinalIgnoreCase) == true;
-
-    private void ExtractText()
-    {
-        if (!string.IsNullOrEmpty(_path))
-            OcrWindow.ShowWindow(_path);
-    }
-
-    /// <summary>
     /// v5.0.4: drops the remembered custom size and goes back to the size the current plugin
     /// asks for (the More menu's "Reset window size" entry). The programmatic resize is
     /// flagged so it does not become the user's new custom size.
@@ -875,9 +917,6 @@ public partial class ViewerWindow
 
     private void SetOpenWithButtonAndPath()
     {
-        // Share icon
-        buttonShare.Visibility = ShareHelper.IsShareSupported(_path) ? Visibility.Visible : Visibility.Collapsed;
-
         // Open icon
         if (Directory.Exists(_path))
         {
@@ -921,7 +960,7 @@ public partial class ViewerWindow
                 Debug.WriteLine(ex);
             }
 
-        _pendingPluginCleanup = null;
+            _pendingPluginCleanup = null;
             _staleViewerContent = null;
         }
 

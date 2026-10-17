@@ -34,8 +34,8 @@ the official build and is not affiliated with it.
 - **Side by side**: named pipes and the mutex use the `QuickLookNext.App.*` prefix, so this build and
   the official one can be installed at the same time without interfering.
 - **What is this fork's work**: the preview engine is upstream's. The UI layer (acrylic and rounded
-  corners, themes, tray menu, plugin market, caption bar), the self-rendered Office previews, the
-  OCR wiring, and the performance, packaging and testing work are this fork's — everything listed
+  corners, themes, tray menu, plugin market, caption bar), the self-rendered Office previews, and
+  the performance, packaging and testing work are this fork's — everything listed
   under [Highlights vs. the original](#highlights-vs-the-original) and
   [New in the 5.x line](#new-in-the-5x-line).
 
@@ -52,7 +52,6 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin market, which lists name, version and origin and has a search box |
 | Installing a plugin | download a `.qlplugin` from the wiki in a browser, then preview the file to install it | browse the list inside the panel and install in one click, with the size and SHA-256 verified before anything is written |
 | Office preview | the plugin renders through the system preview component | re-implemented in-house (OOXML parsed and rendered in WebView2), so no Office install is needed |
-| Image OCR | open upstream request [#1608](https://github.com/QL-Win/QuickLook/issues/1608) | shipped, and the engine is picked per image |
 | Cache footprint | open upstream request [#1933](https://github.com/QL-Win/QuickLook/issues/1933) | data & cache panel, clearing only the rebuildable files |
 | Large images | open upstream request [#1054](https://github.com/QL-Win/QuickLook/issues/1054) | 40 MP decode cap plus decoded-space zoom accounting |
 | Image zoom | the wheel stops at 3x of the decoded pixels - 150% on a large photo | 8x, a notch that heads for a landmark instead of snapping to it, and magnifying past the loaded detail re-decodes the file at the size being viewed |
@@ -178,21 +177,17 @@ existing plugins load without recompiling.
 The 5.x releases are where most of the feature work landed. The upstream issue this
 fixes or implements is noted where there is one.
 
-- **Text recognition (OCR)** — *Extract text* sits on the preview toolbar; the result opens in a
-  selectable panel with one-click copy. It uses the OCR engine Windows already ships
-  (`Windows.Media.Ocr`), so there is nothing extra to download. The engine is picked per image, so a
-  Chinese picture is no longer handed to the English engine; small pictures are enlarged before
-  recognition, and a mixed-language page keeps both languages. (upstream #1608)
 - **Data & cache panel** — the tray menu shows what the app actually occupies (WebView2 caches,
   leftover update files, settings, logs, the WebView2 profile) and clears only the rebuildable
   parts: sign-in data, settings, statistics and logs survive. (upstream #1933)
 - **Low memory mode** — the two startup warm-ups become a switch. Measured idle memory on a single
-  200% screen: 64 MB with both off, 112–118 MB with the window only, 217 MB with the window and every
-  preview family (the 5.8.0 default; the two most-used families of 5.7.x were 179 MB); the warm-ups in
-  exchange buy roughly 200 ms per preview. Since 5.6.2 the mode does not slow previewing down: the
-  window warm-up follows the preview session, so consecutive previews stay at ~120 ms. Since 5.8.0 the
-  family warm-up follows it too — nothing is prepared while the app is idle, the first preview of a
-  session starts the preparation, and the family that preview is showing is skipped. Since 5.6.3 the
+  200% screen: 64 MB with both off and 112–118 MB with the window only; the warm-ups in exchange buy
+  roughly 200 ms per preview. The preview-family warm-up is fixed to the three most-used families,
+  which keeps their first preview fast without the footprint of preparing every family. Since 5.6.2
+  the mode does not slow previewing down: the window warm-up follows the preview session, so
+  consecutive previews stay at ~120 ms. The family warm-up follows it too — nothing is prepared while
+  the app is idle, the first preview of a session starts the preparation, and the family that preview
+  is showing is skipped. Since 5.6.3 the
   memory also really comes back — the tray process restarts itself once you have stopped previewing,
   after a wait you choose in the *Low memory mode* group (90 seconds by default, "never"); measured
   67 MB idle before a preview and 69 MB after the release.
@@ -209,7 +204,7 @@ fixes or implements is noted where there is one.
 - **Accessibility** — reduced motion is honoured (the caption fade, the content fade and the window
   show transition follow the system setting), and icon-only buttons carry names for screen readers.
 - **Readability on any wallpaper** — the surfaces you actually read (plugin market, update prompt,
-  download panel, data & cache, OCR) use a 45% panel tint over a content plate rather than the 30%
+  download panel, data & cache) use a 45% panel tint over a content plate rather than the 30%
   menu glass, and fall back to a solid surface when Windows transparency effects are switched off.
 - **Plugin market search** — the panel opens with the caret already in the search box, filters name
   and description as you type, and reports "3 of 25 shown"; Esc clears the filter first and closes

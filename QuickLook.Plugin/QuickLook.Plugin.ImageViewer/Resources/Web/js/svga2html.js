@@ -33,6 +33,7 @@ class SvgaViewer {
                 const player = new SVGA.Player(document.getElementById('canvas'));
                 player.mount(svga).then(() => {
                     player.start();
+                    SvgaViewer.markReady();
                 });
             });
         } else {
@@ -48,8 +49,16 @@ class SvgaViewer {
             parser.load('https://' + path, function (videoItem) {
                 player.setVideoItem(videoItem);
                 player.startAnimation();
+                SvgaViewer.markReady();
             });
         }
+    }
+
+    static markReady() {
+        const canvas = document.getElementById('canvas');
+        if (canvas)
+            canvas.dataset.quicklookReady = '1';
+        window.__quicklookPostReady?.();
     }
 }
 

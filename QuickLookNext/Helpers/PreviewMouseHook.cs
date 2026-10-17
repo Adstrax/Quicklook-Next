@@ -76,6 +76,7 @@ internal class PreviewMouseHook : IDisposable
     private bool _mouseButtonNavigation;
     private bool _middleClickPreviews;
     private long _settingsReadTick;
+    private static readonly SideButtonNavigator SideNavigation = new();
 
     private delegate nint LowLevelMouseProc(int nCode, nint wParam, nint lParam);
 
@@ -202,7 +203,7 @@ internal class PreviewMouseHook : IDisposable
                         // folder, forward walks back.
                         var delta = button == 1 ? 1 : -1;
                         var landedOn = underCursor;
-                        _ = Task.Run(() => StepToAdjacentFile(delta, previewed, landedOn));
+                        QueueSideButtonStep(delta, previewed, landedOn);
                     }
 
                     return (nint)1; // consumed: this press belongs to the preview
@@ -272,18 +273,45 @@ internal class PreviewMouseHook : IDisposable
     /// v5.6.7: the half that must not run in the hook. Runs on a pool thread (the same place the
     /// selection reader already uses shell COM from), so a slow shell call can never hold up input.
     /// </summary>
-    private static void StepToAdjacentFile(int delta, string path, nint landedOn)
+    private static void QueueSideButtonStep(int delta, string path, nint landedOn)
     {
-        try
+        if (!SideNavigation.Enqueue(delta, path, out var startDrain) || !startDrain)
+            return;
+
+        _ = Task.Run(() => DrainSideButtonSteps(landedOn));
+    }
+
+    private static void DrainSideButtonSteps(nint landedOn)
+    {
+        var manager = ViewWindowManager.GetInstance();
+
+        while (SideNavigation.TryTake(out var path, out var delta))
         {
-            NativeMethods.QuickLookNext.TryMoveSelection(delta, path, out var report);
-            // The window the press landed on is in the line on purpose: it says which of the two
-            // ownership tests matched, so an issue report can be answered without a rebuild.
-            ProcessHelper.WriteLog($"Mouse button: {report} under={DescribeWindow(landedOn)}");
-        }
-        catch (Exception e)
-        {
-            ProcessHelper.WriteLog($"Mouse button step failed: {e.Message}");
+            try
+            {
+                var moved = NativeMethods.QuickLookNext.TryMoveSelection(
+                    delta, path, out var report, out var selectedPath);
+
+                // The window the press landed on is in the line on purpose: it says which of the
+                // two ownership tests matched, so an issue report can be answered without a rebuild.
+                ProcessHelper.WriteLog(
+                    $"Mouse button: {report} under={DescribeWindow(landedOn)}");
+
+                if (!moved || string.IsNullOrEmpty(selectedPath))
+                    continue;
+
+                SideNavigation.Advance(selectedPath);
+                FocusMonitor.GetInstance().MarkExternalSwitch(selectedPath);
+
+                // Switch from the path Explorer actually selected instead of waiting for the
+                // selection event to be noticed later. Queueing avoids blocking the STA shell
+                // worker while the UI thread starts the preview.
+                QueueUiAction(() => manager.SwitchPreviewNow(selectedPath));
+            }
+            catch (Exception e)
+            {
+                ProcessHelper.WriteLog($"Mouse button step failed: {e.Message}");
+            }
         }
     }
 
@@ -387,6 +415,15 @@ internal class PreviewMouseHook : IDisposable
             action();
         else
             dispatcher.Invoke(action);
+    }
+
+    private static void QueueUiAction(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+            action();
+        else
+            dispatcher.BeginInvoke(action);
     }
 
     /// <summary>

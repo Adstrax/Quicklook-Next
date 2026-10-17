@@ -21,13 +21,16 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build Release
         run: dotnet build QuickLookNext.slnx -c Release --nologo
+      - name: Verify runtime footprint
+        shell: pwsh
+        run: ./Scripts/verify-runtime-footprint.ps1
       # v3.31.0: unit tests for the non-GUI logic (argument parsing, extension
       # filter, settings store, update URL allow list). The harness has no
       # NuGet dependencies, so it runs directly from the build output.
       - name: Unit tests
         shell: pwsh
         run: |
-          $exe = 'QuickLook.Tests/bin/Release/net10.0-windows10.0.19041.0/QuickLook.Tests.exe'
+          $exe = 'QuickLook.Tests/bin/Release/net10.0-windows/QuickLook.Tests.exe'
           & $exe
           exit $LASTEXITCODE
       - name: Upload build output
@@ -45,8 +48,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' ||
         github.ref_name == 'main' ||
         github.ref_name == 'lite' ||
+        startsWith(github.ref_name, 'opt/') ||
         github.base_ref == 'main' ||
-        github.base_ref == 'lite'
+        github.base_ref == 'lite' ||
+        startsWith(github.base_ref, 'opt/')
     runs-on: windows-latest
     needs: build
     env:

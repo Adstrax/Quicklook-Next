@@ -38,6 +38,7 @@ internal class PluginCatalogTests
     private static string Entry(
         string id = "QuickLook.Plugin.ApkViewer",
         string name = "ApkViewer",
+        string asset = "QuickLook.Plugin.ApkViewer.qlplugin",
         string size = "770991",
         string sha256 = GoodHash,
         string url = "https://github.com/canheo136/QuickLook.Plugin.ApkViewer/releases/download/1.3.6/QuickLook.Plugin.ApkViewer.qlplugin")
@@ -53,7 +54,7 @@ internal class PluginCatalogTests
               "description": "Preview Android package `.apk`",
               "repoUrl": "https://github.com/canheo136/QuickLook.Plugin.ApkViewer",
               "version": "1.3.6",
-              "asset": "QuickLook.Plugin.ApkViewer.qlplugin",
+              "asset": "{{asset}}",
               "size": {{size}},
               "sha256": "{{sha256}}",
               "url": "{{url}}",
@@ -116,6 +117,22 @@ internal class PluginCatalogTests
         Assert.Equal(0, PluginCatalog.Parse(Entry(id: @"..\..\Windows"), out _).Count, "backslash traversal");
         Assert.Equal(0, PluginCatalog.Parse(Entry(id: "QuickLook.Plugin.A/../B"), out _).Count, "separator");
         Assert.Equal(0, PluginCatalog.Parse(Entry(id: string.Empty), out _).Count, "empty");
+    }
+
+    public void AnAssetThatCouldEscapeTheDownloadFolderIsRejected()
+    {
+        Assert.Equal(0, PluginCatalog.Parse(
+            Entry(asset: "C:/Windows/Temp/plugin.qlplugin"), out _).Count,
+            "absolute path");
+        Assert.Equal(0, PluginCatalog.Parse(
+            Entry(asset: @"..\plugin.qlplugin"), out _).Count,
+            "relative traversal");
+        Assert.Equal(0, PluginCatalog.Parse(
+            Entry(asset: "folder/plugin.qlplugin"), out _).Count,
+            "directory separator");
+        Assert.Equal(0, PluginCatalog.Parse(
+            Entry(asset: "plugin.zip"), out _).Count,
+            "wrong package extension");
     }
 
     public void AMalformedDocumentYieldsNothingInsteadOfThrowing()

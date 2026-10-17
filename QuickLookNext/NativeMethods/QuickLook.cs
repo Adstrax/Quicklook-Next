@@ -106,8 +106,30 @@ internal static class QuickLookNext
     /// </para>
     /// </summary>
     internal static bool TryMoveSelection(int delta, string currentFile, out string report)
+        => TryMoveSelection(delta, currentFile, out report, out _);
+
+    internal static bool TryMoveSelection(int delta, string currentFile, out string report,
+        out string selectedPath)
+    {
+        var request = new MoveSelectionRequest
+        {
+            Delta = delta,
+            CurrentFile = currentFile,
+        };
+
+        ShellQueue.Add(request);
+        request.Done.Wait();
+
+        report = request.Report ?? string.Empty;
+        selectedPath = request.SelectedPath ?? string.Empty;
+        return request.Moved;
+    }
+
+    private static bool TryMoveSelectionCore(int delta, string currentFile, out string report,
+        out string selectedPath)
     {
         report = string.Empty;
+        selectedPath = string.Empty;
 
         if (string.IsNullOrEmpty(currentFile))
         {
@@ -122,7 +144,7 @@ internal static class QuickLookNext
             foreach (var browser in browsers)
             {
                 // Fast path: the window whose focused item is the file being previewed.
-                if (TryMoveInView(browser, delta, name, mustMatchFocus: true))
+                if (TryMoveInView(browser, delta, name, mustMatchFocus: true, out selectedPath))
                 {
                     report = MoveReport(delta);
                     return true;
@@ -131,7 +153,7 @@ internal static class QuickLookNext
 
             foreach (var browser in browsers)
             {
-                if (TryMoveInView(browser, delta, name, mustMatchFocus: false))
+                if (TryMoveInView(browser, delta, name, mustMatchFocus: false, out selectedPath))
                 {
                     report = $"{MoveReport(delta)} (by name)";
                     return true;
@@ -172,8 +194,10 @@ internal static class QuickLookNext
     /// views whose focused item is <paramref name="name"/>, which is what makes the first pass pick
     /// the right window instead of a random one showing a file with the same name.
     /// </summary>
-    private static bool TryMoveInView(IShellBrowser browser, int delta, string name, bool mustMatchFocus)
+    private static bool TryMoveInView(IShellBrowser browser, int delta, string name, bool mustMatchFocus,
+        out string selectedPath)
     {
+        selectedPath = string.Empty;
         IntPtr psvPtr = IntPtr.Zero;
         IShellView view = null;
 
@@ -233,8 +257,12 @@ internal static class QuickLookNext
             if (target < 0 || target >= count)
                 return false;
 
-            return folderView.SelectItem(target,
-                SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE) == S_OK;
+            if (folderView.SelectItem(target,
+                    SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_FOCUSED | SVSI_ENSUREVISIBLE) != S_OK)
+                return false;
+
+            selectedPath = ItemFileSystemPath(folderView, target);
+            return true;
         }
         catch (Exception e)
         {
@@ -474,6 +502,18 @@ internal static class QuickLookNext
             Path = ReadItemAtPointCore(X, Y, UnderCursor, out var report);
             Report = report;
         }
+    }
+
+    private sealed class MoveSelectionRequest : ShellRequest
+    {
+        public int Delta;
+        public string CurrentFile;
+        public string Report;
+        public string SelectedPath;
+        public bool Moved;
+
+        public override void Run() =>
+            Moved = TryMoveSelectionCore(Delta, CurrentFile, out Report, out SelectedPath);
     }
 
     private static Thread CreateSelectionWorker()

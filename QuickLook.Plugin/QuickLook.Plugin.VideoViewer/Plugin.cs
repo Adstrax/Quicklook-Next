@@ -26,7 +26,7 @@ using System.Windows;
 
 namespace QuickLook.Plugin.VideoViewer;
 
-public sealed class Plugin : IViewer
+public sealed class Plugin : IViewer, IPreviewQuiesce
 {
     // v3.3.0: load MediaInfo natively on first actual use instead of in the
     // static ctor. Creating the plugin instance during startup used to force
@@ -165,6 +165,11 @@ public sealed class Plugin : IViewer
     {
         _vp?.Dispose();
         _vp = null;
+    }
+
+    public void Quiesce()
+    {
+        _vp?.Quiesce();
     }
 
     /// <summary>

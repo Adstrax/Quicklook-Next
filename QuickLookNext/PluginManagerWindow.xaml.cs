@@ -235,7 +235,7 @@ public partial class PluginManagerWindow : Window
     /// what each plugin's own repository currently publishes; the download is
     /// always the author's own release asset, never a copy hosted here.
     /// </summary>
-    private void RefreshBrowse()
+    private async void RefreshBrowse()
     {
         var filter = searchBox?.Text?.Trim() ?? string.Empty;
 
@@ -253,14 +253,17 @@ public partial class PluginManagerWindow : Window
             _catalogueLoading = true;
             statusText.Text = Tr("PM_LoadingList", "Loading the plugin list...");
 
-            Task.Run(() =>
+            try
             {
-                var list = PluginCatalog.Load(out var error, forceRefresh: _forceCatalogueRefresh);
-                return (List: list, Error: error);
-            }).ContinueWith(task => Dispatcher.BeginInvoke(() =>
-            {
-                _catalogue = task.Result.List;
-                _catalogueError = task.Result.Error;
+                var result = await Task.Run(() =>
+                {
+                    var list = PluginCatalog.Load(
+                        out var error, forceRefresh: _forceCatalogueRefresh);
+                    return (List: list, Error: error);
+                });
+
+                _catalogue = result.List;
+                _catalogueError = result.Error;
                 _catalogueLoading = false;
                 _catalogueLoaded = true;
                 _forceCatalogueRefresh = false;
@@ -268,12 +271,22 @@ public partial class PluginManagerWindow : Window
                 if (_announceCatalogueRefresh)
                 {
                     _announceCatalogueRefresh = false;
-                    _catalogueUpdated = string.IsNullOrEmpty(task.Result.Error);
+                    _catalogueUpdated = string.IsNullOrEmpty(result.Error);
                 }
+            }
+            catch (Exception e)
+            {
+                _catalogueLoading = false;
+                _catalogueLoaded = true;
+                _catalogue = [];
+                _forceCatalogueRefresh = false;
+                _announceCatalogueRefresh = false;
+                _catalogueError = e.Message;
+                ProcessHelper.WriteLog($"Loading the plugin catalogue failed: {e}");
+            }
 
-                if (_browseMode)
-                    RefreshBrowse();
-            }));
+            if (_browseMode)
+                RefreshBrowse();
 
             return;
         }

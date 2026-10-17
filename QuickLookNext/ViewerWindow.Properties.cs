@@ -77,6 +77,9 @@ public partial class ViewerWindow : INotifyPropertyChanged
     // The previous preview's content, kept on screen while the next preview
     // loads so switching does not flash an empty gray window (v1.2.13).
     private object _staleViewerContent;
+    // v6.0.0: distinguishes the explicit "keep the old content visible" restore from a
+    // plugin that deliberately reuses that same content object for the next document.
+    private bool _restoringStaleContent;
 
     // v1.2.14: the plugin whose content is currently displayed. Its Cleanup is
     // deferred until the next preview's content takes over, so the old content
@@ -118,12 +121,7 @@ public partial class ViewerWindow : INotifyPropertyChanged
                 // v1.2.14: apply content that was held back until the first
                 // frame decoded (image plugin) - the swap is atomic, so the old
                 // content stays on screen until the new one is ready.
-                if (ContextObject.PendingViewerContent != null &&
-                    !ReferenceEquals(ContextObject.ViewerContent, ContextObject.PendingViewerContent))
-                {
-                    ContextObject.ViewerContent = ContextObject.PendingViewerContent;
-                    ContextObject.PendingViewerContent = null;
-                }
+                ApplyPendingContent();
 
                 // v1.2.14: the window kept the previous preview's size while
                 // the new image decoded; resize it now that the content is
@@ -181,9 +179,21 @@ public partial class ViewerWindow : INotifyPropertyChanged
                 // v1.2.14: when real content takes over (the stale restore and
                 // the Reset null are ignored here), dispose the old plugin and
                 // track the new one as the current content.
-                if (ContextObject.ViewerContent == null ||
-                    ReferenceEquals(ContextObject.ViewerContent, _staleViewerContent))
+                if (ContextObject.ViewerContent == null)
+                    break;
+
+                if (ReferenceEquals(ContextObject.ViewerContent, _staleViewerContent))
                 {
+                    // BeginShow restores the stale content before the plugin runs; that is
+                    // just the visual bridge. A plugin assigning the same object later has
+                    // deliberately kept its panel (Markdown -> Markdown), so the new plugin
+                    // owns the content now and the old one must not dispose it.
+                    if (_restoringStaleContent)
+                        break;
+
+                    _contentPlugin = Plugin;
+                    _pendingPluginCleanup = null;
+                    _staleViewerContent = null;
                     break;
                 }
 
@@ -203,6 +213,10 @@ public partial class ViewerWindow : INotifyPropertyChanged
                         Debug.WriteLine(ex);
                     }
                 }
+                break;
+
+            case nameof(ContextObject.PendingViewerContent):
+                UpdatePendingContentHost();
                 break;
 
             case nameof(ContextObject.Theme):
@@ -230,6 +244,53 @@ public partial class ViewerWindow : INotifyPropertyChanged
             default:
                 break;
         }
+    }
+
+    private void UpdatePendingContentHost()
+    {
+        if (pendingContainer == null)
+            return;
+
+        var pending = ContextObject?.PendingViewerContent;
+
+        // A panel that is already the visible content must not be attached to
+        // the preload slot as well - a WPF element can only have one parent.
+        if (pending != null && ReferenceEquals(pending, ContextObject.ViewerContent))
+            pending = null;
+
+        pendingContainer.Content = pending;
+        pendingContainer.Visibility = pending == null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    /// <summary>
+    /// v6.0.0: moves content that was prepared in the hidden preload slot onto
+    /// the visible surface. The slot has to release the element first: WPF
+    /// throws when an element that already has a parent is placed in another
+    /// <see cref="ContentControl"/>. Detaching happens on the UI thread; a
+    /// plugin that reports readiness from a worker thread is marshalled, just
+    /// like the binding that eventually shows the content.
+    /// </summary>
+    private void ApplyPendingContent()
+    {
+        var pending = ContextObject?.PendingViewerContent;
+        if (pending == null || ReferenceEquals(ContextObject.ViewerContent, pending))
+            return;
+
+        if (!CheckAccess())
+        {
+            Dispatcher?.BeginInvoke(new Action(ApplyPendingContent));
+            return;
+        }
+
+        // Release the element from the preload slot before the binding moves it
+        // into "container"; otherwise the assignment fails at runtime.
+        if (pendingContainer != null && ReferenceEquals(pendingContainer.Content, pending))
+            pendingContainer.Content = null;
+
+        ContextObject.PendingViewerContent = null;
+        ContextObject.ViewerContent = pending;
     }
 
     public void SwitchTheme(Themes theme)

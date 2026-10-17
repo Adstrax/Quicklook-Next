@@ -172,7 +172,11 @@ internal class KeystrokeDispatcher : IDisposable
                 case Keys.Down:
                 case Keys.Left:
                 case Keys.Right:
-                    PipeServerManager.SendMessage(PipeMessages.Switch);
+                    // v6.0.0: use the same coalesced selection read as Explorer's
+                    // EVENT_OBJECT_SELECTION. The pipe fallback keeps arrow navigation
+                    // working when the focus monitor is disabled by a bench.
+                    if (!FocusMonitor.GetInstance().RequestSelectionSwitch())
+                        PipeServerManager.SendMessage(PipeMessages.Switch);
                     break;
 
                 case Keys.Escape:

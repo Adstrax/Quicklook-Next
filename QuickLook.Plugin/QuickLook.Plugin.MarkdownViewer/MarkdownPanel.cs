@@ -26,6 +26,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using UtfUnknown;
 
@@ -36,6 +37,8 @@ public class MarkdownPanel : WebpagePanel
     protected const string _resourcePrefix = "QuickLook.Plugin.MarkdownViewer.Resources.";
     protected internal static readonly Dictionary<string, byte[]> _resources = [];
     protected byte[] _homePage;
+    private static long _navigationSerial;
+    private int _previewVersion;
 
     static MarkdownPanel()
     {
@@ -65,7 +68,9 @@ public class MarkdownPanel : WebpagePanel
 
     public void PreviewMarkdown(string path)
     {
-        FallbackPath = Path.GetDirectoryName(path);
+        BeginContentLoad();
+        var version = ++_previewVersion;
+        var fallbackPath = Path.GetDirectoryName(path);
 
         // v3.24.0: reading + rendering a large markdown file can take tens of
         // milliseconds on the UI thread. Build the HTML off the UI thread and
@@ -76,14 +81,25 @@ public class MarkdownPanel : WebpagePanel
             dispatcher.BeginInvoke(() =>
             {
                 // The panel was disposed (preview closed / superseded).
-                if (_webView == null)
+                if (_webView == null || IsDisposed || version != _previewVersion)
                     return;
 
+                // The panel keeps its WebView2 across Markdown -> Markdown switches, so
+                // only the latest render may navigate. The old page stays visible until
+                // the new document commits, which removes the blank frame between files.
+                FallbackPath = fallbackPath;
                 _homePage = t.IsFaulted
                     ? Encoding.UTF8.GetBytes(ErrorHtml())
                     : Encoding.UTF8.GetBytes(t.Result);
 
-                NavigateToUri(new Uri("file://quicklook/"));
+                // A reused control already shows this same host URL; give each document
+                // its own URL so WPF/Chromium really navigates instead of ignoring the set.
+                var uri = new Uri(
+                    $"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
+                // Set the expected URL first: NavigationStarting must accept this
+                // navigation even if WebView2 raises it before the Source setter returns.
+                _currentUri = uri;
+                NavigateToUri(uri);
             });
         }, TaskScheduler.Default);
     }

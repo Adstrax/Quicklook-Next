@@ -16,8 +16,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.NativeMethods;
+using QuickLookNext.Helpers;
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 
@@ -45,60 +47,83 @@ internal class FocusMonitor
     private readonly object _sync = new();
 
     private volatile bool _isRunning;
-    private string _lastPath = string.Empty;
+    private readonly SelectionSwitchGate _switchGate = new();
 
     private nint _winEventHook;
     private User32.WinEventProc _winEventProc; // keep alive: the OS holds a raw pointer
     private DispatcherTimer _debounce;
+    private CancellationTokenSource _pollCancellation;
+    private int _pollGeneration;
 
     public bool IsRunning => _isRunning;
 
     public void Start()
     {
-        if (_isRunning)
-            return;
+        CancellationTokenSource pollCancellation;
 
-        _isRunning = true;
-        _lastPath = GetSelectionSafe();
-
-        // The WinEvent callback is delivered on the thread that installed the hook
-        // (the UI thread, which has the message pump), so a DispatcherTimer is the
-        // natural coalescer for the selection bursts Explorer produces.
-        _debounce = new DispatcherTimer(DispatcherPriority.Background)
+        lock (_sync)
         {
-            // Long enough to coalesce the bursts Explorer produces while a
-            // selection is being dragged, short enough to be invisible.
-            Interval = TimeSpan.FromMilliseconds(25),
-        };
-        _debounce.Tick += (_, _) =>
-        {
-            _debounce.Stop();
-            _ = Task.Run(CheckSelection);
-        };
+            if (_isRunning)
+                return;
 
-        _winEventProc = OnShellSelectionChanged;
-        _winEventHook = User32.SetWinEventHook(
-            User32.EVENT_OBJECT_SELECTION, User32.EVENT_OBJECT_SELECTIONWITHIN,
-            IntPtr.Zero, _winEventProc, 0, 0,
-            User32.WINEVENT_OUTOFCONTEXT | User32.WINEVENT_SKIPOWNPROCESS);
+            _isRunning = true;
+            _switchGate.Reset(GetSelectionSafe());
 
-        _ = Task.Factory.StartNew(PollLoop, TaskCreationOptions.LongRunning);
+            // The WinEvent callback is delivered on the thread that installed the hook
+            // (the UI thread, which has the message pump), so a DispatcherTimer is the
+            // natural coalescer for the selection bursts Explorer produces.
+            _debounce = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                // Long enough to coalesce the bursts Explorer produces while a
+                // selection is being dragged, short enough to be invisible.
+                Interval = TimeSpan.FromMilliseconds(25),
+            };
+            _debounce.Tick += (_, _) =>
+            {
+                _debounce.Stop();
+                _ = Task.Run(CheckSelection);
+            };
+
+            _winEventProc = OnShellSelectionChanged;
+            _winEventHook = User32.SetWinEventHook(
+                User32.EVENT_OBJECT_SELECTION, User32.EVENT_OBJECT_SELECTIONWITHIN,
+                IntPtr.Zero, _winEventProc, 0, 0,
+                User32.WINEVENT_OUTOFCONTEXT | User32.WINEVENT_SKIPOWNPROCESS);
+
+            pollCancellation = new CancellationTokenSource();
+            _pollCancellation = pollCancellation;
+            var generation = ++_pollGeneration;
+            _ = Task.Run(() => PollLoop(generation, pollCancellation));
+        }
     }
 
     public void Stop()
     {
-        _isRunning = false;
+        CancellationTokenSource pollCancellation;
+        DispatcherTimer timer;
 
-        if (_winEventHook != IntPtr.Zero)
+        lock (_sync)
         {
-            User32.UnhookWinEvent(_winEventHook);
-            _winEventHook = IntPtr.Zero;
+            _isRunning = false;
+            _pollGeneration++;
+            _switchGate.InvalidateReads();
+
+            pollCancellation = _pollCancellation;
+            _pollCancellation = null;
+            pollCancellation?.Cancel();
+
+            if (_winEventHook != IntPtr.Zero)
+            {
+                User32.UnhookWinEvent(_winEventHook);
+                _winEventHook = IntPtr.Zero;
+            }
+
+            _winEventProc = null;
+
+            timer = _debounce;
+            _debounce = null;
         }
 
-        _winEventProc = null;
-
-        var timer = _debounce;
-        _debounce = null;
         timer?.Stop();
     }
 
@@ -118,20 +143,87 @@ internal class FocusMonitor
             NativeMethods.QuickLookNext.FocusedWindowType.Invalid)
             return;
 
+        RestartSelectionCheck(timer);
+    }
+
+    /// <summary>
+    /// v6.0.0: an arrow key asks the same coalesced selection read as Explorer's selection event.
+    /// Reading the shell synchronously from the UI thread made several key releases queue stale
+    /// preview requests behind one another. Restarting the existing timer keeps only the selection
+    /// present after the last key press and lets <see cref="SelectionSwitchGate"/> retire older
+    /// reads that finish late.
+    /// </summary>
+    internal bool RequestSelectionSwitch()
+    {
+        if (!_isRunning)
+            return false;
+
+        var timer = _debounce;
+        if (timer == null)
+            return false;
+
+        try
+        {
+            if (timer.Dispatcher.CheckAccess())
+            {
+                RestartSelectionCheck(timer);
+            }
+            else
+            {
+                timer.Dispatcher.BeginInvoke(
+                    new Action(() => RestartSelectionCheck(timer)),
+                    DispatcherPriority.Input);
+            }
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            // The preview may be closing while the keyboard hook is still delivering a key-up.
+            Debug.WriteLine(e.Message);
+            return false;
+        }
+    }
+
+    private void RestartSelectionCheck(DispatcherTimer timer)
+    {
+        if (!_isRunning || !ReferenceEquals(_debounce, timer))
+            return;
+
         timer.Stop();
         timer.Start();
     }
 
-    private async Task PollLoop()
+    private async Task PollLoop(int generation, CancellationTokenSource cancellation)
     {
-        while (_isRunning)
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1.5));
+
+        try
         {
-            await Task.Delay(1500).ConfigureAwait(false);
+            while (await timer.WaitForNextTickAsync(cancellation.Token).ConfigureAwait(false))
+            {
+                if (!_isRunning ||
+                    generation != Volatile.Read(ref _pollGeneration))
+                {
+                    break;
+                }
 
-            if (!_isRunning)
-                break;
+                CheckSelection();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // Expected when the preview closes.
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_pollCancellation, cancellation))
+                    _pollCancellation = null;
+            }
 
-            CheckSelection();
+            cancellation.Dispose();
         }
     }
 
@@ -140,19 +232,29 @@ internal class FocusMonitor
         if (!_isRunning)
             return;
 
+        var readVersion = _switchGate.BeginRead();
         var path = GetSelectionSafe();
         if (string.IsNullOrEmpty(path))
             return;
 
-        lock (_sync)
+        if (!_isRunning)
+            return;
+
+        if (_switchGate.ShouldDispatch(
+                readVersion, path, ViewWindowManager.GetInstance().PreviewedPath,
+                Environment.TickCount64))
         {
-            if (!_isRunning || path == _lastPath)
-                return;
-
-            _lastPath = path;
+            PipeServerManager.SendMessage(PipeMessages.Switch, path);
         }
+    }
 
-        PipeServerManager.SendMessage(PipeMessages.Switch, path);
+    /// <summary>
+    /// The mouse already switched to this path directly. Treat Explorer's selection event as an
+    /// echo for a short time instead of sending a second switch request.
+    /// </summary>
+    internal void MarkExternalSwitch(string path)
+    {
+        _switchGate.MarkExternalSwitch(path, Environment.TickCount64);
     }
 
     private static string GetSelectionSafe()

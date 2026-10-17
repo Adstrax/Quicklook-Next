@@ -22,6 +22,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace QuickLook.Plugin.MarkdownViewer;
 
@@ -35,6 +36,7 @@ public class IpynbPanel : WebpagePanel
     private byte[] _homePage;
     private byte[] _ipynbBytes;
     private string _ipynbName;
+    private static long _navigationSerial;
 
     public static bool CanHandle(string path)
     {
@@ -47,16 +49,23 @@ public class IpynbPanel : WebpagePanel
 
     public void PreviewIpynb(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
         _ipynbBytes = File.ReadAllBytes(path);
         _ipynbName = Path.GetFileName(path);
         _homePage = Encoding.UTF8.GetBytes(MarkdownPanel.ReadString("/ipynb2html.html"));
 
-        NavigateToUri(new Uri("file://quicklook/"));
+        var uri = new Uri(
+            $"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
+        _currentUri = uri;
+        NavigateToUri(uri);
     }
 
     protected override void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        if (!IsCurrentNavigation(e))
+            return;
+
         base.WebView_NavigationCompleted(sender, e);
 
         if (!e.IsSuccess || _ipynbBytes == null || _webView?.CoreWebView2 == null)

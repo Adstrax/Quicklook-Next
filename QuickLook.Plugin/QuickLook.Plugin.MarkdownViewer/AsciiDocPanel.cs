@@ -22,6 +22,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace QuickLook.Plugin.MarkdownViewer;
 
@@ -36,6 +37,7 @@ public class AsciiDocPanel : WebpagePanel
     private byte[] _homePage;
     private byte[] _adocBytes;
     private string _adocName;
+    private static long _navigationSerial;
 
     public static bool CanHandle(string path)
     {
@@ -48,16 +50,23 @@ public class AsciiDocPanel : WebpagePanel
 
     public void PreviewAsciiDoc(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
         _adocBytes = File.ReadAllBytes(path);
         _adocName = Path.GetFileName(path);
         _homePage = Encoding.UTF8.GetBytes(MarkdownPanel.ReadString("/adoc2html.html"));
 
-        NavigateToUri(new Uri("file://quicklook/"));
+        var uri = new Uri(
+            $"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
+        _currentUri = uri;
+        NavigateToUri(uri);
     }
 
     protected override void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        if (!IsCurrentNavigation(e))
+            return;
+
         base.WebView_NavigationCompleted(sender, e);
 
         if (!e.IsSuccess || _adocBytes == null || _webView?.CoreWebView2 == null)

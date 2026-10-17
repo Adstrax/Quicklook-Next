@@ -46,21 +46,19 @@ internal class PreviewWarmUpTests : SettingsFixture
         "QuickLook.Plugin.FontViewer",
     ];
 
-    public void TheDefaultIsEveryFamily()
+    public void TheDefaultIsTheBalancedThreeFamilies()
     {
-        Assert.Equal(Families.Length, PreviewWarmUp.AllFamilies, "every family makes up the default");
+        Assert.Equal(3, PreviewWarmUp.DefaultFamilyCount, "the default is the balanced count");
 
-        var chosen = PreviewWarmUp.ChooseFamilies(PreviewWarmUp.AllFamilies);
+        var chosen = PreviewWarmUp.ChooseFamilies(PreviewWarmUp.DefaultFamilyCount);
 
-        Assert.Equal(Families.Length, chosen.Count, "and a count of AllFamilies chooses them all");
-        Assert.Equal(Families.Length, chosen.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-            "each of them exactly once");
+        Assert.Equal(PreviewWarmUp.DefaultFamilyCount, chosen.Count, "the default number is prepared");
+        Assert.Equal(PreviewWarmUp.DefaultFamilyCount,
+            chosen.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            "each family appears once");
 
-        foreach (var family in Families)
-        {
-            Assert.True(chosen.Contains(family, StringComparer.OrdinalIgnoreCase),
-                $"{family} is prepared");
-        }
+        Assert.True(chosen.All(f => Families.Contains(f, StringComparer.OrdinalIgnoreCase)),
+            "every chosen family is known");
     }
 
     /// <summary>

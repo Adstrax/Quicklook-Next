@@ -22,4 +22,9 @@ namespace QuickLook.Plugin.ImageViewer.Webview;
 public interface IWebImagePanel : IDisposable
 {
     public void Preview(string path);
+
+    /// <summary>
+    /// Stops page loading and animation while preserving the last rendered frame.
+    /// </summary>
+    public void Quiesce();
 }

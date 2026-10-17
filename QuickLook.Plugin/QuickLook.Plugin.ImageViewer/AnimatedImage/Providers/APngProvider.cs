@@ -23,6 +23,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -79,12 +80,18 @@ internal class APngProvider : AnimationProvider
     }
 
     public override Task<BitmapSource> GetThumbnail(Size renderSize)
+        => GetThumbnail(renderSize, CancellationToken.None);
+
+    public override Task<BitmapSource> GetThumbnail(Size renderSize, CancellationToken cancellationToken)
     {
         if (_fallbackImageProvider != null)
-            return _fallbackImageProvider.GetThumbnail(renderSize);
+            return _fallbackImageProvider.GetThumbnail(renderSize, cancellationToken);
 
         return new Task<BitmapSource>(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+                return null;
+
             var bs = _baseFrame.GetBitmapSource();
 
             bs.Freeze();
@@ -93,15 +100,21 @@ internal class APngProvider : AnimationProvider
     }
 
     public override Task<BitmapSource> GetRenderedFrame(int index)
+        => GetRenderedFrame(index, CancellationToken.None);
+
+    public override Task<BitmapSource> GetRenderedFrame(int index, CancellationToken cancellationToken)
     {
         if (_fallbackImageProvider != null)
-            return _fallbackImageProvider.GetRenderedFrame(index);
+            return _fallbackImageProvider.GetRenderedFrame(index, cancellationToken);
 
         if (_renderedFrames[index] != null)
             return new Task<BitmapSource>(() => _renderedFrames[index]);
 
         return new Task<BitmapSource>(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+                return null;
+
             var rendered = Render(index);
             _renderedFrames[index] = rendered;
 

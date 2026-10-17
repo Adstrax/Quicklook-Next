@@ -18,6 +18,7 @@
 using QuickLook.Common.ExtensionMethods;
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
+using QuickLook.Plugin.ImageViewer.Helpers;
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -62,8 +63,10 @@ internal class GifProvider : AnimationProvider
         _stream = new FileStream(path.LocalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         _bitmap = new Bitmap(_stream);
 
-        _bitmap.SetResolution(DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Horizontal,
-            DisplayDeviceHelper.DefaultDpi * DisplayDeviceHelper.GetCurrentScaleFactor().Vertical);
+        var displayScale = ImageHelper.GetDisplayScaleFactor();
+        _bitmap.SetResolution(
+            DisplayDeviceHelper.DefaultDpi * displayScale.Horizontal,
+            DisplayDeviceHelper.DefaultDpi * displayScale.Vertical);
 
         Animator = new Int32AnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever };
 
@@ -85,6 +88,11 @@ internal class GifProvider : AnimationProvider
         Animator.KeyFrames.Add(new DiscreteInt32KeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(0))));
         Animator.KeyFrames.Add(new DiscreteInt32KeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(10))));
         Animator.KeyFrames.Add(new DiscreteInt32KeyFrame(2, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(20))));
+    }
+
+    public override void Pause()
+    {
+        _isPlaying = false;
     }
 
     public override void Dispose()
@@ -115,24 +123,36 @@ internal class GifProvider : AnimationProvider
     }
 
     public override Task<BitmapSource> GetThumbnail(Size renderSize)
+        => GetThumbnail(renderSize, CancellationToken.None);
+
+    public override Task<BitmapSource> GetThumbnail(Size renderSize, CancellationToken cancellationToken)
     {
         if (_nativeProvider != null)
-            return _nativeProvider.GetThumbnail(renderSize);
+            return _nativeProvider.GetThumbnail(renderSize, cancellationToken);
 
         return new Task<BitmapSource>(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+                return null;
+
             _frame = _bitmap.ToBitmapSource();
             return _frame;
         });
     }
 
     public override Task<BitmapSource> GetRenderedFrame(int index)
+        => GetRenderedFrame(index, CancellationToken.None);
+
+    public override Task<BitmapSource> GetRenderedFrame(int index, CancellationToken cancellationToken)
     {
         if (_nativeProvider != null)
-            return _nativeProvider.GetRenderedFrame(index);
+            return _nativeProvider.GetRenderedFrame(index, cancellationToken);
 
         return new Task<BitmapSource>(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+                return null;
+
             if (!_isPlaying)
             {
                 _isPlaying = true;

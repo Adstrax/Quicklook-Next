@@ -17,6 +17,7 @@
 
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
+using QuickLook.Plugin.Shared;
 using QuickLook.Plugin.ImageViewer.Webview.Drawio;
 using QuickLook.Plugin.ImageViewer.Webview.Excalidraw;
 using QuickLook.Plugin.ImageViewer.Webview.Graphviz;
@@ -137,12 +138,17 @@ internal static class WebHandler
 
             var sizeSvg = metaWeb.GetSize();
 
-            context.ViewerContent = ipWeb;
             context.Title = sizeSvg.IsEmpty
                 ? $"{Path.GetFileName(path)}"
                 : $"{sizeSvg.Width}×{sizeSvg.Height}: {Path.GetFileName(path)}";
 
-            context.IsBusy = false;
+            if (ipWeb is WebpagePanel panel)
+                panel.ShowInContext(context);
+            else
+            {
+                context.ViewerContent = ipWeb;
+                context.IsBusy = false;
+            }
             return true;
         }
 

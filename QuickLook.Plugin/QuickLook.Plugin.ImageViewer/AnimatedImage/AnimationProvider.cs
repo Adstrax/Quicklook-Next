@@ -17,6 +17,7 @@
 
 using QuickLook.Common.Plugin;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Animation;
@@ -36,7 +37,21 @@ internal abstract class AnimationProvider(Uri path, MetaProvider meta, ContextOb
 
     public abstract void Dispose();
 
+    /// <summary>
+    /// Stops provider-owned animation loops without releasing the last frame. The host calls
+    /// this when another preview starts; <see cref="Dispose"/> still runs after the swap.
+    /// </summary>
+    public virtual void Pause()
+    {
+    }
+
     public abstract Task<BitmapSource> GetThumbnail(Size renderSize);
 
+    public virtual Task<BitmapSource> GetThumbnail(Size renderSize, CancellationToken cancellationToken)
+        => GetThumbnail(renderSize);
+
     public abstract Task<BitmapSource> GetRenderedFrame(int index);
+
+    public virtual Task<BitmapSource> GetRenderedFrame(int index, CancellationToken cancellationToken)
+        => GetRenderedFrame(index);
 }

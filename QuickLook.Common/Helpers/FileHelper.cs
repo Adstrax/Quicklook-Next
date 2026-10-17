@@ -71,6 +71,52 @@ public static class FileHelper
         }
     }
 
+    /// <summary>
+    /// Replaces a small text file without exposing a half-written document to
+    /// another process or to the next startup. The temporary file lives in the
+    /// same directory, so the final move stays on one volume.
+    /// </summary>
+    public static void WriteAllTextAtomic(string path, string contents)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("A destination path is required.", nameof(path));
+
+        var fullPath = Path.GetFullPath(path);
+        var folder = Path.GetDirectoryName(fullPath)
+            ?? throw new ArgumentException("The destination has no parent directory.", nameof(path));
+        Directory.CreateDirectory(folder);
+
+        var temp = Path.Combine(
+            folder,
+            "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+
+        try
+        {
+            using (var stream = new FileStream(
+                       temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            {
+                writer.Write(contents);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temp, fullPath, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temp))
+                    File.Delete(temp);
+            }
+            catch
+            {
+                // A failed cleanup leaves only a uniquely named temporary file.
+            }
+        }
+    }
+
     public static bool GetAssocApplication(string path, out string appFriendlyName)
     {
         appFriendlyName = string.Empty;

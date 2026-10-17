@@ -22,6 +22,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace QuickLook.Plugin.MarkdownViewer;
 
@@ -37,6 +38,7 @@ public class RstPanel : WebpagePanel
     private byte[] _homePage;
     private byte[] _rstBytes;
     private string _rstName;
+    private static long _navigationSerial;
 
     public static bool CanHandle(string path)
     {
@@ -49,16 +51,23 @@ public class RstPanel : WebpagePanel
 
     public void PreviewRst(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
         _rstBytes = File.ReadAllBytes(path);
         _rstName = Path.GetFileName(path);
         _homePage = Encoding.UTF8.GetBytes(MarkdownPanel.ReadString("/rst2html.html"));
 
-        NavigateToUri(new Uri("file://quicklook/"));
+        var uri = new Uri(
+            $"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
+        _currentUri = uri;
+        NavigateToUri(uri);
     }
 
     protected override void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
+        if (!IsCurrentNavigation(e))
+            return;
+
         base.WebView_NavigationCompleted(sender, e);
 
         if (!e.IsSuccess || _rstBytes == null || _webView?.CoreWebView2 == null)

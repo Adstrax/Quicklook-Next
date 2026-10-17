@@ -21,6 +21,7 @@ using QuickLook.Plugin.ImageViewer.Helpers;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -33,12 +34,12 @@ internal class NativeProvider : AnimationProvider
 {
     public NativeProvider(Uri path, MetaProvider meta, ContextObject contextObject) : base(path, meta, contextObject)
     {
-        Animator = new Int32AnimationUsingKeyFrames();
-        Animator.KeyFrames.Add(new DiscreteInt32KeyFrame(0,
-            KeyTime.FromTimeSpan(TimeSpan.Zero)));
     }
 
     public override Task<BitmapSource> GetThumbnail(Size renderSize)
+        => GetThumbnail(renderSize, CancellationToken.None);
+
+    public override Task<BitmapSource> GetThumbnail(Size renderSize, CancellationToken cancellationToken)
     {
         var fullSize = Meta.GetSize();
         var decodeWidth =
@@ -58,26 +59,18 @@ internal class NativeProvider : AnimationProvider
             {
                 try
                 {
-                    // v5.0.5: scale the placeholder to the size the rendered frame will use
-                    // (DecodePixelLimit's target) instead of the original image size. The panel
-                    // computes its fit/zoom from the placeholder and does not recompute it when the
-                    // frame swaps in, so the two geometries have to agree; scaling to the capped
-                    // target rather than the original size is what keeps a huge image from
-                    // materialising an image-sized surface (the bulk of the ~1 GB peak measured
-                    // before this change).
-                    var target = DecodePixelLimit.Limit(fullSize);
-                    var cachedScaled = rotate
-                        ? new TransformedBitmap(cachedImg,
-                            new ScaleTransform(target.Height / cachedImg.PixelWidth, target.Width / cachedImg.PixelHeight))
-                        : new TransformedBitmap(cachedImg,
-                            new ScaleTransform(target.Width / cachedImg.PixelWidth, target.Height / cachedImg.PixelHeight));
+                    if (cancellationToken.IsCancellationRequested)
+                        return null;
 
-                    var cachedRotated = ApplyTransformFromExif(cachedScaled, orientation);
+                    // v6.1.0: the thumbnail keeps its own pixel coordinate space. Scaling it to
+                    // the file's (or the 40 MP cap's) size made WPF lay out and render inside an
+                    // enormous coordinate space, which was the bulk of the large-image peak.
+                    var cachedRotated = ApplyTransformFromExif(cachedImg, orientation);
 
                     ImageHelper.DpiHack(cachedRotated);
                     cachedRotated.Freeze();
 
-                    return cachedRotated;
+                    return cancellationToken.IsCancellationRequested ? null : cachedRotated;
                 }
                 catch (Exception e)
                 {
@@ -91,33 +84,38 @@ internal class NativeProvider : AnimationProvider
         {
             try
             {
-                var img = new BitmapImage();
-                img.BeginInit();
-                img.UriSource = Path;
-                img.CacheOption = BitmapCacheOption.OnLoad;
-                img.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                // specific renderSize to avoid .net's double to int conversion
-                img.DecodePixelWidth = rotate ? decodeHeight : decodeWidth;
-                img.DecodePixelHeight = rotate ? decodeWidth : decodeHeight;
-                img.EndInit();
+                // v6.1.0: never run two large decodes at once. A stale decode is discarded by
+                // AnimatedImage, but it still costs memory while it runs.
+                if (!LargeImageDecodeGate.TryEnter(fullSize, cancellationToken, out var gate))
+                    return null;
 
-                DecodedImageCache.Add(cacheKey, img);
+                using (gate)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return null;
 
-                // v5.0.5: see the cache-hit path above - scaled to the frame's target size, not the
-                // original image size.
-                var target = DecodePixelLimit.Limit(fullSize);
-                var scaled = rotate
-                    ? new TransformedBitmap(img,
-                        new ScaleTransform(target.Height / img.PixelWidth, target.Width / img.PixelHeight))
-                    : new TransformedBitmap(img,
-                        new ScaleTransform(target.Width / img.PixelWidth, target.Height / img.PixelHeight));
+                    var img = new BitmapImage();
+                    img.BeginInit();
+                    img.UriSource = Path;
+                    img.CacheOption = BitmapCacheOption.OnLoad;
+                    img.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                    // specific renderSize to avoid .net's double to int conversion
+                    img.DecodePixelWidth = rotate ? decodeHeight : decodeWidth;
+                    img.DecodePixelHeight = rotate ? decodeWidth : decodeHeight;
+                    img.EndInit();
 
-                var rotated = ApplyTransformFromExif(scaled, orientation);
+                    if (cancellationToken.IsCancellationRequested)
+                        return null;
 
-                ImageHelper.DpiHack(rotated);
-                rotated.Freeze();
+                    DecodedImageCache.Add(cacheKey, img);
 
-                return rotated;
+                    var rotated = ApplyTransformFromExif(img, orientation);
+
+                    ImageHelper.DpiHack(rotated);
+                    rotated.Freeze();
+
+                    return cancellationToken.IsCancellationRequested ? null : rotated;
+                }
             }
             // System.IO.IOException: Cannot read from the stream.
             // Inner Exception: COMException(0x88982F72): Failed to read from the stream.
@@ -130,7 +128,7 @@ internal class NativeProvider : AnimationProvider
                 if (come.Message.Contains("0x88982F72"))
                 {
                     var fallbackProvidor = new ImageMagickProvider(Path, Meta, ContextObject);
-                    var task = fallbackProvidor.GetThumbnail(renderSize);
+                    var task = fallbackProvidor.GetThumbnail(renderSize, cancellationToken);
 
                     task.Start();
                     return task.Result;
@@ -147,6 +145,9 @@ internal class NativeProvider : AnimationProvider
     }
 
     public override Task<BitmapSource> GetRenderedFrame(int index)
+        => GetRenderedFrame(index, CancellationToken.None);
+
+    public override Task<BitmapSource> GetRenderedFrame(int index, CancellationToken cancellationToken)
     {
         var fullSize = Meta.GetSize();
         var rotate = ShouldRotate(Meta.GetOrientation());
@@ -155,24 +156,33 @@ internal class NativeProvider : AnimationProvider
         {
             try
             {
-                var img = new BitmapImage();
-                img.BeginInit();
-                img.UriSource = Path;
-                img.CacheOption = BitmapCacheOption.OnLoad;
-                img.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                // v5.0.5: cap the full-resolution decode so a huge image cannot exhaust
-                // memory (see DecodePixelLimit; the aspect ratio is preserved).
-                var decodeSize = DecodePixelLimit.Limit(fullSize);
-                img.DecodePixelWidth = (int)(rotate ? decodeSize.Height : decodeSize.Width);
-                img.DecodePixelHeight = (int)(rotate ? decodeSize.Width : decodeSize.Height);
-                img.EndInit();
+                if (!LargeImageDecodeGate.TryEnter(fullSize, cancellationToken, out var gate))
+                    return null;
 
-                var img2 = ApplyTransformFromExif(img, Meta.GetOrientation());
+                using (gate)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return null;
 
-                ImageHelper.DpiHack(img2);
-                img2.Freeze();
+                    var img = new BitmapImage();
+                    img.BeginInit();
+                    img.UriSource = Path;
+                    img.CacheOption = BitmapCacheOption.OnLoad;
+                    img.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                    // v5.0.5: cap the full-resolution decode so a huge image cannot exhaust
+                    // memory (see DecodePixelLimit; the aspect ratio is preserved).
+                    var decodeSize = DecodePixelLimit.Limit(fullSize);
+                    img.DecodePixelWidth = (int)(rotate ? decodeSize.Height : decodeSize.Width);
+                    img.DecodePixelHeight = (int)(rotate ? decodeSize.Width : decodeSize.Height);
+                    img.EndInit();
 
-                return img2;
+                    var img2 = ApplyTransformFromExif(img, Meta.GetOrientation());
+
+                    ImageHelper.DpiHack(img2);
+                    img2.Freeze();
+
+                    return cancellationToken.IsCancellationRequested ? null : img2;
+                }
             }
             // System.IO.IOException: Cannot read from the stream.
             // Inner Exception: COMException(0x88982F72): Failed to read from the stream.
@@ -185,7 +195,7 @@ internal class NativeProvider : AnimationProvider
                 if (come.Message.Contains("0x88982F72"))
                 {
                     var fallbackProvidor = new ImageMagickProvider(Path, Meta, ContextObject);
-                    var task = fallbackProvidor.GetRenderedFrame(index);
+                    var task = fallbackProvidor.GetRenderedFrame(index, cancellationToken);
 
                     task.Start();
                     return task.Result;

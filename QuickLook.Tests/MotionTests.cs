@@ -25,7 +25,7 @@ namespace QuickLook.Tests;
 /// transition) runs only when both Windows and the app allow it - the accessibility setting is
 /// what matters most, and an app that ignores it is a bug for anyone who needs it off.
 /// </summary>
-internal class MotionTests
+internal class MotionTests : SettingsFixture
 {
     public void MotionNeedsBothTheSystemAndTheAppToAllowIt()
     {

@@ -29,10 +29,11 @@ public class ExcalidrawImagePanel : SvgImagePanel
 
     public override void Preview(string path)
     {
+        BeginContentLoad();
         FallbackPath = Path.GetDirectoryName(path);
         _excalidrawContent = File.ReadAllText(path, Encoding.UTF8);
         _homePage = _resources["/excalidraw2html.html"];
-        NavigateToUri(new Uri("file://quicklook/"));
+        NavigateToHomePage();
     }
 
     // v3.39.0: the controller is pooled and initializes only once, so the per-panel

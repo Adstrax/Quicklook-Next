@@ -64,7 +64,7 @@ internal static class ThemePalette
     private static readonly Brush DarkAccentFallback = Create("#60CDFF");
 
     // v5.3.0: the "content plate" - a rounded surface for text-heavy areas (list rows, the
-    // OCR text box, the download detail) so those read as a material of their own instead of
+    // download detail) so those read as a material of their own instead of
     // floating on whatever the desktop shows through. Light theme gets a white card (the
     // WinUI look over a wallpaper), dark theme a soft black one.
     private static readonly Brush LightContentPlate = Create("#B8FFFFFF");

@@ -124,7 +124,7 @@
                             Style="{StaticResource CaptionButtonStyle}"
                             ToolTip="Toggle Light/Dark Theme" />
                     <!-- v5.3.0: the bar now reads as two groups - what you can do with the file
-                         (share / open / open with / reload / OCR / more) and the window itself
+                         (open / open with / reload / more) and the window itself
                          (theme / maximize / close) - separated by this hairline. -->
                     <Border DockPanel.Dock="Right"
                             Width="1"
@@ -132,11 +132,6 @@
                             Margin="6,0,6,0"
                             VerticalAlignment="Center"
                             Background="{DynamicResource CaptionSeparatorBrush}" />
-                    <Button x:Name="buttonShare"
-                            Content="&#xE72D;"
-                            DockPanel.Dock="Right"
-                            Style="{StaticResource CaptionButtonStyle}"
-                            ToolTip="Share" />
                     <Button x:Name="buttonOpenWith"
                             Content="&#xE7AC;"
                             DockPanel.Dock="Right"
@@ -152,15 +147,6 @@
                             DockPanel.Dock="Right"
                             Style="{StaticResource CaptionButtonStyle}"
                             ToolTip="Reload" />
-                    <!-- v5.0.11: text recognition for image previews. It used to live in the
-                         More menu, where nobody found it; the visibility is set per preview
-                         (only the image viewer can produce it). -->
-                    <Button x:Name="buttonOcr"
-                            Content="&#xE8FE;"
-                            DockPanel.Dock="Right"
-                            Style="{StaticResource CaptionButtonStyle}"
-                            Visibility="Collapsed"
-                            ToolTip="Extract text" />
                     <Button x:Name="buttonMore"
                             Content="&#xE712;"
                             DockPanel.Dock="Right"
@@ -228,6 +214,18 @@
                                 Content="{Binding ContextObject.ViewerContent, ElementName=mainWindow}"
                                 Foreground="{DynamicResource WindowTextForeground}" />
             </DockPanel>
+            <!-- v6.0.0: a different web format is attached here first, off the visible
+                 surface, so its browser can render before it replaces the old page. -->
+            <ContentControl x:Name="pendingContainer"
+                            Width="2"
+                            Height="2"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            Panel.ZIndex="1"
+                            Opacity="0"
+                            IsHitTestVisible="False"
+                            Focusable="False"
+                            Visibility="Collapsed" />
         </Grid>
         <Grid x:Name="busyIndicatorLayer"
               Visibility="Collapsed"

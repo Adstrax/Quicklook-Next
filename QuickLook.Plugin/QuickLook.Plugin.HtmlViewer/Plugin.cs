@@ -23,7 +23,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
-using System.Windows.Threading;
 
 namespace QuickLook.Plugin.HtmlViewer;
 
@@ -58,16 +57,19 @@ public sealed partial class Plugin : IViewer, IMoreMenu
 
     public void View(string path, ContextObject context)
     {
-        _panel = new WebpagePanel();
+        _panel = new WebpagePanel
+        {
+            ReadyWhenNavigationCompleted = true,
+        };
+        _panel.BeginContentLoad();
         _currentPath = path;
-        context.ViewerContent = _panel;
         context.Title = Path.IsPathRooted(path) ? Path.GetFileName(path) : path;
 
         if (path.EndsWith(".url", StringComparison.OrdinalIgnoreCase))
             path = Helper.GetUrlPath(path);
         _panel.FallbackPath = Path.GetDirectoryName(path); // Reserve opportunities for requesting exceeds MAX_PATH (260) limitation
         _panel.NavigateToFile(path);
-        _panel.Dispatcher.Invoke(() => { context.IsBusy = false; }, DispatcherPriority.Loaded);
+        _panel.ShowInContext(context);
     }
 
     public void Cleanup()

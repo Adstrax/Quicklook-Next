@@ -16,7 +16,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.Plugin;
-using QuickLook.Common.Helpers;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -40,39 +39,30 @@ namespace QuickLookNext.Helpers;
 /// they are reading the preview that started the session.
 /// </para>
 /// <para>
-/// v5.8.0: every family is prepared now, not the two most-used ones. The cost of the
-/// whole list turned out to be small - measured on the 5.7.1 build, tray process,
-/// nothing previewed, 75 s after start: 147 MB private / 228 MB working set with the
-/// warm-up off, 179 / 267 MB with the old default of two, and 217 / 320 MB with all
-/// eight, i.e. 70 MB private for every family against 38 MB for the two that were
-/// default (see <see cref="AllFamilies"/>). The usage history still decides the
+/// v6.0.0: the warm-up is fixed at three families. The usage history decides the
 /// *order*: the families this user opens most are prepared first, so a preview that
-/// arrives mid-preparation is most likely to be for one that is already ready.
+/// arrives mid-preparation is most likely to be for one that is already ready. There
+/// is no user setting; the lower footprint of the three-family policy is the default.
 /// </para>
 /// <para>
 /// Video, audio and Office are deliberately left out of the family list - preparing
 /// them means starting playback, or synthesising a valid OOXML document and keeping a
-/// Chromium environment for it - so "all families" here means the eight formats a small
-/// sample file can be written for.
-/// </para>
-/// <para>
-/// Where the cost sits: measured on the tray process with nothing previewed, warming
-/// text and image adds ~23 MB private / ~36 MB working set over a cold session, and
-/// adding a WebView2 family (Markdown/HTML) doubles that. A user who wants the idle
-/// footprint of the old default back can still cap the list
-/// (<c>WarmUpFamilyCount</c>, 0 to 8), and the whole thing can be switched off with
-/// <c>WarmUpPreviewFamilies=false</c>.
+/// Chromium environment for it.
 /// </para>
 /// </summary>
 internal static class PreviewWarmUp
 {
-    private const string EnabledSetting = "WarmUpPreviewFamilies";
-    private const string CountSetting = "WarmUpFamilyCount";
+    /// <summary>
+    /// The fixed policy: the two common families plus the most likely third one
+    /// from the user's history.
+    /// </summary>
+    internal const int DefaultFamilyCount = 3;
 
     /// <summary>
-    /// v5.8.0: how many families make up "all of them" - the ones a sample file can be
+    /// How many families make up "all of them" - the ones a sample file can be
     /// written for (see the class comment for why video, audio and Office are not in
-    /// the list). This is also the default: the warm-up prepares the whole list.
+    /// the list). Kept for the tests and diagnostics; the shipping policy uses
+    /// <see cref="DefaultFamilyCount"/>.
     /// </summary>
     internal static int AllFamilies => Families.Count;
 
@@ -150,19 +140,11 @@ internal static class PreviewWarmUp
         if (!ShouldStart(afterFirstPreview))
             return;
 
-        _started = true;
-
-        if (!SettingHelper.Get(EnabledSetting, true, "QuickLookNext"))
-            return;
-
-        var count = Math.Clamp(
-            SettingHelper.Get(CountSetting, AllFamilies, "QuickLookNext"), 0, AllFamilies);
-        if (count == 0)
-            return;
-
-        var families = ChooseFamilies(count);
+        var families = ChooseFamilies(DefaultFamilyCount);
         if (families.Count == 0)
             return;
+
+        _started = true;
 
         // Samples of the previous session: dropped here, while nothing can be
         // reading them yet (see WarmUpSamples).
@@ -231,7 +213,7 @@ internal static class PreviewWarmUp
             return;
 
         var manager = PluginManager.GetInstance();
-        var plugin = manager.LoadedPlugins.FirstOrDefault(p =>
+        var plugin = manager.GetLoadedPluginsSnapshot().FirstOrDefault(p =>
                          string.Equals(p.GetType().Assembly.GetName().Name, pluginName,
                              StringComparison.OrdinalIgnoreCase))
                      ?? manager.LoadPluginByName(pluginName);
@@ -259,7 +241,7 @@ internal static class PreviewWarmUp
 
         // A throwaway context: the panel is built and thrown away, so nothing is
         // ever attached to (or shown in) the real preview window.
-        var context = new ContextObject { Source = host };
+        var context = new ContextObject { Source = host, IsWarmUp = true };
 
         try
         {

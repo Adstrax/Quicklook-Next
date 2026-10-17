@@ -22,6 +22,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 
 namespace QuickLookNext.Helpers;
 
@@ -82,6 +83,7 @@ internal static class PluginCatalog
         Path.Combine(SettingHelper.LocalDataPath, "plugin-index.json");
 
     private static IReadOnlyList<PluginCatalogEntry> _cached;
+    private static readonly object LoadLock = new();
 
     /// <summary>
     /// Parses and validates a catalogue document. <paramref name="rejected"/>
@@ -151,7 +153,18 @@ internal static class PluginCatalog
     /// last one that downloaded successfully. Never throws: a network problem
     /// degrades to "no list" plus an error string.
     /// </summary>
-    internal static IReadOnlyList<PluginCatalogEntry> Load(out string error, bool forceRefresh = false)
+    internal static IReadOnlyList<PluginCatalogEntry> Load(
+        out string error, bool forceRefresh = false, CancellationToken cancellationToken = default)
+    {
+        // Startup refresh and the plugin panel can ask for the catalogue at the
+        // same time. Serialize both the network fallback and the local cache so
+        // they do not race on _cached or rewrite the same JSON file.
+        lock (LoadLock)
+            return LoadLocked(out error, forceRefresh, cancellationToken);
+    }
+
+    private static IReadOnlyList<PluginCatalogEntry> LoadLocked(
+        out string error, bool forceRefresh, CancellationToken cancellationToken)
     {
         error = string.Empty;
 
@@ -172,7 +185,7 @@ internal static class PluginCatalog
         try
         {
             using var client = Updater.CreateHttpClient(TimeSpan.FromSeconds(20));
-            var json = client.GetStringAsync(IndexUrl).GetAwaiter().GetResult();
+            var json = client.GetStringAsync(IndexUrl, cancellationToken).GetAwaiter().GetResult();
             var entries = Parse(json, out var rejected);
 
             if (entries.Count == 0)
@@ -188,6 +201,19 @@ internal static class PluginCatalog
                 error = $"{rejected} entr{(rejected == 1 ? "y was" : "ies were")} ignored (they failed validation).";
 
             return entries;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            var cached = TryReadCache(out _);
+            if (cached.Count > 0)
+            {
+                _cached = cached;
+                error = "The plugin-list refresh was cancelled; showing the last saved copy.";
+                return cached;
+            }
+
+            error = "The plugin-list refresh was cancelled.";
+            return [];
         }
         catch (Exception e)
         {
@@ -205,7 +231,11 @@ internal static class PluginCatalog
     }
 
     /// <summary>Test seam: drops the memoised catalogue.</summary>
-    internal static void ResetCache() => _cached = null;
+    internal static void ResetCache()
+    {
+        lock (LoadLock)
+            _cached = null;
+    }
 
     /// <summary>
     /// v5.6.0: test hook. Fetches the published catalogue and describes what
@@ -277,11 +307,32 @@ internal static class PluginCatalog
             && entry.Id.Length <= 100
             && IsPlainIdentifier(entry.Id)
             && !string.IsNullOrWhiteSpace(entry.Name)
+            && IsSafeAssetName(entry.Asset)
             && entry.Size > 0
             && entry.Size <= MaxPluginBytes
             && entry.Sha256.Length == 64
             && IsHex(entry.Sha256)
             && Updater.IsTrustedDownloadUrl(entry.Url);
+    }
+
+    /// <summary>
+    /// The asset name becomes a local file name in the download staging folder.
+    /// Reject rooted paths, separators, traversal and extensions that the plugin
+    /// installer cannot handle.
+    /// </summary>
+    private static bool IsSafeAssetName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 200)
+            return false;
+
+        if (value is "." or ".." ||
+            !string.Equals(value, Path.GetFileName(value), StringComparison.Ordinal) ||
+            value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return false;
+        }
+
+        return value.EndsWith(".qlplugin", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -347,8 +398,7 @@ internal static class PluginCatalog
     {
         try
         {
-            Directory.CreateDirectory(SettingHelper.LocalDataPath);
-            File.WriteAllText(CachePath, json);
+            FileHelper.WriteAllTextAtomic(CachePath, json);
         }
         catch
         {

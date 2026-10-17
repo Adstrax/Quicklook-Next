@@ -40,6 +40,7 @@ public class PuImagePanel : SvgImagePanel
 
     public override void Preview(string path)
     {
+        BeginContentLoad();
         bool consented = SettingHelper.Get("PlantUMLOnlineConsented", false, "QuickLook.Plugin.ImageViewer");
 
         if (!consented)
@@ -58,6 +59,7 @@ public class PuImagePanel : SvgImagePanel
             {
                 string deniedMsg = TranslationHelper.Get("PU_OnlineDeniedMessage", translationFile, failsafe:
                     "Network access was denied. PlantUML preview requires an internet connection.");
+                ReadyWhenNavigationCompleted = true;
                 NavigateToHtml(
                     $"<html><body style='font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#555'>" +
             $"<p style='max-width:400px;text-align:center'>{WebUtility.HtmlEncode(deniedMsg)}</p></body></html>");
@@ -70,7 +72,7 @@ public class PuImagePanel : SvgImagePanel
         FallbackPath = Path.GetDirectoryName(path);
         _puContent = File.ReadAllText(path);
         _homePage = _resources["/pu2html.html"];
-        NavigateToUri(new Uri("file://quicklook/"));
+        NavigateToHomePage();
     }
 
     protected override void OnControllerReady()

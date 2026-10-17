@@ -20,6 +20,7 @@ using QuickLook.Common.Annotations;
 using QuickLook.Common.ExtensionMethods;
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
+using QuickLook.Plugin.ImageViewer.AnimatedImage;
 using QuickLook.Plugin.ImageViewer.Helpers;
 using QuickLook.Plugin.ImageViewer.NativeMethods;
 using System;
@@ -74,9 +75,8 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     private Visibility _metaIconVisibility = Visibility.Visible;
     private bool _contentReadyFired;
     private DispatcherTimer _readyTimer;
-
-    /// <summary>v5.6.6: the size the file's pixels were last decoded at (device pixels).</summary>
-    private Size _decodedAt;
+    private bool _applyingSourceSize;
+    private bool _quiesced;
 
     /// <summary>
     /// v5.6.6: waits for the zoom to settle before asking for more detail, so a flick of the wheel
@@ -114,8 +114,15 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
             _detailTimer.Stop();
             RequestMoreDetailIfNeeded();
         };
+        viewPanelImage.SourceSizeChanged += OnSourceSizeChanged;
         viewPanelImage.ImageLoaded += (sender, e) =>
         {
+            if (viewPanelImage.Source is BitmapSource bitmap &&
+                (long)bitmap.PixelWidth * bitmap.PixelHeight > LargeImageDecodeGate.ThresholdPixels)
+            {
+                HadLargeDecode = true;
+            }
+
             // v1.2.14: signal content readiness BEFORE IsBusy flips so the
             // viewer window can swap the pending content in atomically.
             FireContentReady();
@@ -157,9 +164,6 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     internal ImagePanel(ContextObject context, MetaProvider meta) : this()
     {
         ContextObject = context;
-        // v5.6.6: the first decode happens at the size the window asked for; remember it so the
-        // zoom can tell when it is magnifying pixels that were never decoded (see Zoom).
-        _decodedAt = context?.PreferredSize ?? default;
         Meta = meta;
 
         _ = meta.GetSize();
@@ -323,6 +327,12 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     /// </summary>
     public double ZoomDisplayFactor => ZoomFactor * DecodeScale;
 
+    /// <summary>
+    /// v6.1.0: true when this preview decoded a bitmap above the large-image threshold. The
+    /// plugin uses it to reclaim the managed buffers when the preview closes.
+    /// </summary>
+    internal bool HadLargeDecode { get; private set; }
+
     /// <summary>Decoded size / real image size; 1 for an image decoded at full resolution.</summary>
     private double DecodeScale
     {
@@ -333,7 +343,11 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
             if (source == null || real.Width <= 0 || real.Height <= 0)
                 return 1d;
 
-            var scale = Math.Min(source.Width / real.Width, source.Height / real.Height);
+            // v6.1.0: the DPI hack makes Width DIPs, not pixels - use the pixel size so the
+            // badge stays truthful at 150%/200% display scaling.
+            var scale = source is BitmapSource bitmap
+                ? Math.Min(bitmap.PixelWidth / real.Width, bitmap.PixelHeight / real.Height)
+                : Math.Min(source.Width / real.Width, source.Height / real.Height);
             return double.IsNaN(scale) || scale <= 0 ? 1d : Math.Min(1d, scale);
         }
     }
@@ -385,10 +399,28 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
     public void Dispose()
     {
+        _quiesced = true;
+        _detailTimer?.Stop();
+        _detailTimer = null;
         _readyTimer?.Stop();
         _readyTimer = null;
         viewPanelImage?.Dispose();
         viewPanelImage = null;
+    }
+
+    /// <summary>
+    /// v6.0.0: the preview is being replaced. Stop work that can still consume CPU and leave the
+    /// decoded frame in place for the host's stale-content bridge.
+    /// </summary>
+    public void Quiesce()
+    {
+        if (_quiesced)
+            return;
+
+        _quiesced = true;
+        _detailTimer?.Stop();
+        _readyTimer?.Stop();
+        viewPanelImage?.Quiesce();
     }
 
     public event PropertyChangedEventHandler PropertyChanged;
@@ -485,6 +517,9 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    if (_quiesced)
+                        return;
+
                     textMeta.Inlines.Clear();
                     foreach (var (label, value) in entries)
                     {
@@ -520,6 +555,9 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
     private bool FireContentReady()
     {
+        if (_quiesced)
+            return false;
+
         if (_contentReadyFired)
             return false;
 
@@ -684,10 +722,14 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         // picture. A notch now steps towards a landmark and lands on it only when it was heading
         // there anyway, which keeps 100% and "exactly fit" reachable without the jump.
         factor = ImageZoom.LandOnLandmark(ZoomFactor, factor, ZoomToFitFactor);
-        factor = ImageZoom.LandOnLandmark(ZoomFactor, factor, 1d);
+
+        // v6.1.0: the bitmap now keeps its own coordinate space, so "100%" is the file's 1:1
+        // size translated into this bitmap's zoom: source size / file size.
+        var oneToOne = DecodeScale > 0 ? 1d / DecodeScale : 1d;
+        factor = ImageZoom.LandOnLandmark(ZoomFactor, factor, oneToOne);
 
         factor = Math.Max(factor, MinZoomFactor);
-        factor = Math.Min(factor, MaxZoomFactor);
+        factor = Math.Min(factor, EffectiveMaxZoomFactor);
 
         ZoomFactor = factor;
         ZoomToFit = isToFit || Math.Abs(factor - ZoomToFitFactor) < 0.001d;
@@ -737,21 +779,101 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         if (viewPanelImage?.Source == null || real.IsEmpty)
             return;
 
+        if (_applyingSourceSize)
+            return;
+
         var dpi = VisualTreeHelper.GetDpi(this);
 
-        var needed = ImageZoom.NeededDetailSize(
-            new Size(viewPanel.ActualWidth, viewPanel.ActualHeight),
-            ZoomFactor, dpi.DpiScaleX, dpi.DpiScaleY, real, _decodedAt);
+        var needed = ImageZoom.NeededDetailSizeForSource(
+            new Size(viewPanelImage.Source.Width, viewPanelImage.Source.Height),
+            ZoomFactor, dpi.DpiScaleX, dpi.DpiScaleY, real);
 
         if (needed is not { } size)
             return;
 
-        _decodedAt = size;
+        if ((long)size.Width * (long)size.Height > LargeImageDecodeGate.ThresholdPixels)
+            HadLargeDecode = true;
+
         // Rare enough to be worth a line: it is the difference between a soft and a sharp
         // magnification, and the only way to tell from a bug report whether it happened.
         ProcessHelper.WriteLog(
             $"Image detail decode: {size.Width:F0}x{size.Height:F0} at zoom {ZoomFactor:F2}");
         viewPanelImage.ReloadAt(size);
+    }
+
+    /// <summary>
+    /// v6.1.0: a detail decode replaced the bitmap with one decoded at another size. Keep the
+    /// visible size and scroll position by converting the zoom into the new bitmap's coordinate
+    /// space. The layout is source * zoom, so old * oldZoom == new * newZoom.
+    /// </summary>
+    private void OnSourceSizeChanged(object sender, SourceSizeChangedEventArgs e)
+    {
+        if (_applyingSourceSize || e.OldSize.IsEmpty || e.NewSize.IsEmpty)
+            return;
+
+        // The first frame has not been fitted yet; ImageLoaded will do it with the final size.
+        if (!_contentReadyFired)
+            return;
+
+        if (viewPanelImage.Source is BitmapSource bitmap &&
+            (long)bitmap.PixelWidth * bitmap.PixelHeight > LargeImageDecodeGate.ThresholdPixels)
+        {
+            HadLargeDecode = true;
+        }
+
+        var wasFit = ZoomToFit;
+        var newZoom = ImageZoom.ZoomAfterSourceChange(ZoomFactor, e.OldSize, e.NewSize);
+        if (newZoom <= 0 || double.IsNaN(newZoom))
+            return;
+
+        _applyingSourceSize = true;
+        try
+        {
+            var horizontal = viewPanel.HorizontalOffset;
+            var vertical = viewPanel.VerticalOffset;
+
+            ZoomFactor = newZoom;
+            UpdateZoomToFitFactor();
+            ZoomToFit = wasFit || Math.Abs(newZoom - ZoomToFitFactor) < 0.001d;
+            viewPanelImage.LayoutTransform = new ScaleTransform(newZoom, newZoom);
+            viewPanel.InvalidateMeasure();
+            UpdateLayout();
+
+            viewPanel.ScrollToHorizontalOffset(horizontal);
+            viewPanel.ScrollToVerticalOffset(vertical);
+        }
+        finally
+        {
+            _applyingSourceSize = false;
+        }
+
+        // The window may still be settling after the first frame was swapped in. Re-run the
+        // normal fit once layout has caught up, without leaving the enlarged intermediate frame
+        // visible first.
+        if (wasFit)
+            Dispatcher.BeginInvoke(new Action(DoZoomToFit), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// v6.1.0: the file can be magnified up to 8x of the capped decode, as before. The bitmap's
+    /// own coordinate space is smaller than that cap until the detail decode arrives, so the
+    /// zoom cap has to grow by the same ratio - otherwise a thumbnail could never reach 100%.
+    /// </summary>
+    private double EffectiveMaxZoomFactor
+    {
+        get
+        {
+            var real = _meta?.GetSize() ?? default;
+            if (real.IsEmpty || real.Width <= 0 || real.Height <= 0)
+                return MaxZoomFactor;
+
+            var capped = DecodePixelLimit.Limit(real);
+            var cappedScale = Math.Min(capped.Width / real.Width, capped.Height / real.Height);
+
+            return cappedScale <= 0 || double.IsNaN(cappedScale)
+                ? MaxZoomFactor
+                : MaxZoomFactor / Math.Max(0.05d, cappedScale);
+        }
     }
 
     private void FireZoomChangedEvent()

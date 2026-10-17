@@ -96,11 +96,29 @@ internal static class PluginInstallService
     private static PluginInstallResult Install(
         PluginCatalogEntry entry, IProgress<Updater.DownloadProgress> progress, CancellationToken cancellation)
     {
-        var staging = Path.Combine(Path.GetTempPath(), "QuickLookNext.PluginDownload", entry.Asset);
+        // Keep the download and the directory that is moved into place on the
+        // same volume. A portable installation can live on D:\ while %TEMP% is
+        // on C:\, and Directory.Move cannot cross volumes.
+        var pluginRoot = Path.TrimEndingDirectorySeparator(App.UserPluginPath);
+        var dataRoot = Path.GetDirectoryName(pluginRoot)!;
+        var stagingRoot = Path.Combine(dataRoot, "PluginInstallStaging");
+        var stagingFolder = Path.Combine(stagingRoot, Guid.NewGuid().ToString("N"));
+        var safeAsset = Path.GetFileName(entry.Asset);
+        var staging = Path.Combine(stagingFolder, safeAsset);
+        var extracted = Path.Combine(stagingFolder, "extracted");
 
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(staging)!);
+            if (string.IsNullOrWhiteSpace(safeAsset) ||
+                !string.Equals(safeAsset, entry.Asset, StringComparison.Ordinal) ||
+                !safeAsset.EndsWith(".qlplugin", StringComparison.OrdinalIgnoreCase))
+            {
+                return new PluginInstallResult(
+                    PluginInstallStatus.Rejected, string.Empty, string.Empty,
+                    "The catalogue contains an unsafe plugin asset name.");
+            }
+
+            Directory.CreateDirectory(stagingFolder);
             Download(entry, staging, progress, cancellation);
             VerifyDownload(staging, entry.Size, entry.Sha256);
 
@@ -112,7 +130,17 @@ internal static class PluginInstallService
             }
 
             var target = Path.Combine(App.UserPluginPath, ns);
-            Extract(staging, target);
+            ExtractToStaging(staging, extracted);
+
+            var pluginDll = Path.Combine(extracted, ns + ".dll");
+            if (!File.Exists(pluginDll))
+            {
+                return new PluginInstallResult(
+                    PluginInstallStatus.Rejected, string.Empty, version,
+                    $"\"{entry.Name}\" does not contain the expected {ns}.dll.");
+            }
+
+            ReplaceInstalledPlugin(extracted, target);
 
             // The running app still holds the previous version of this plugin in
             // memory; drop it so the next preview picks up the new assembly.
@@ -134,12 +162,13 @@ internal static class PluginInstallService
         {
             try
             {
-                if (File.Exists(staging))
-                    File.Delete(staging);
+                if (Directory.Exists(stagingFolder))
+                    Directory.Delete(stagingFolder, recursive: true);
             }
             catch
             {
-                // A leftover in %TEMP% is harmless.
+                // A leftover in the unique staging folder is harmless and can be
+                // removed by the normal temp cleanup.
             }
         }
     }
@@ -222,24 +251,91 @@ internal static class PluginInstallService
     /// they cannot be overwritten. They are parked exactly the way an uninstall
     /// parks them (<c>*.uninstalled</c>), which the next start cleans up.
     /// </summary>
-    private static void Extract(string package, string targetFolder)
+    private static void ExtractToStaging(string package, string stagingFolder)
     {
+        Directory.CreateDirectory(stagingFolder);
+        ZipFile.ExtractToDirectory(package, stagingFolder);
+    }
+
+    /// <summary>
+    /// Swaps a fully extracted package into place after keeping the old directory
+    /// recoverable. A crash between the two moves is repaired on the next start:
+    /// the backup is restored when the target is missing, otherwise it is removed.
+    /// </summary>
+    private static void ReplaceInstalledPlugin(string stagingFolder, string targetFolder)
+    {
+        string backup = null;
+
         if (Directory.Exists(targetFolder))
         {
+            var pluginRoot = Path.TrimEndingDirectorySeparator(App.UserPluginPath);
+            var backupRoot = Path.Combine(
+                Path.GetDirectoryName(pluginRoot)!,
+                "PluginRollback");
+            Directory.CreateDirectory(backupRoot);
+
+            backup = Path.Combine(backupRoot, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(backup);
+            File.WriteAllText(
+                Path.Combine(backup, ".original"),
+                Path.GetFileName(targetFolder));
+
             try
             {
-                Directory.Delete(targetFolder, recursive: true);
+                Directory.Move(targetFolder, Path.Combine(backup, "plugin"));
             }
-            catch (Exception)
+            catch
             {
-                var pending = targetFolder.TrimEnd('\\', '/') + ".uninstalled";
-                if (Directory.Exists(pending))
-                    Directory.Delete(pending, recursive: true);
-                Directory.Move(targetFolder, pending);
+                try
+                {
+                    Directory.Delete(backup, recursive: true);
+                }
+                catch
+                {
+                    // The main startup cleanup removes an empty/marked backup.
+                }
+
+                backup = null;
+                throw;
             }
         }
 
-        Directory.CreateDirectory(targetFolder);
-        ZipFile.ExtractToDirectory(package, targetFolder);
+        try
+        {
+            Directory.Move(stagingFolder, targetFolder);
+        }
+        catch
+        {
+            if (backup is not null &&
+                !Directory.Exists(targetFolder) &&
+                Directory.Exists(Path.Combine(backup, "plugin")))
+            {
+                Directory.Move(Path.Combine(backup, "plugin"), targetFolder);
+
+                try
+                {
+                    Directory.Delete(backup, recursive: true);
+                }
+                catch
+                {
+                    // The next startup sees the restored target and removes it.
+                }
+            }
+
+            throw;
+        }
+
+        if (backup is not null)
+        {
+            try
+            {
+                Directory.Delete(backup, recursive: true);
+            }
+            catch
+            {
+                // The old assemblies are often still loaded. The next startup
+                // removes the backup after confirming the new target exists.
+            }
+        }
     }
 }
