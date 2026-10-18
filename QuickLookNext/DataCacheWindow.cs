@@ -19,7 +19,6 @@ using QuickLook.Common.ExtensionMethods;
 using QuickLook.Common.Helpers;
 using QuickLookNext.Helpers;
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
@@ -54,6 +53,7 @@ internal sealed class DataCacheWindow : Window
 
     private bool _busy;
     private bool _accentApplied;
+    private bool _backdropRefreshQueued;
 
     private DataCacheWindow(bool smokeMode)
     {
@@ -63,6 +63,7 @@ internal sealed class DataCacheWindow : Window
         Title = TranslationHelper.Get("DataCache_Title", failsafe: "Data & cache");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
+        ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = !smokeMode;
         SizeToContent = SizeToContent.Height;
         Width = 420;
@@ -99,7 +100,11 @@ internal sealed class DataCacheWindow : Window
                 Close();
         };
 
-        Loaded += (_, _) => Refresh();
+        Loaded += (_, _) =>
+        {
+            Refresh();
+            QueueBackdropRefresh();
+        };
     }
 
     internal static void ShowWindow(bool smokeMode = false)
@@ -151,7 +156,7 @@ internal sealed class DataCacheWindow : Window
 
         return (webViewCache, previewTemp, updateLeftover, data, total, status,
             "clear=" + TranslationHelper.Get("DataCache_Clear", failsafe: "Clear cache") +
-            ";log=" + TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear log"));
+            ";log=" + TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear diagnostic log"));
     }
 
     private TextBlock ValueText()
@@ -225,20 +230,6 @@ internal sealed class DataCacheWindow : Window
             Margin = new Thickness(0, 12, 0, 0),
         };
 
-        var openFolder = CreateButton(
-            TranslationHelper.Get("DataCache_OpenFolder", failsafe: "Open data folder"), primary: false, subtle: true);
-        openFolder.Click += (_, _) =>
-        {
-            try
-            {
-                Process.Start("explorer.exe", SettingHelper.LocalDataPath);
-            }
-            catch (Exception e)
-            {
-                ProcessHelper.WriteLog($"Opening the data folder failed: {e}");
-            }
-        };
-
         var cancel = CreateButton(
             TranslationHelper.Get("DataCache_Close", failsafe: "Close"), primary: false, subtle: false);
         cancel.IsCancel = true;
@@ -246,39 +237,32 @@ internal sealed class DataCacheWindow : Window
 
         // v5.1.0: the log is kept by "clear cache" (it is data), so dropping it needs its own way.
         var clearLog = CreateButton(
-            TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear log"), primary: false, subtle: true);
-        clearLog.Margin = new Thickness(8, 0, 0, 0);
+            TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear diagnostic log"),
+            primary: true, subtle: false);
         clearLog.Click += async (_, _) => await ClearLogAsync();
 
         var clear = CreateButton(
             TranslationHelper.Get("DataCache_Clear", failsafe: "Clear cache"), primary: true, subtle: false);
         clear.Click += async (_, _) => await ClearAsync();
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        cancel.Margin = new Thickness(0, 0, 8, 0);
-        actions.Children.Add(cancel);
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0),
+        };
+        clear.Margin = new Thickness(0, 0, 8, 0);
+        clearLog.Margin = new Thickness(0, 0, 8, 0);
         actions.Children.Add(clear);
-
-        var footer = new Grid { Margin = new Thickness(0, 16, 0, 0) };
-        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        footer.ColumnDefinitions.Add(new ColumnDefinition());
-
-        var dataActions = new StackPanel { Orientation = Orientation.Horizontal };
-        dataActions.Children.Add(openFolder);
-        dataActions.Children.Add(clearLog);
-
-        Grid.SetColumn(dataActions, 0);
-        footer.Children.Add(dataActions);
-        Grid.SetColumn(actions, 1);
-        actions.HorizontalAlignment = HorizontalAlignment.Right;
-        footer.Children.Add(actions);
+        actions.Children.Add(clearLog);
+        actions.Children.Add(cancel);
 
         var content = new StackPanel();
         content.Children.Add(header);
         content.Children.Add(rows);
         content.Children.Add(hint);
         content.Children.Add(_status);
-        content.Children.Add(footer);
+        content.Children.Add(actions);
 
         var panel = new Border
         {
@@ -458,8 +442,29 @@ internal sealed class DataCacheWindow : Window
     {
         base.OnContentRendered(e);
 
-        if (!_accentApplied)
+        // SizeToContent changes the HWND after OnSourceInitialized has applied the
+        // acrylic. Re-apply it once the final content size is known; otherwise the
+        // resized surface falls back to its opaque composition colour (a black panel).
+        QueueBackdropRefresh();
+    }
+
+    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+    {
+        base.OnRenderSizeChanged(sizeInfo);
+        QueueBackdropRefresh();
+    }
+
+    private void QueueBackdropRefresh()
+    {
+        if (_backdropRefreshQueued)
+            return;
+
+        _backdropRefreshQueued = true;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _backdropRefreshQueued = false;
             ApplyBackdrop();
+        }), DispatcherPriority.Loaded);
     }
 
     private void ApplyBackdrop()

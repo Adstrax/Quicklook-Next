@@ -7,6 +7,23 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.2.1
+
+### A stable Data & cache backdrop and a clearer action row
+
+6.2.1 fixes the Data & cache panel losing its acrylic backdrop after the window sized itself
+to its content, and tidies the action area.
+
+- **The backdrop survives layout.** The acrylic material is applied again after the final
+  content size is known, and refreshed on load and size changes, instead of falling back to
+  an opaque black surface.
+- **The duplicate folder entry is gone.** The tray menu already has Open data folder, so the
+  panel no longer repeats it.
+- **The actions have one clear row.** The order is Clear cache, Clear diagnostic log, Close.
+  Clear diagnostic log uses the same button style as Clear cache, and its name now says
+  exactly what it removes.
+- **Release quality.** 326 unit tests pass with a Release build of 0 warnings and 0 errors.
+
 ## QuickLook-Next 6.2.0
 
 ### Sharper PDFs, steadier previews, and a faster repeat path
