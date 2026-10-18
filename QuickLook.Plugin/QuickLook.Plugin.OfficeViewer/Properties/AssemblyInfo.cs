@@ -18,6 +18,9 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
+// v6.1.2: the Office parse cache is exercised without opening a preview window.
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("QuickLook.Tests")]
+
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.

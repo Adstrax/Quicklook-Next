@@ -49,6 +49,19 @@ internal class LowMemoryModeChoiceTests
         Assert.Equal(0, last.Seconds, "with no wait at all");
     }
 
+    public void OnlyAChoiceThatReleasesCountsAsLowMemoryForPlugins()
+    {
+        Assert.False(LowMemoryMode.ReleasesMemory(LowMemoryMode.Choices[0]),
+            "off keeps the preview window and its caches");
+
+        var release = LowMemoryMode.Choices.First(c => c.Enabled && c.Seconds > 0);
+        Assert.True(LowMemoryMode.ReleasesMemory(release),
+            "a timed choice hands memory back, so plugins must not retain caches");
+
+        Assert.False(LowMemoryMode.ReleasesMemory(LowMemoryMode.Choices[^1]),
+            "'never' keeps the window warm, so caches may stay");
+    }
+
     public void EveryWaitIsDistinctAndGrows()
     {
         var waits = LowMemoryMode.Choices.Where(c => c.Enabled).Select(c => c.Seconds).ToArray();

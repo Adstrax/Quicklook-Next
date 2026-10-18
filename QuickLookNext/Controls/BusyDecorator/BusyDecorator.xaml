@@ -2,6 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:busyDecorator="clr-namespace:QuickLookNext.Controls.BusyDecorator">
 
+    <!-- Same reason as MainWindowStyles: this template is applied lazily, so it carries the
+         embedded icon font it needs instead of relying on the application dictionary alone. -->
+    <FontFamily x:Key="SegoeFluent">pack://application:,,,/QuickLook-Next;component/Fonts/#Segoe Fluent Icons</FontFamily>
+
     <Style TargetType="{x:Type busyDecorator:BusyDecorator}">
         <Setter Property="BusyStyle">
             <Setter.Value>

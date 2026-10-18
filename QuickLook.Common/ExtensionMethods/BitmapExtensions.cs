@@ -29,6 +29,15 @@ namespace QuickLook.Common.ExtensionMethods;
 public static class BitmapExtensions
 {
     public static BitmapSource ToBitmapSource(this Bitmap source)
+        => source.ToBitmapSource(double.NaN, double.NaN);
+
+    /// <summary>
+    /// v6.1.6: the same conversion with an explicit resolution. A PDF page
+    /// rendered under a pixel cap needs a fractional DPI so its displayed size
+    /// stays exactly what was asked for; the bitmap's own integer resolution
+    /// would round that away.
+    /// </summary>
+    public static BitmapSource ToBitmapSource(this Bitmap source, double dpiX, double dpiY)
     {
         var orgSource = source;
         BitmapSource bs = null;
@@ -47,8 +56,15 @@ public static class BitmapExtensions
                     ImageLockMode.ReadOnly, source.PixelFormat);
             }
 
-            bs = BitmapSource.Create(source.Width, source.Height, Math.Floor(source.HorizontalResolution),
-                Math.Floor(source.VerticalResolution), ConvertPixelFormat(source.PixelFormat), null,
+            var resolutionX = dpiX > 0d && !double.IsNaN(dpiX)
+                ? dpiX
+                : Math.Floor(source.HorizontalResolution);
+            var resolutionY = dpiY > 0d && !double.IsNaN(dpiY)
+                ? dpiY
+                : Math.Floor(source.VerticalResolution);
+
+            bs = BitmapSource.Create(source.Width, source.Height, resolutionX,
+                resolutionY, ConvertPixelFormat(source.PixelFormat), null,
                 data.Scan0, data.Stride * source.Height, data.Stride);
 
             source.UnlockBits(data);

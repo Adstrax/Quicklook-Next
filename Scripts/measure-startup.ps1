@@ -18,13 +18,16 @@ if (-not (Test-Path -LiteralPath $Exe)) {
     throw "$Exe not found - build Release first"
 }
 
-if (Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue) {
-    throw 'QuickLook-Next is already running. Close the tray app before measuring cold start.'
+$runningUnderTest = Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue |
+    Where-Object { try { $_.Path -eq $Exe } catch { $false } }
+if ($runningUnderTest) {
+    throw 'The build under test is already running. Close that instance before measuring cold start.'
 }
 
 $Runs = [Math]::Max(1, $Runs)
 $smoke = Join-Path $root 'ql-startup-smoke'
 $env:QL_SMOKE_DIR = $smoke
+$env:QL_INSTANCE_SUFFIX = 'measure-startup'
 New-Item -ItemType Directory -Path $smoke -Force | Out-Null
 
 $startup = Join-Path $smoke 'startup.txt'

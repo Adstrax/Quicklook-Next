@@ -59,6 +59,13 @@ public class ContextObject : INotifyPropertyChanged
     public bool IsWarmUp { get; set; }
 
     /// <summary>
+    /// True when the host releases the preview window after a period of inactivity
+    /// (low memory mode). A plugin may still reuse work inside one preview, but it
+    /// should drop whatever it would otherwise keep between previews.
+    /// </summary>
+    public bool IsLowMemoryMode { get; set; }
+
+    /// <summary>
     /// Get or set the title of Viewer window.
     /// </summary>
     public string Title

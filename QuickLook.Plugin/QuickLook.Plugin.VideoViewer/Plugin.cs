@@ -90,13 +90,10 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         // pdf / html / app packages / executables
         ".pdf", ".html", ".htm", ".url", ".appx", ".appxbundle", ".msix", ".msixbundle",
         ".deb", ".rpm", ".ipa", ".dmg", ".appimage", ".hap", ".wgt", ".exe", ".dll", ".qlplugin",
-    };
-
-    // Playlists are text, but their target is only known to MediaInfo. Keep
-    // the old sniff for these; the extension is unambiguous and there are far
-    // fewer playlists than ordinary text files.
-    private static readonly HashSet<string> PlaylistExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
+        // Playlists are text. MediaInfo can read their targets, but WPFMediaKit
+        // cannot render the playlist itself, so claiming one only produced a
+        // "Could not render any streams" error card. Let TextViewer show the
+        // list instead of opening a media graph that is guaranteed to fail.
         ".m3u", ".m3u8", ".pls", ".xspf", ".asx", ".wax", ".wvx", ".cue",
     };
 
@@ -121,6 +118,12 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         var extension = Path.GetExtension(path);
         if (KnownMediaExtensions.Contains(extension))
         {
+            // The shell thumbnail is independent of the playback graph. Start
+            // it here, while the window is still being prepared, so the first
+            // video has a frame as soon as it appears instead of a dark surface.
+            if (KnownVideoExtensions.Contains(extension))
+                ThumbnailPrefetch.Ensure(path);
+
             // The loaded plugin instance that answers CanHandle is not the
             // instance that will run Prepare/View (the host creates one per
             // preview), so the probe is kept in a static table keyed by path.
@@ -146,9 +149,6 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
 
         var stamp = GetFileStamp(path);
 
-        if (PlaylistExtensions.Contains(extension))
-            return SniffUnknownPath(path, stamp);
-
         var headerKind = GetHeaderKind(path, stamp);
 
         if (headerKind == MediaHeaderKind.NotMedia)
@@ -160,6 +160,9 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         // shell thread while MediaInfo opens them.
         if (headerKind is MediaHeaderKind.Audio or MediaHeaderKind.Video or MediaHeaderKind.Container)
         {
+            if (headerKind is not MediaHeaderKind.Audio)
+                ThumbnailPrefetch.Ensure(path);
+
             try
             {
                 EnsureProbe(path);
@@ -234,15 +237,22 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
 
     public void View(string path, ContextObject context)
     {
+        var timing = VideoTiming.Begin();
         var info = ResolveViewInfo(path);
+        VideoTiming.Write("info", path, timing?.ElapsedMilliseconds ?? 0);
 
         _vp = new ViewerPanel(context);
+        VideoTiming.Write("panel-ctor", path, timing?.ElapsedMilliseconds ?? 0);
 
-        context.ViewerContent = _vp;
+        // The panel publishes itself once it has something to draw. Attaching
+        // an empty panel first showed its black surface while the media graph
+        // and the shell thumbnail were still loading.
+        VideoTiming.Write("content-deferred", path, timing?.ElapsedMilliseconds ?? 0);
 
         context.Title = $"{Path.GetFileName(path)}";
 
         _vp.LoadAndPlay(path, info);
+        VideoTiming.Write("view-return", path, timing?.ElapsedMilliseconds ?? 0);
 
         // A guessed snapshot is enough to build the right panel and start the
         // thumbnail/playback immediately. The panel applies the real metadata

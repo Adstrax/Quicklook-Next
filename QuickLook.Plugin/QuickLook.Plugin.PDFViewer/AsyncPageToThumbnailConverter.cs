@@ -39,23 +39,15 @@ internal class AsyncPageToThumbnailConverter : IMultiValueConverter
         var pageId = (int)values[1];
         if (pageId < 0) return null;
 
-        if (values[2] is not UserControl thisPdfViewer) return null;
+        if (values[2] is not PdfViewerControl thisPdfViewer) return null;
 
-        var task = Task.Run(() =>
-        {
-            try
-            {
-                if (handle is null || thisPdfViewer is null) return Loading;
-                return thisPdfViewer.Dispatcher.Invoke(() =>
-                {
-                    return handle.RenderThumbnail(pageId);
-                });
-            }
-            catch (Exception)
-            {
-                return Loading;
-            }
-        });
+        // v6.1.3: binding runs once for every realized or recycled list item.
+        // The viewer's scheduler de-duplicates those requests, cancels pages
+        // that have scrolled away, and keeps a single renderer in front of
+        // PDFium instead of starting one Task.Run per item.
+        var task = thisPdfViewer.RequestThumbnail(handle, pageId);
+        if (task is null)
+            return null;
 
         return new NotifyTaskCompletion<BitmapSource>(task, Loading);
     }

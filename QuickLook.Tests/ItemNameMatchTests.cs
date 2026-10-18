@@ -111,6 +111,19 @@ internal class ItemNameMatchTests
         Assert.Equal(1, Match.FindItemIndex(items, "photo"), "display name wins");
     }
 
+    public void TwoFilesThatOnlyDifferByTheirExtensionAreNotGuessed()
+    {
+        // v6.1.3: Explorer hides known extensions, so both files are reported as "2024论文-V2".
+        // The middle button used to preview the first one - the Word document - whichever icon
+        // was pressed. The full name still identifies either file exactly.
+        string[] items = ["2024论文-V2.docx", "2024论文-V2.pdf"];
+
+        Assert.Equal(-1, Match.FindItemIndex(items, "2024论文-V2"),
+            "an ambiguous display name is not guessed");
+        Assert.Equal(1, Match.FindItemIndex(items, "2024论文-V2.pdf"), "the full name picks the PDF");
+        Assert.Equal(0, Match.FindItemIndex(items, "2024论文-V2.docx"), "the full name picks the DOCX");
+    }
+
     public void AnEmptyFolderFindsNothing()
     {
         Assert.Equal(-1, Match.FindItemIndex(Array.Empty<string>(), "photo.jpg"), "no items");

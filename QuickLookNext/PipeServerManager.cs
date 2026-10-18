@@ -44,7 +44,8 @@ public static class PipeMessages
 
 public class PipeServerManager : IDisposable
 {
-    private static readonly string PipeName = "QuickLookNext.App.Pipe." + WindowsIdentity.GetCurrent().User?.Value;
+    private static readonly string PipeName =
+        InstanceIdentity.PipeName(WindowsIdentity.GetCurrent().User?.Value);
     private static readonly object InstanceLock = new();
     private static PipeServerManager _instance;
 

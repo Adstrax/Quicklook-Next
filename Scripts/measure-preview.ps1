@@ -22,6 +22,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $exe = Join-Path $root 'Build\Release\QuickLook-Next.exe'
 $smoke = Join-Path $root 'ql-smoke'
 $env:QL_SMOKE_DIR = $smoke
+# Keep this instance out of the user's installed app's single-instance pipe.
+$env:QL_INSTANCE_SUFFIX = 'measure-preview'
 $timing = Join-Path $smoke 'timing.txt'
 $phases = Join-Path $smoke 'preview-phases.txt'
 

@@ -98,8 +98,9 @@ internal class MidiPlayer : IDisposable, INotifyPropertyChanged
                 _vp.sliderProgress.SetBinding(Slider.ValueProperty, new Binding(nameof(CurrentTicks)) // Rebinding
                 {
                     Source = this,
-                    Mode = BindingMode.TwoWay,
-                    UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged,
+                    // CurrentTicks is read-only: the playback clock drives the slider.
+                    // A TwoWay binding threw InvalidOperationException when it activated.
+                    Mode = BindingMode.OneWay,
                 });
             }
         }

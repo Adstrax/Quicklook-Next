@@ -323,10 +323,15 @@ public partial class ViewerWindow : Window
     {
         base.OnSourceInitialized(e);
 
+        var timing = App.IsTimingEnabled ? Stopwatch.StartNew() : null;
         WindowHelper.RemoveWindowControls(this);
+        if (timing != null)
+            App.RecordPreviewPhase($"source-init-controls ms={timing.Elapsed.TotalMilliseconds:0.0}", _path);
 
         // v5.2.0: publish the scale this window starts at (see DisplayScale).
         DisplayScale.Notify(VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        if (timing != null)
+            App.RecordPreviewPhase($"source-init-scale ms={timing.Elapsed.TotalMilliseconds:0.0}", _path);
 
         // v5.2.0: the preview belongs to the screen it is on. A drag to another monitor and a
         // resolution / scaling change both make the size the plugin asked for an answer about the
@@ -354,11 +359,17 @@ public partial class ViewerWindow : Window
 
             ApplyLayeredWindowRegion();
         }
+        if (timing != null)
+            App.RecordPreviewPhase($"source-init-layered ms={timing.Elapsed.TotalMilliseconds:0.0}", _path);
 
         ApplyWindowBackgroundEffects();
+        if (timing != null)
+            App.RecordPreviewPhase($"source-init-backdrop ms={timing.Elapsed.TotalMilliseconds:0.0}", _path);
 
         if (SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"))
             StartTopBarPolling();
+        if (timing != null)
+            App.RecordPreviewPhase($"source-init-topbar ms={timing.Elapsed.TotalMilliseconds:0.0}", _path);
 
         WriteTopBarDiag($"source-init hook={QuickLookNext.Helpers.PreviewMouseHook.GetInstance().IsInstalled} layered={_layeredAcrylic} " +
             $"setting={SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext")} polling={_topBarPollTimer != null}");

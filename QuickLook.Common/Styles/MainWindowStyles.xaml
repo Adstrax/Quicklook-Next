@@ -4,6 +4,10 @@
     <Thickness x:Key="MainWindowShadowMarginThickness">1</Thickness>
     <Thickness x:Key="MainWindowResizeThickness">6</Thickness>
     <system:Double x:Key="MainWindowCaptionHeight">32</system:Double>
+    <!-- The caption button template is applied when the window is shown, which can be after
+         a theme change has rebuilt the application dictionaries. Keep the icon font here so
+         the template never depends on a key that may be missing at that moment. -->
+    <FontFamily x:Key="SegoeFluent">pack://application:,,,/QuickLook-Next;component/Fonts/#Segoe Fluent Icons</FontFamily>
     <SolidColorBrush x:Key="MainWindowBackground" Color="#BBFAFAFA" />
     <SolidColorBrush x:Key="MainWindowBackgroundNoTransparent" Color="#FFFAFAFA" />
     <SolidColorBrush x:Key="WindowTextForeground" Color="#FF0E0E0E" />

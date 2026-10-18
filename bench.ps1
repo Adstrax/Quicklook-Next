@@ -17,6 +17,7 @@ $exe = Join-Path $root 'Build\Release\QuickLook-Next.exe'
 # folder; the app's diagnostics follow via QL_SMOKE_DIR.
 $smoke = Join-Path $root 'ql-smoke'
 $env:QL_SMOKE_DIR = $smoke
+$env:QL_INSTANCE_SUFFIX = 'bench'
 $timing = Join-Path $smoke 'timing.txt'
 $startup = Join-Path $smoke 'startup.txt'
 

@@ -623,7 +623,7 @@ public class WebpagePanel : UserControl
 
             try
             {
-                await _webView.EnsureCoreWebView2Async();
+                await WebView2ControlPool.EnsureInitializedAsync(_webView);
             }
             catch (Exception e)
             {

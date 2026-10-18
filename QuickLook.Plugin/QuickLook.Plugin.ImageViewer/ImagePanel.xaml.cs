@@ -155,6 +155,7 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         viewPanel.MouseLeftButtonDown += ViewPanel_MouseLeftButtonDown;
         viewPanel.MouseMove += ViewPanel_MouseMove;
         viewPanel.MouseDoubleClick += ViewPanel_MouseDoubleClick;
+        viewPanel.ScrollChanged += (_, _) => ViewChanged?.Invoke(this, EventArgs.Empty);
 
         viewPanel.ManipulationInertiaStarting += ViewPanel_ManipulationInertiaStarting;
         viewPanel.ManipulationStarting += ViewPanel_ManipulationStarting;
@@ -547,6 +548,13 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     public event EventHandler ZoomChanged;
 
     /// <summary>
+    /// v6.1.8: fired whenever the visible part of the picture moves or scales.
+    /// Unlike <see cref="ZoomChanged"/> this is not debounced, because an
+    /// overlay has to follow the picture while the user drags or scrolls it.
+    /// </summary>
+    public event EventHandler ViewChanged;
+
+    /// <summary>
     /// v1.2.14: fired once when the first image frame is decoded (or after the
     /// readiness timeout), letting the viewer swap this panel in without a
     /// blank loading state.
@@ -573,6 +581,8 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
         if (ZoomToFit)
             DoZoomToFit();
+
+        ViewChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void ViewPanel_ManipulationInertiaStarting(object sender, ManipulationInertiaStartingEventArgs e)
@@ -675,6 +685,48 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         viewPanel.ScrollToVerticalOffset(point.Y);
     }
 
+    /// <summary>
+    /// v6.1.8: the visible part of the displayed bitmap, in the bitmap's own
+    /// DIP space. The PDF viewer uses it to paint a sharper tile over a page
+    /// whose full-page raster had to be capped.
+    /// </summary>
+    public Rect GetVisibleSourceRect()
+    {
+        var source = viewPanelImage?.Source;
+        var zoom = ZoomFactor;
+
+        if (source is null || viewPanel.ViewportWidth <= 0 || viewPanel.ViewportHeight <= 0 ||
+            zoom <= 0d || double.IsNaN(zoom))
+            return Rect.Empty;
+
+        var origin = viewPanelImage.TranslatePoint(new Point(0, 0), viewPanel);
+        var image = new Rect(origin, new Size(source.Width * zoom, source.Height * zoom));
+        var visible = Rect.Intersect(
+            image, new Rect(0, 0, viewPanel.ViewportWidth, viewPanel.ViewportHeight));
+
+        if (visible.IsEmpty || visible.Width <= 0d || visible.Height <= 0d)
+            return Rect.Empty;
+
+        return new Rect(
+            (visible.X - origin.X) / zoom,
+            (visible.Y - origin.Y) / zoom,
+            visible.Width / zoom,
+            visible.Height / zoom);
+    }
+
+    /// <summary>The bitmap's top-left corner in viewport DIPs.</summary>
+    public Point GetSourceOrigin()
+    {
+        if (viewPanelImage?.Source is null)
+            return new Point();
+
+        return viewPanelImage.TranslatePoint(new Point(0, 0), viewPanel);
+    }
+
+    /// <summary>The area the scrollbars leave for the picture, in DIPs.</summary>
+    public Size GetViewportSize()
+        => new(viewPanel.ViewportWidth, viewPanel.ViewportHeight);
+
     public void DoZoomToFit()
     {
         if (viewPanel.ActualWidth <= 0 || viewPanel.ActualHeight <= 0)
@@ -684,6 +736,15 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
         Zoom(ZoomToFitFactor, false, true);
     }
+
+    /// <summary>
+    /// v6.1.2: lets the PDF viewer ask the exact question the fit zoom asks, so
+    /// its bitmap is rendered for the same viewport the image will be fitted to.
+    /// </summary>
+    public double GetZoomToFitFactor(Size contentSize)
+        => ImageZoom.FitFactor(
+            new Size(viewPanel.ActualWidth, viewPanel.ActualHeight),
+            contentSize);
 
     private void UpdateZoomToFitFactor()
     {
@@ -696,10 +757,9 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         if (viewPanel.ActualWidth <= 0 || viewPanel.ActualHeight <= 0)
             return; // layout not ready yet; SizeChanged will re-run this
 
-        var factor = Math.Min(viewPanel.ActualWidth / viewPanelImage.Source.Width,
-            viewPanel.ActualHeight / viewPanelImage.Source.Height);
-
-        ZoomToFitFactor = factor;
+        ZoomToFitFactor = ImageZoom.FitFactor(
+            new Size(viewPanel.ActualWidth, viewPanel.ActualHeight),
+            new Size(viewPanelImage.Source.Width, viewPanelImage.Source.Height));
     }
 
     public void ResetZoom()
@@ -761,6 +821,8 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         viewPanel.ScrollToHorizontalOffset(offset.X);
         viewPanel.ScrollToVerticalOffset(offset.Y);
         UpdateLayout();
+
+        ViewChanged?.Invoke(this, EventArgs.Empty);
 
         if (!suppressEvent)
             FireZoomChangedEvent();

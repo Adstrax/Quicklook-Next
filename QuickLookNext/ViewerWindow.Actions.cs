@@ -170,6 +170,7 @@ public partial class ViewerWindow
         if (WindowState == WindowState.Maximized)
             return;
 
+        var timing = Stopwatch.StartNew();
         size = new Size(Math.Max(MinWidth, size.Width), Math.Max(MinHeight, size.Height));
 
         // v1.2.36: the first real preview after the off-screen warm-up must
@@ -178,6 +179,7 @@ public partial class ViewerWindow
         var newRect = IsLoaded && !_warmShown
             ? ResizeAndCentreExistingWindow(size)
             : ResizeAndCentreNewWindow(size);
+        var calcMs = timing.Elapsed.TotalMilliseconds;
 
         // v6.0.0: switching between two Markdown files asks for the size the window
         // already has. MoveWindow still forces DWM to recompose the whole window,
@@ -185,7 +187,16 @@ public partial class ViewerWindow
         if (IsLoaded && !_warmShown && IsSamePlacement(newRect))
             return;
 
+        timing.Restart();
         this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
+        var moveMs = timing.Elapsed.TotalMilliseconds;
+
+        if (App.IsTimingEnabled)
+        {
+            App.RecordPreviewPhase(
+                $"position-detail warm={_warmShown} loaded={IsLoaded} calc={calcMs:0.0} move={moveMs:0.0}",
+                _path ?? string.Empty);
+        }
 
         WriteWindowRectDiag(size, DesktopSizeForNextPlacement());
     }
@@ -608,11 +619,19 @@ public partial class ViewerWindow
 
             if (!IsVisible)
             {
+                var showTiming = Stopwatch.StartNew();
                 // v5.3.0: also honours the system's animation setting - see Helpers.Motion.
                 if (!Helpers.Motion.WindowTransitionsEnabled)
                     this.ShowWithoutTransition();
                 else
                     Show();
+
+                if (App.IsTimingEnabled)
+                {
+                    App.RecordPreviewPhase(
+                        $"show-detail visible={IsVisible} ms={showTiming.Elapsed.TotalMilliseconds:0.0}",
+                        path);
+                }
             }
         }
 

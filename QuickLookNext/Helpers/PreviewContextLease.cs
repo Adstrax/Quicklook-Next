@@ -60,7 +60,12 @@ internal sealed class PreviewContextLease
             throw new InvalidOperationException("The preview context lease is already initialized.");
 
         _theme = theme;
-        var context = new ContextObject { Source = _source, Theme = theme };
+        var context = new ContextObject
+        {
+            Source = _source,
+            Theme = theme,
+            IsLowMemoryMode = LowMemoryMode.WillReleaseMemory,
+        };
         Attach(context);
         return context;
     }
@@ -75,7 +80,12 @@ internal sealed class PreviewContextLease
         Detach();
 
         _theme = theme;
-        var context = new ContextObject { Source = _source, Theme = theme };
+        var context = new ContextObject
+        {
+            Source = _source,
+            Theme = theme,
+            IsLowMemoryMode = LowMemoryMode.WillReleaseMemory,
+        };
         context.Reset();
         Attach(context);
         return context;

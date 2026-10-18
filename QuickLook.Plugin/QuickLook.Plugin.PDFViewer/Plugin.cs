@@ -34,6 +34,7 @@ public sealed class Plugin : IViewer
     private PdfViewerControl _pdfControl;
     private PasswordControl _passwordControl;
     private bool _disposed;
+    private bool _lowMemoryMode;
 
     public int Priority => -1;
 
@@ -69,6 +70,15 @@ public sealed class Plugin : IViewer
     {
         _context = context;
         _path = path;
+        _lowMemoryMode = context.IsLowMemoryMode;
+
+        // v6.1.3: in low memory mode the caches we keep for a previous preview
+        // are exactly the memory the host is trying to give back.
+        if (_lowMemoryMode)
+        {
+            PdfDocumentCache.Clear();
+            PdfPageBitmapCache.Shared.Clear();
+        }
 
         // Don't load the document just to size the window. View loads it once
         // and resizes afterwards, so the PDF is not parsed twice.
@@ -79,6 +89,16 @@ public sealed class Plugin : IViewer
     {
         _pdfControl = new PdfViewerControl();
         context.ViewerContent = _pdfControl;
+
+        // v6.1.3: the previous preview of this exact file version left its parsed
+        // document behind, so there is nothing to copy or parse.
+        _pdfControl.LowMemoryMode = _lowMemoryMode;
+
+        if (!_lowMemoryMode && PdfDocumentCache.TryTake(path, out var cached))
+        {
+            ApplyDocument(cached, path, context);
+            return;
+        }
 
         // v3.23.0: parsing a large PDF (Pdfium) can take hundreds of ms. Run
         // it off the UI thread so the preview window stays responsive (close /
@@ -113,23 +133,50 @@ public sealed class Plugin : IViewer
                     return;
                 }
 
-                try
-                {
-                    _pdfControl.LoadPdf(t.Result);
-
-                    ResizeWindowToContent(context);
-
-                    context.Title = $"1 / {_pdfControl.TotalPages}: {Path.GetFileName(path)}";
-
-                    _pdfControl.CurrentPageChanged += UpdateWindowCaption;
-                    context.IsBusy = false;
-                }
-                catch (Exception ex)
-                {
-                    ShowError(context, ex.ToString());
-                }
+                ApplyDocument(t.Result, path, context);
             });
         }, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Shows an already-parsed document. Runs on the UI thread for both the
+    /// background-load path and the cache-hit path, so the first page behaves
+    /// identically however the document arrived.
+    /// </summary>
+    private void ApplyDocument(PdfDocumentWrapper document, string path, ContextObject context)
+    {
+        try
+        {
+            _pdfControl.FirstPagePresented += OnFirstPagePresented;
+            _pdfControl.LoadPdf(document, deferPageRender: true, sourcePath: path);
+
+            ResizeWindowToContent(context);
+
+            context.Title = $"1 / {_pdfControl.TotalPages}: {Path.GetFileName(path)}";
+
+            _pdfControl.CurrentPageChanged += UpdateWindowCaption;
+
+            // The window resize above is synchronous, but WPF still needs a
+            // layout pass before the page panel reports its final size. Waiting
+            // for Loaded priority is one dispatcher turn, not a timer, and keeps
+            // the first page from being fitted to the pre-resize viewport.
+            _pdfControl.UpdateLayout();
+            _ = _pdfControl.Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (!_disposed)
+                        _pdfControl?.BeginFirstPageRender();
+                }),
+                DispatcherPriority.Loaded);
+        }
+        catch (Exception ex)
+        {
+            // The control may already own the document; detach so it is released
+            // exactly once and cannot be handed back to the cache half-alive.
+            var owned = _pdfControl?.DetachDocument();
+            (owned ?? document).Dispose();
+            ShowError(context, ex.ToString());
+        }
     }
 
     public void Cleanup()
@@ -137,9 +184,24 @@ public sealed class Plugin : IViewer
         GC.SuppressFinalize(this);
         _disposed = true;
 
+        if (_pdfControl != null)
+            _pdfControl.FirstPagePresented -= OnFirstPagePresented;
+
+        // v6.1.3: keep the parsed document for the next preview instead of
+        // throwing it away; the cache decides whether it is safe to reuse.
+        var document = _pdfControl?.DetachDocument();
         _pdfControl?.Dispose();
         _pdfControl = null;
 
+        if (document != null && !_lowMemoryMode)
+            PdfDocumentCache.GiveBack(_path, document);
+        else
+            document?.Dispose();
+
+        if (_lowMemoryMode)
+            PdfPageBitmapCache.Shared.Clear();
+
+        _path = null;
         _context = null;
     }
 
@@ -198,6 +260,14 @@ public sealed class Plugin : IViewer
     private void UpdateWindowCaption(object sender, EventArgs e2)
     {
         _context.Title = $"{_pdfControl.CurrentPage + 1} / {_pdfControl.TotalPages}: {Path.GetFileName(_path)}";
+    }
+
+    private void OnFirstPagePresented(object sender, EventArgs e)
+    {
+        if (_disposed)
+            return;
+
+        _context.IsBusy = false;
     }
 
     private void ResizeWindowToContent(ContextObject context)

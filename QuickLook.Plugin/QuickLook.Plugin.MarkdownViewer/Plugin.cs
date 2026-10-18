@@ -18,8 +18,10 @@
 using QuickLook.Common.Plugin;
 using QuickLook.Plugin.Shared;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -63,10 +65,23 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
     public void Init()
     {
         // v3.24.0: MarkdownPanel's static ctor loads the embedded mermaid /
-        // MathJax assets (~5 MB) into a static dictionary. Init runs on the
-        // background plugin-load thread, so force the load here and the first
-        // markdown preview never pays it on the UI thread.
-        _ = MarkdownPanel.ContainsKey("/__preload__");
+        // MathJax assets (~5 MB) into a static dictionary.
+        // v6.1.2: lazy plugin loading awaits Init before the preview can start,
+        // so doing that work here still put it on the first-preview critical
+        // path. Start it in the background instead; the window Show and the
+        // WebView2 setup run while it completes, and the panel's static ctor
+        // still provides the one-time thread-safe wait if View gets there first.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                _ = MarkdownPanel.ContainsKey("/__preload__");
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine(e);
+            }
+        });
     }
 
     public bool CanHandle(string path)

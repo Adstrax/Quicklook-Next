@@ -38,4 +38,17 @@ public sealed class OfficePanelContent
     public int SelectedIndex { get; init; }
 
     public string ImageFolder { get; init; }
+
+    /// <summary>
+    /// v6.1.2: points the same page at a per-preview copy of its pictures. The
+    /// cached object stays owned by the cache; the returned object is owned by
+    /// the panel and follows the normal cleanup path.
+    /// </summary>
+    internal OfficePanelContent WithImageFolder(string imageFolder) => new()
+    {
+        Html = Html,
+        Navigation = Navigation,
+        SelectedIndex = SelectedIndex,
+        ImageFolder = imageFolder,
+    };
 }

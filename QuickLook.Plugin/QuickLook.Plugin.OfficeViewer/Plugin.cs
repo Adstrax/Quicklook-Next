@@ -122,6 +122,11 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
 
     public void Prepare(string path, ContextObject context)
     {
+        // v6.1.3: low memory mode must not be defeated by the parsed-page cache.
+        OfficePanelCache.RetainAcrossPreviews = !context.IsLowMemoryMode;
+        if (context.IsLowMemoryMode)
+            OfficePanelCache.Clear();
+
         // v5.7.0: a Word document is drawn as one sheet of its own paper, and the sheet spans the page area
         // (see DocxToHtml), so the window is asked for exactly that sheet beside the rail rather than for the
         // landscape window the slide and spreadsheet previews want - what a reader gets is the page, edge to
@@ -266,6 +271,9 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         else if (_panel is PresentationPanel presentationPanel)
             presentationPanel.Dispose();
         _panel = null;
+
+        if (!OfficePanelCache.RetainAcrossPreviews)
+            OfficePanelCache.Clear();
     }
 
     public void Quiesce()

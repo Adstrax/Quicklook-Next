@@ -50,13 +50,9 @@ public class WebfontPanel : WebpagePanel, IFontPreviewPanel
         InitializeResources();
     }
 
-    public WebfontPanel()
-    {
-        if (OSThemeHelper.AppsUseDarkTheme())
-        {
-            _webView.CreationProperties.AdditionalBrowserArguments = "--enable-features=WebContentsForceDark";
-        }
-    }
+    // v6.1.2: the pool has to choose the controller with this switch up front.
+    protected override string BrowserArguments =>
+        OSThemeHelper.AppsUseDarkTheme() ? "--enable-features=WebContentsForceDark" : null;
 
     protected static void InitializeResources()
     {

@@ -336,7 +336,27 @@ public class ViewWindowManager : IDisposable
             return;
 
         App.RecordPreviewPhase("matched", path);
-        BeginShowNewWindow(path, matchedPlugin, requestVersion);
+        try
+        {
+            BeginShowNewWindow(path, matchedPlugin, requestVersion);
+        }
+        catch (Exception e)
+        {
+            // BeginShowAsync is fire-and-forget. An exception from Show (a broken
+            // template, a compositor failure) used to escape the task and surface
+            // later as an unobserved exception on the finalizer thread. Treat it
+            // like a plugin failure so the fallback path can recover, and never
+            // let the second failure escape either.
+            ProcessHelper.WriteLog(e.ToString());
+            try
+            {
+                CurrentPluginFailed(path, ExceptionDispatchInfo.Capture(e), requestVersion);
+            }
+            catch (Exception fallback)
+            {
+                ProcessHelper.WriteLog(fallback.ToString());
+            }
+        }
     }
 
     public void InvokePluginPreview(string plugin, string path = null)

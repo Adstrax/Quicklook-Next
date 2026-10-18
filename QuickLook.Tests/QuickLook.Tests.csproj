@@ -34,6 +34,45 @@
             sweep) lives in the shared host library.
         -->
         <ProjectReference Include="..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj" />
+        <ProjectReference Include="..\QuickLook.Plugin\QuickLook.Plugin.OfficeViewer\QuickLook.Plugin.OfficeViewer.csproj" />
+    </ItemGroup>
+
+    <!--
+        v6.1.3: the PDF page cache is pure WPF image bookkeeping. Compiling the
+        one source file into the harness exercises the real implementation
+        without making the tests load the PDF plugin and its native renderer.
+    -->
+    <ItemGroup>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfPageBitmapCache.cs">
+            <Link>PdfPageBitmapCache.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\SingleDocumentCache.cs">
+            <Link>SingleDocumentCache.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfThumbnailCache.cs">
+            <Link>PdfThumbnailCache.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfThumbnailRequestScheduler.cs">
+            <Link>PdfThumbnailRequestScheduler.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfPageIndexList.cs">
+            <Link>PdfPageIndexList.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfPageRenderScheduler.cs">
+            <Link>PdfPageRenderScheduler.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfPageRenderLimit.cs">
+            <Link>PdfPageRenderLimit.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfPageDisplay.cs">
+            <Link>PdfPageDisplay.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfSharpTile.cs">
+            <Link>PdfSharpTile.cs</Link>
+        </Compile>
+        <Compile Include="..\QuickLook.Plugin\QuickLook.Plugin.PDFViewer\PdfTileCache.cs">
+            <Link>PdfTileCache.cs</Link>
+        </Compile>
     </ItemGroup>
 
 </Project>

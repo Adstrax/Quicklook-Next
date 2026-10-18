@@ -113,6 +113,40 @@ internal class BoundedFileCacheTests : SettingsFixture
         Assert.False(cache.TryGet("a", Stamp(1), out _), "a cleared entry is gone");
     }
 
+    public void AnEvictedValueIsReportedForCleanup()
+    {
+        var evicted = new System.Collections.Generic.List<string>();
+        var cache = new BoundedFileCache<string>(
+            2, 100, static value => value.Length, onEvicted: evicted.Add);
+
+        cache.Set("a", Stamp(1), "a");
+        cache.Set("b", Stamp(1), "b");
+        cache.Set("c", Stamp(1), "c");
+
+        Assert.Equal(1, evicted.Count, "the least recently used value is reported");
+        Assert.Equal("a", evicted[0], "and it is the value that left the cache");
+    }
+
+    public void AStaleValueIsReportedBeforeItsReplacementIsUsed()
+    {
+        var evicted = new System.Collections.Generic.List<string>();
+        var cache = new BoundedFileCache<string>(
+            2, 100, static value => value.Length, onEvicted: evicted.Add);
+        cache.Set("a", Stamp(1), "old");
+
+        Assert.False(cache.TryGet("a", Stamp(2), out _), "the old stamp is a miss");
+        Assert.Equal("old", evicted[0], "the stale value is cleaned up");
+    }
+
+    public void AnOversizedValueReportsThatItWasNotStored()
+    {
+        var cache = new BoundedFileCache<string>(
+            10, 100, static value => value.Length, maxSingleBytes: 3);
+
+        Assert.False(cache.Set("a", Stamp(1), "1234"), "the value is too large to retain");
+        Assert.True(cache.Set("b", Stamp(1), "123"), "an ordinary value is stored");
+    }
+
     public void AFileStampTracksTheFileOnDisk()
     {
         var path = Path.Combine(Root, "stamp.bin");

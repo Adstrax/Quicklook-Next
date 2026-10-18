@@ -31,7 +31,7 @@ namespace QuickLookNext;
 /// </summary>
 internal static class StartupForwarder
 {
-    internal const string MutexName = "QuickLookNext.App.Mutex";
+    internal static string MutexName => InstanceIdentity.MutexName;
 
     internal static bool TryForwardToRunningInstance()
     {

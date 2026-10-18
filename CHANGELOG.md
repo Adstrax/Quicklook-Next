@@ -7,6 +7,35 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.2.0
+
+### Sharper PDFs, steadier previews, and a faster repeat path
+
+6.2.0 focuses on PDF clarity and page-switching smoothness, while making image, Office,
+video, and web-based previews more stable when reopened or switched back and forth.
+
+- **PDF redraws on demand.** Bounded caches hold documents, page bitmaps, and thumbnails so
+  reopening a file no longer reparses and rerenders it. Adjacent pages are prepared ahead of
+  time, and rapid page changes keep only the newest request. Zooming keeps the page size
+  stable; a 40 MP per-page render limit falls back to a sharp visible-area overlay, with the
+  two most recent tiles reused when panning back and forth.
+- **Large documents navigate more lightly.** Long PDFs use a compact page-index list, and
+  thumbnail scrolling prioritizes the visible page range.
+- **Office previews reopen faster.** Parsed documents are cached by path and modification
+  time, reducing reload work when a preview is closed and reopened or cycled with the mouse
+  side buttons.
+- **Preview handoff is more reliable.** WebView2 environments are shared across plugins, page
+  lifetimes are tighter, and an old page can no longer replace a newer preview. Preview
+  cycling also finds the right sibling when files share a name but not an extension.
+- **Image sizing and zoom are corrected.** Fit-to-window, image size, and zoom state stay
+  consistent; images no longer animate into place, and repeated size changes no longer make
+  the view jump.
+- **Video reveals more smoothly.** The poster frame remains visible until the first real video
+  frame appears, reducing the black flash at the start.
+- **Release quality.** 326 unit tests pass with a Release build of 0 warnings and 0 errors.
+  New tests cover PDF caching and scheduling, Office caching, preview lifetime, video reveal
+  timing, and instance identity.
+
 ## QuickLook-Next 6.1.1
 
 ### A faster start, a lighter first image, and a clearer cache panel

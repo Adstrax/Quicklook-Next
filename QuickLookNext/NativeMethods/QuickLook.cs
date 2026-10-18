@@ -570,7 +570,7 @@ internal static class QuickLookNext
     {
         report = string.Empty;
 
-        var hitName = HitTestName(x, y, out var how);
+        var hitName = HitTestName(x, y, out var how, out var hitBounds, out var uiaItemIndex);
         if (string.IsNullOrEmpty(hitName))
         {
             report = how;
@@ -594,10 +594,13 @@ internal static class QuickLookNext
                 if (browser.GetWindow(out var phwnd) != S_OK || !IsWindowUnderPoint(phwnd, root))
                     continue;
 
-                var path = ReadItemPathByName(browser, hitName, out var items, out var folderPath);
-                report = string.IsNullOrEmpty(path)
-                    ? $"no item called \"{hitName}\" in \"{folderPath}\" ({how}, items={items})"
-                    : $"hit=\"{hitName}\" in \"{folderPath}\" ({how}, items={items})";
+                var path = ReadItemPathByName(browser, hitName, x, y, hitBounds, uiaItemIndex,
+                    out var items, out var folderPath, out var resolution);
+                var result = string.IsNullOrEmpty(path)
+                    ? $"no item called \"{hitName}\" in \"{folderPath}\""
+                    : $"hit=\"{hitName}\" in \"{folderPath}\"";
+                report = $"{result} ({how}, items={items}" +
+                         (string.IsNullOrEmpty(resolution) ? ")" : $"; {resolution})");
                 return path;
             }
 
@@ -699,11 +702,13 @@ internal static class QuickLookNext
         return tabWindow != IntPtr.Zero && tabWindow == browserWindow;
     }
 
-    private static string ReadItemPathByName(IShellBrowser browser, string hitName, out int itemCount,
-        out string folderPath)
+    private static string ReadItemPathByName(IShellBrowser browser, string hitName, int screenX, int screenY,
+        System.Windows.Rect hitBounds, int uiaItemIndex, out int itemCount, out string folderPath,
+        out string resolution)
     {
         itemCount = 0;
         folderPath = string.Empty;
+        resolution = string.Empty;
         IntPtr psvPtr = IntPtr.Zero;
         IShellView view = null;
 
@@ -720,7 +725,16 @@ internal static class QuickLookNext
                 return string.Empty;
 
             folderPath = FolderPath(folderView);
-            var index = FindItemByName(folderView, hitName, itemCount);
+
+            var names = new string[itemCount];
+            for (var i = 0; i < itemCount; i++)
+                names[i] = ItemName(folderView, i);
+
+            var index = FindItemIndex(names, hitName);
+            if (index < 0)
+                index = FindAmbiguousItemAtPoint(view, folderView, names, hitName, screenX, screenY,
+                    hitBounds, uiaItemIndex, out resolution);
+
             return index < 0 ? string.Empty : ItemFileSystemPath(folderView, index);
         }
         catch (Exception e)
@@ -736,17 +750,151 @@ internal static class QuickLookNext
     }
 
     /// <summary>
-    /// The item an accessible name belongs to. The name is exact when the view reports the file name,
-    /// and a whole row ("img3.jpg   2026-10-07 10:31   PNG image") in the details view, which is what
-    /// the last test covers.
+    /// v6.1.3: Explorer hides known extensions, so "paper.docx" and "paper.pdf" are both reported as
+    /// "paper". When the name alone cannot tell them apart, compare the mouse position with the cells the
+    /// shell view reports. This keeps the press on the icon the user actually chose instead of falling
+    /// back to the first file with that display name.
     /// </summary>
-    private static int FindItemByName(IFolderView folderView, string hitName, int count)
+    private static int FindAmbiguousItemAtPoint(IShellView view, IFolderView folderView,
+        IReadOnlyList<string> names, string hitName, int screenX, int screenY,
+        System.Windows.Rect hitBounds, int uiaItemIndex, out string report)
     {
-        var names = new string[count];
-        for (var i = 0; i < count; i++)
-            names[i] = ItemName(folderView, i);
+        report = string.Empty;
 
-        return FindItemIndex(names, hitName);
+        var candidates = new List<int>();
+        for (var i = 0; i < names.Count; i++)
+        {
+            if (MatchItemName(names[i], hitName) is ItemNameMatch.DisplayName or ItemNameMatch.TruncatedLabel)
+                candidates.Add(i);
+        }
+
+        if (candidates.Count < 2)
+            return -1;
+
+        // The accessibility tree gives the row directly in Explorer's list/details views, where
+        // GetItemPosition is unavailable. Verify it against the name before trusting the index.
+        if (uiaItemIndex >= 0 && uiaItemIndex < names.Count &&
+            MatchItemName(names[uiaItemIndex], hitName) != ItemNameMatch.None)
+        {
+            report = $"the ambiguous display name was resolved by accessibility item {uiaItemIndex} " +
+                     $"to \"{names[uiaItemIndex]}\"";
+            return uiaItemIndex;
+        }
+
+        if (view.GetWindow(out var viewWindow) != S_OK || viewWindow == IntPtr.Zero)
+        {
+            report = "the view did not report its window";
+            return -1;
+        }
+
+        var screenPositions = new List<(int Index, int X, int Y)>();
+        foreach (var index in candidates)
+        {
+            if (TryGetItemScreenPosition(folderView, index, viewWindow, out var x, out var y))
+                screenPositions.Add((index, x, y));
+        }
+
+        // Details/list views do not implement GetSpacing. The exact cell test is therefore only a fast
+        // path; when spacing is unavailable, the item's accessibility rectangle and the view's item
+        // positions still identify the row or icon that was pressed.
+        if (folderView.GetSpacing(out var spacing) == S_OK && spacing.X > 0 && spacing.Y > 0)
+        {
+            var inside = -1;
+            foreach (var position in screenPositions)
+            {
+                if (screenX >= position.X && screenX < position.X + spacing.X &&
+                    screenY >= position.Y && screenY < position.Y + spacing.Y)
+                {
+                    if (inside >= 0)
+                    {
+                        report = "the mouse position falls inside more than one item cell";
+                        return -1;
+                    }
+
+                    inside = position.Index;
+                }
+            }
+
+            if (inside >= 0)
+            {
+                report = $"the ambiguous display name was resolved by its item cell to \"{names[inside]}\"";
+                return inside;
+            }
+        }
+
+        if (screenPositions.Count < 2)
+        {
+            report = "the view did not report the positions of both matching items";
+            return -1;
+        }
+
+        // The accessibility rectangle belongs to the item under the cursor. Item positions are stable
+        // anchors for the same rows/icons, so the anchor nearest that rectangle is the pressed one.
+        // A small unambiguous margin keeps an odd view from turning this into another guess.
+        var boundsX = hitBounds.IsEmpty ? screenX : hitBounds.X;
+        var boundsY = hitBounds.IsEmpty ? screenY : hitBounds.Y;
+
+        var nearest = -1;
+        var second = -1;
+        var nearestDistance = long.MaxValue;
+        var secondDistance = long.MaxValue;
+        foreach (var position in screenPositions)
+        {
+            var dx = boundsX - position.X;
+            var dy = boundsY - position.Y;
+            var distance = (long)(dx * dx + dy * dy);
+
+            if (distance < nearestDistance)
+            {
+                second = nearest;
+                secondDistance = nearestDistance;
+                nearest = position.Index;
+                nearestDistance = distance;
+            }
+            else if (distance < secondDistance)
+            {
+                second = position.Index;
+                secondDistance = distance;
+            }
+        }
+
+        if (nearest >= 0 && second >= 0 && secondDistance - nearestDistance >= 16)
+        {
+            report = $"the ambiguous display name was resolved by item position to \"{names[nearest]}\" " +
+                     $"(distance²={nearestDistance}/{secondDistance})";
+            return nearest;
+        }
+
+        report = "the ambiguous display name matched, but the pressed icon/row was not unambiguous " +
+                 $"(distance²={nearestDistance}/{secondDistance})";
+        return -1;
+    }
+
+    private static bool TryGetItemScreenPosition(IFolderView folderView, int index, IntPtr viewWindow,
+        out int screenX, out int screenY)
+    {
+        screenX = 0;
+        screenY = 0;
+
+        if (folderView.Item(index, out var pidl) != S_OK || pidl == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            if (folderView.GetItemPosition(pidl, out var point) != S_OK)
+                return false;
+
+            if (!ClientToScreen(viewWindow, ref point))
+                return false;
+
+            screenX = point.X;
+            screenY = point.Y;
+            return true;
+        }
+        finally
+        {
+            ILFree(pidl);
+        }
     }
 
     /// <summary>How a name reported by the accessibility layer relates to an item's name.</summary>
@@ -820,13 +968,15 @@ internal static class QuickLookNext
     }
 
     /// <summary>
-    /// The index of the item a reported name belongs to, or -1. A truncated label only counts when it
-    /// matches exactly one item: several files can share the visible beginning of a long name, and
-    /// previewing the wrong one would be worse than doing nothing.
+    /// The index of the item a reported name belongs to, or -1. A truncated label and a hidden-extension
+    /// display name only count when they match exactly one item: several files can share the visible
+    /// beginning of a long name, and "paper.docx" and "paper.pdf" are both reported as "paper" - in
+    /// either case previewing the wrong one would be worse than doing nothing.
     /// </summary>
     internal static int FindItemIndex(IReadOnlyList<string> itemNames, string hitName)
     {
         var displayName = -1;
+        var displayNameMatches = 0;
         var rowPrefix = -1;
         var truncated = -1;
         var truncatedMatches = 0;
@@ -838,8 +988,10 @@ internal static class QuickLookNext
                 case ItemNameMatch.Exact:
                     return i;
 
-                case ItemNameMatch.DisplayName when displayName < 0:
-                    displayName = i;
+                case ItemNameMatch.DisplayName:
+                    displayNameMatches++;
+                    if (displayName < 0)
+                        displayName = i;
                     break;
 
                 case ItemNameMatch.RowPrefix when rowPrefix < 0:
@@ -854,7 +1006,7 @@ internal static class QuickLookNext
             }
         }
 
-        if (displayName >= 0)
+        if (displayName >= 0 && displayNameMatches == 1)
             return displayName;
 
         if (rowPrefix >= 0)
@@ -955,19 +1107,26 @@ internal static class QuickLookNext
     /// Windows 11's Explorer implements natively), MSAA second. Only the name is taken from here - the
     /// shell view remains the source of the path.
     /// </summary>
-    private static string HitTestName(int x, int y, out string how)
+    private static string HitTestName(int x, int y, out string how, out System.Windows.Rect bounds,
+        out int uiaItemIndex)
     {
-        var name = HitTestNameViaUia(x, y, out how);
+        var name = HitTestNameViaUia(x, y, out how, out bounds, out uiaItemIndex);
         if (!string.IsNullOrEmpty(name))
             return name;
 
+        bounds = System.Windows.Rect.Empty;
+        uiaItemIndex = -1;
         var msaaName = HitTestNameViaMsaa(x, y, out var msaaHow);
         how = $"{how}; {msaaHow}";
         return msaaName;
     }
 
-    private static string HitTestNameViaUia(int x, int y, out string how)
+    private static string HitTestNameViaUia(int x, int y, out string how,
+        out System.Windows.Rect bounds, out int itemIndex)
     {
+        bounds = System.Windows.Rect.Empty;
+        itemIndex = -1;
+
         try
         {
             var element = System.Windows.Automation.AutomationElement.FromPoint(new System.Windows.Point(x, y));
@@ -992,14 +1151,22 @@ internal static class QuickLookNext
                 if (!string.IsNullOrEmpty(currentName))
                 {
                     name = currentName;
+                    bounds = element.Current.BoundingRectangle;
                     if (currentType == System.Windows.Automation.ControlType.ListItem)
+                    {
+                        itemIndex = ReadUiaListItemIndex(element);
                         break;
+                    }
                 }
 
                 element = System.Windows.Automation.TreeWalker.ControlViewWalker.GetParent(element);
             }
 
-            how = $"uia: {controlType} name=\"{name}\"";
+            how = $"uia: {controlType} name=\"{name}\"" +
+                  (bounds.IsEmpty
+                      ? string.Empty
+                      : $" at={bounds.X:0},{bounds.Y:0} {bounds.Width:0}x{bounds.Height:0}") +
+                  (itemIndex >= 0 ? $", item={itemIndex}" : string.Empty);
             return name;
         }
         catch (Exception e)
@@ -1007,6 +1174,57 @@ internal static class QuickLookNext
             how = $"uia failed: {e.Message}";
             return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// The position of a list item in its accessibility container. Explorer's details view does not
+    /// implement IFolderView::GetItemPosition, but its ListItem elements are in the same order as the
+    /// files the folder view enumerates, so this gives the pressed row without relying on coordinates.
+    /// </summary>
+    private static int ReadUiaListItemIndex(System.Windows.Automation.AutomationElement item)
+    {
+        try
+        {
+            var walker = System.Windows.Automation.TreeWalker.ControlViewWalker;
+            var container = walker.GetParent(item);
+
+            // A grouped view wraps rows in group elements; the List/DataGrid above them is the stable
+            // container. Five levels is enough for Explorer's current tree and stops on a broken tree.
+            for (var level = 0; level < 5 && container != null; level++)
+            {
+                var type = container.Current.ControlType;
+                if (type == System.Windows.Automation.ControlType.List ||
+                    type == System.Windows.Automation.ControlType.DataGrid ||
+                    type == System.Windows.Automation.ControlType.Tree)
+                    break;
+
+                container = walker.GetParent(container);
+            }
+
+            if (container == null)
+                return -1;
+
+            var condition = new System.Windows.Automation.PropertyCondition(
+                System.Windows.Automation.AutomationElement.ControlTypeProperty,
+                System.Windows.Automation.ControlType.ListItem);
+            var items = container.FindAll(System.Windows.Automation.TreeScope.Children, condition);
+            if (items.Count == 0)
+                items = container.FindAll(System.Windows.Automation.TreeScope.Descendants, condition);
+
+            var target = item.GetRuntimeId();
+            for (var i = 0; i < items.Count; i++)
+            {
+                var candidate = items[i];
+                if (System.Linq.Enumerable.SequenceEqual(candidate.GetRuntimeId(), target))
+                    return i;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+
+        return -1;
     }
 
     private static string HitTestNameViaMsaa(int x, int y, out string how)
@@ -1422,6 +1640,13 @@ internal static class QuickLookNext
 
     [DllImport("user32.dll")]
     private static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
+
+    /// <summary>
+    /// v6.1.3: the view's item positions are relative to its client area; the accessibility rectangle
+    /// and the mouse's screen point use desktop coordinates.
+    /// </summary>
+    [DllImport("user32.dll")]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
     [DllImport("user32.dll")]
     private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);

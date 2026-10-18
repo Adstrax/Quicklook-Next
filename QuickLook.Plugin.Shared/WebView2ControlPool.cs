@@ -22,6 +22,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -202,7 +203,7 @@ public static class WebView2ControlPool
         if (!string.IsNullOrEmpty(browserArguments))
             creation.AdditionalBrowserArguments = browserArguments;
 
-        return new WebView2
+        var control = new WebView2
         {
             CreationProperties = creation,
 
@@ -210,6 +211,55 @@ public static class WebView2ControlPool
             // through the web content (both light and dark themes).
             DefaultBackgroundColor = System.Drawing.Color.FromArgb(0, 0, 0, 0),
         };
+
+        // v6.1.2: start the shared environment while the panel is still building
+        // its content tree. The navigation below awaits the same task, so this
+        // work runs in parallel instead of before the first page can load.
+        if (string.IsNullOrEmpty(browserArguments))
+            WebView2EnvironmentCache.Prepare();
+
+        return control;
+    }
+
+    /// <summary>
+    /// v6.1.2: initializes a control through the shared default environment when
+    /// it uses no custom Chromium switches. WebView2 and CoreWebView2 are UI
+    /// thread objects, so the controller call is marshalled when necessary.
+    /// </summary>
+    public static async Task EnsureInitializedAsync(WebView2 control)
+    {
+        if (control == null)
+            return;
+
+        try
+        {
+            if (control.CoreWebView2 != null)
+                return;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"[WebView2ControlPool] {e.Message}");
+        }
+
+        if (!string.IsNullOrEmpty(GetBrowserArguments(control)))
+        {
+            // The environment carries AdditionalBrowserArguments, so a forced
+            // dark control cannot share the default one.
+            await control.EnsureCoreWebView2Async();
+            return;
+        }
+
+        var environment = await WebView2EnvironmentCache.GetDefaultAsync().ConfigureAwait(true);
+
+        if (control.Dispatcher.CheckAccess())
+        {
+            await control.EnsureCoreWebView2Async(environment);
+            return;
+        }
+
+        await control.Dispatcher
+            .InvokeAsync(() => control.EnsureCoreWebView2Async(environment))
+            .Task.Unwrap();
     }
 
     private static string GetBrowserArguments(WebView2 control)

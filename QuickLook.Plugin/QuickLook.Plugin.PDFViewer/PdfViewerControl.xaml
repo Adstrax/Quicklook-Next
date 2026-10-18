@@ -26,7 +26,7 @@
         </Grid.ColumnDefinitions>
         <ListBox x:Name="listThumbnails"
                  Grid.Column="0"
-                 Width="150"
+                 Width="180"
                  HorizontalContentAlignment="Center"
                  Background="Transparent"
                  BorderThickness="0"
@@ -39,7 +39,7 @@
                  VirtualizingStackPanel.VirtualizationMode="Recycling">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Height="150"
+                    <Grid Height="180"
                           MinWidth="30"
                           MaxWidth="{Binding ViewportWidth, Mode=Default, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ScrollViewer}}}">
                         <Grid.ColumnDefinitions>
@@ -57,7 +57,8 @@
                                 Grid.Column="1"
                                 BorderBrush="Gray"
                                 BorderThickness="1">
-                            <Image Source="{Binding Path=Result}">
+                            <Image RenderOptions.BitmapScalingMode="HighQuality"
+                                   Source="{Binding Path=Result}">
                                 <Image.DataContext>
                                     <MultiBinding Converter="{StaticResource AsyncPageToThumbnailConverter}">
                                         <Binding ElementName="thisPdfViewer" Path="PdfDocumentWrapper" />
@@ -83,9 +84,27 @@
             <imageViewer:ImagePanel x:Name="pagePanel"
                                     BackgroundVisibility="Collapsed"
                                     MetaIconVisibility="Collapsed"
-                                    RenderMode="NearestNeighbor"
+                                    RenderMode="HighQuality"
                                     ShowZoomLevelInfo="False"
                                     ZoomWithControlKey="True" />
         </Grid>
+        <!--
+            v6.1.8: when a page has to be rendered below screen density, this
+            layer paints the visible area at full density. It never takes mouse
+            input, and it is clipped to the viewport so it cannot cover the
+            scrollbars.
+        -->
+        <Canvas x:Name="sharpTileLayer"
+                Grid.Column="1"
+                ClipToBounds="True"
+                HorizontalAlignment="Left"
+                IsHitTestVisible="False"
+                VerticalAlignment="Top"
+                Visibility="Collapsed">
+            <Image x:Name="sharpTile"
+                   RenderOptions.BitmapScalingMode="HighQuality"
+                   Stretch="Fill"
+                   Visibility="Collapsed" />
+        </Canvas>
     </Grid>
 </UserControl>

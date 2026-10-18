@@ -45,6 +45,24 @@ public static class ImageZoom
     public const double LandmarkLandingRatio = 1.3d;
 
     /// <summary>
+    /// The scale that fits <paramref name="content"/> inside <paramref name="viewport"/>.
+    /// The viewer's automatic fit and the PDF renderer use this same calculation;
+    /// when they used different container dimensions, the first PDF page was
+    /// rendered for one size and immediately re-rendered for another.
+    /// </summary>
+    public static double FitFactor(Size viewport, Size content)
+    {
+        if (viewport.IsEmpty || content.IsEmpty ||
+            viewport.Width <= 0 || viewport.Height <= 0 ||
+            content.Width <= 0 || content.Height <= 0)
+        {
+            return 1d;
+        }
+
+        return Math.Min(viewport.Width / content.Width, viewport.Height / content.Height);
+    }
+
+    /// <summary>
     /// The factor <paramref name="notches"/> wheel notches away from <paramref name="current"/>.
     /// Fractional notches are allowed: high-resolution wheels and touchpads send deltas that are
     /// not multiples of 120.

@@ -10,6 +10,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Media.Imaging;
 
@@ -31,14 +32,72 @@ internal static class OfficeImageStore
     /// <summary>A preview never shows more detail than this, whatever the slide or page measures.</summary>
     private const int MaxPixels = 1600;
 
+    private const string SessionFolderName = "QuickLookNext-office";
+    private const string CacheFolderName = "QuickLookNext-office-cache";
+
     /// <summary>A fresh folder per preview, cleaned up when the panel goes away.</summary>
     internal static string CreateFolder()
+        => CreateFolder(SessionFolderName);
+
+    /// <summary>
+    /// v6.1.2: parsed Office pages are cached here across previews. A panel never
+    /// receives this folder directly; it gets its own folder with cloned files, so
+    /// evicting a cache entry can safely remove its files while another preview is
+    /// still on screen.
+    /// </summary>
+    internal static string CreateCacheFolder()
+        => CreateFolder(CacheFolderName);
+
+    private static string CreateFolder(string rootName)
     {
         var folder = Path.Combine(
-            Path.GetTempPath(), "QuickLookNext-office", Guid.NewGuid().ToString("N"));
+            Path.GetTempPath(), rootName, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         return folder;
     }
+
+    /// <summary>
+    /// v6.1.3: clones the flat image set from one owner's folder to another.
+    /// <para>
+    /// Cache publishing and cache hits used to copy every rendered picture. A
+    /// picture-heavy deck therefore paid for a second copy on each hit and kept
+    /// two full copies on disk. NTFS hard links give each owner a separate path
+    /// it can delete independently while both paths share the same file data.
+    /// Volumes without hard-link support fall back to an ordinary copy, so the
+    /// ownership rule still holds everywhere.
+    /// </para>
+    /// </summary>
+    internal static bool TryCloneFiles(string source, string destination)
+    {
+        if (string.IsNullOrEmpty(source) || !Directory.Exists(source))
+            return true;
+
+        try
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var file in Directory.EnumerateFiles(source))
+            {
+                var target = Path.Combine(destination, Path.GetFileName(file));
+                if (!CreateHardLink(target, file, IntPtr.Zero))
+                    File.Copy(file, target, overwrite: true);
+            }
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+            return false;
+        }
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW",
+        CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLink(
+        string fileName,
+        string existingFileName,
+        IntPtr securityAttributes);
 
     internal static void Cleanup(string folder)
     {
@@ -63,9 +122,15 @@ internal static class OfficeImageStore
     /// </summary>
     internal static void CleanupStaleFolders()
     {
+        CleanupStaleFolder(SessionFolderName);
+        CleanupStaleFolder(CacheFolderName);
+    }
+
+    private static void CleanupStaleFolder(string rootName)
+    {
         try
         {
-            var root = Path.Combine(Path.GetTempPath(), "QuickLookNext-office");
+            var root = Path.Combine(Path.GetTempPath(), rootName);
             if (!Directory.Exists(root))
                 return;
 

@@ -19,12 +19,12 @@ public sealed class DocumentPanel : OfficePanelBase
 {
     public DocumentPanel(string path)
     {
-        NavigateAsync(() =>
-        {
-            // v5.7.0: the pictures go to a temp folder served over a virtual host, so a photo-heavy
-            // document no longer has to fit in one HTML string (NavigateToString stops at 2 MB).
-            var folder = OfficeImageStore.CreateFolder();
-            return DocxToHtml.Convert(path, folder, ImageHost);
-        });
+        // v5.7.0: the pictures go to a temp folder served over a virtual host, so a photo-heavy
+        // document no longer has to fit in one HTML string (NavigateToString stops at 2 MB).
+        // v6.1.2: an unchanged document reuses its parsed page and images when the user comes back
+        // to it; the cache hands the panel its own copy, so normal disposal still applies.
+        NavigateAsync(() => OfficePanelCache.Get(
+            path,
+            folder => DocxToHtml.Convert(path, folder, ImageHost)));
     }
 }

@@ -29,11 +29,24 @@ public class PdfDocumentWrapper : IDisposable
         stream.CopyTo(PdfStream);
 
         PdfDocument = PdfDocument.Load(PdfStream, password);
+
+        // v6.1.3: an unlocked document must never be handed to a later preview:
+        // that preview would show protected content without asking for the
+        // password again.
+        IsCacheable = string.IsNullOrEmpty(password);
     }
 
     public PdfDocument PdfDocument { get; private set; }
 
     public MemoryStream PdfStream { get; private set; }
+
+    public bool IsCacheable { get; }
+
+    /// <summary>
+    /// v6.1.3: the thumbnail strip asks for the same small pages again whenever
+    /// the virtualized list recycles an item; this keeps them.
+    /// </summary>
+    internal PdfThumbnailCache ThumbnailCache { get; } = new();
 
     public void Dispose()
     {
@@ -46,15 +59,4 @@ public class PdfDocumentWrapper : IDisposable
         }
     }
 
-    public void Refresh()
-    {
-        var oldD = PdfDocument;
-
-        PdfStream.Position = 0;
-        var newObj = new PdfDocumentWrapper(PdfStream);
-        PdfDocument = newObj.PdfDocument;
-        PdfStream = newObj.PdfStream;
-
-        oldD.Dispose();
-    }
 }

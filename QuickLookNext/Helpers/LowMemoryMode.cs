@@ -106,6 +106,15 @@ internal static class LowMemoryMode
     internal static Choice Current => ChoiceFor(StartupWarmUp.IsLowMemoryMode, Seconds);
 
     /// <summary>
+    /// Whether the mode actually hands memory back. "Never (like normal mode)"
+    /// keeps the window warm, so a plugin must keep its caches there too.
+    /// </summary>
+    internal static bool WillReleaseMemory => ReleasesMemory(Current);
+
+    internal static bool ReleasesMemory(Choice choice)
+        => choice.Enabled && choice.Seconds > 0;
+
+    /// <summary>
     /// The choice that matches a mode flag and a wait. An unseen wait (a hand-edited
     /// config) reports the default one, so the menu always has something to tick.
     /// </summary>

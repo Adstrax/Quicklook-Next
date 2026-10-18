@@ -141,7 +141,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     {
         try
         {
-            await _webView.EnsureCoreWebView2Async();
+            await WebView2ControlPool.EnsureInitializedAsync(_webView);
         }
         catch (Exception e)
         {
@@ -343,7 +343,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
             try
             {
-                await _webView.EnsureCoreWebView2Async();
+                await WebView2ControlPool.EnsureInitializedAsync(_webView);
             }
             catch (Exception e)
             {

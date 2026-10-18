@@ -16,7 +16,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.Annotations;
-using QuickLook.Common.ExtensionMethods;
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using QuickLook.Plugin.VideoViewer.AudioTrack;
@@ -65,6 +64,13 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     private string _pendingMetaPath;
     private MediaInfoSnapshot _pendingMetaInfo;
     private int _metaVersion;
+    private Stopwatch _loadClock;
+    private string _timingPath;
+    private readonly VideoRevealGate _revealGate = new();
+    private DispatcherTimer _revealFallbackTimer;
+    private EventHandler _revealCompositionHandler;
+    private bool _published;
+    private bool _thumbnailUnavailable;
 
     public ViewerPanel(ContextObject context)
     {
@@ -83,6 +89,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         viewerPanel.PreviewMouseMove += ShowViedoControlContainer;
 
         mediaElement.MediaUriPlayer.PlayerStateChanged += PlayerStateChanged;
+        mediaElement.MediaUriPlayer.NewAllocatorFrame += PlayerFramePresented;
         mediaElement.MediaOpened += MediaOpened;
         mediaElement.MediaEnded += MediaEnded;
         mediaElement.MediaFailed += MediaFailed;
@@ -184,6 +191,8 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         Interlocked.Increment(ref _metaVersion);
         CancelPendingMeta();
 
+        CancelReveal();
+        _revealGate.TryTakeReveal();
         videoThumbnail.Source = null;
         videoThumbnail.Visibility = Visibility.Collapsed;
 
@@ -194,6 +203,9 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
         try
         {
+            if (mediaElement?.MediaUriPlayer != null)
+                mediaElement.MediaUriPlayer.NewAllocatorFrame -= PlayerFramePresented;
+
             mediaElement?.Close();
 
             Task.Run(() =>
@@ -224,6 +236,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         _quiesced = true;
         Interlocked.Increment(ref _metaVersion);
         CancelPendingMeta();
+        CancelReveal();
         StopLyrics();
         _pendingMetaPath = null;
         _pendingMetaInfo = null;
@@ -262,6 +275,8 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         if (mediaElement == null)
             return;
 
+        VideoTiming.Write("media-opened", _timingPath, _loadClock?.ElapsedMilliseconds ?? 0);
+
         _mediaSettled = true;
         if (_quiesced || _disposed)
         {
@@ -277,32 +292,35 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             return;
         }
 
-        // v1.2.36: the media is (or failed to become) ready - a slow shell
-        // thumbnail task that completes after this point must not cover the
-        // playing surface with a stale thumbnail.
-
-        // v1.2.15: the playback graph is ready. Reveal the surface under the
-        // thumbnail and keep the thumbnail on top for a short grace period, so
-        // the renderer's blank surface (gray) is never visible before its first
-        // frame paints.
+        // MediaOpened means the graph can play; the renderer may still have an
+        // empty surface. Reveal the element underneath the thumbnail, but keep
+        // the thumbnail on top until the renderer reports a real frame. The old
+        // fixed 250 ms grace period could expire before that frame and produce
+        // the thumbnail -> black -> video flash. A thumbnail task that finishes
+        // even later is suppressed by the same gate in LoadThumbnailAsync.
         mediaElement.Visibility = Visibility.Visible;
 
-        if (videoThumbnail.Visibility == Visibility.Visible)
-        {
-            Task.Delay(250).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (_disposed)
-                    return;
+        var revealNow = _revealGate.NotifyMediaOpened(mediaElement.HasVideo, Environment.TickCount64);
 
-                videoThumbnail.Source = null;
-                videoThumbnail.Visibility = Visibility.Collapsed;
-            })));
-        }
-        else
+        if (revealNow)
         {
-            videoThumbnail.Source = null;
-            videoThumbnail.Visibility = Visibility.Collapsed;
+            // Audio-only media never reports a video frame.
+            PublishPanel();
+            BeginThumbnailReveal();
         }
+        else if (_published)
+        {
+            StartRevealFallback();
+        }
+        else if (_thumbnailUnavailable)
+        {
+            // There is no picture to bridge the gap, so give the renderer a
+            // chance to report a frame before attaching a bare black panel.
+            StartPublishDeadline();
+        }
+        // Otherwise the shell thumbnail is still being extracted. Keep the
+        // previous preview visible until it arrives; the thumbnail callback
+        // publishes this panel atomically with the picture.
 
         HasVideo = mediaElement.HasVideo;
 
@@ -321,8 +339,6 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             FitAudioWindow();
         }
 
-        _context.IsBusy = false;
-
         // v1.2.13: tags/cover art are filled in after the frame is showing so
         // they never delay the first frame (spinner).
         if (_pendingMetaPath != null)
@@ -337,6 +353,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
     {
         _mediaSettled = true;
         _mediaFailed = true;
+        _revealGate.TryTakeReveal();
 
         // v5.0.9: WPFMediaKit raises this on its own worker thread. The two lines that clear the
         // thumbnail used to run right here, and touching the visual tree from that thread throws -
@@ -351,6 +368,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             if (_disposed || _quiesced)
                 return;
 
+            CancelReveal();
             videoThumbnail.Source = null;
             videoThumbnail.Visibility = Visibility.Collapsed;
 
@@ -359,6 +377,9 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
             var translationFile = Path.Combine(
                 Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Translations.config");
 
+            // Drop the never-published panel so the error card is not
+            // replaced by it when the busy state clears.
+            _context.PendingViewerContent = null;
             _context.ViewerContent = new TextBlock()
             {
                 Text = TranslationHelper.Get("VV_PlaybackFailed", translationFile,
@@ -774,6 +795,11 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
     public void LoadAndPlay(string path, MediaInfoSnapshot info)
     {
+        _timingPath = path;
+        _loadClock = VideoTiming.Begin();
+        _revealGate.Reset();
+        CancelReveal();
+
         var isNewMedia = !string.Equals(path, _path, StringComparison.OrdinalIgnoreCase);
         _path = path;
 
@@ -791,6 +817,8 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         // of a video preview has no blank/gray loading surface.
         if (HasVideo)
             LoadThumbnailAsync(path);
+        else
+            PublishPanel();
 
         // Detect whether it is other playback formats
         if (!HasVideo)
@@ -816,6 +844,7 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         LinearVolume = Math.Max(0d, Math.Min(1d, SettingHelper.Get("VolumeDouble", 1d, "QuickLook.Plugin.VideoViewer")));
 
         mediaElement.Play();
+        VideoTiming.Write("graph-play-return", path, _loadClock?.ElapsedMilliseconds ?? 0);
     }
 
     /// <summary>
@@ -883,6 +912,8 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
         }
         else
         {
+            _revealGate.TryTakeReveal();
+            CancelReveal();
             videoThumbnail.Source = null;
             videoThumbnail.Visibility = Visibility.Collapsed;
         }
@@ -978,37 +1009,235 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
     private void LoadThumbnailAsync(string path)
     {
-        _ = Task.Run(() =>
+        var clock = VideoTiming.Begin();
+        var thumbnail = ThumbnailPrefetch.GetOrStart(path);
+        _ = Task.Run(async () =>
         {
             try
             {
-                var scale = DisplayDeviceHelper.GetCurrentScaleFactor();
-                using var thumb = WindowsThumbnailProvider.GetThumbnail(path,
-                    (int)(640 * scale.Horizontal), (int)(360 * scale.Vertical), ThumbnailOptions.ScaleUp);
-                if (thumb == null)
-                    return;
-
-                var source = thumb.ToBitmapSource();
-                source.Freeze();
-
-                Dispatcher.BeginInvoke(new Action(() =>
+                var source = await thumbnail.ConfigureAwait(false);
+                if (source == null)
                 {
-                    // v1.2.36: if the media already opened (or failed) while
-                    // the thumbnail was still being extracted, the playing
-                    // surface / error text is already visible - do not cover
-                    // it with a late thumbnail.
-                    if (_disposed || _quiesced || _mediaSettled)
+                    _ = Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (_disposed || _quiesced)
+                            return;
+
+                        _thumbnailUnavailable = true;
+                        VideoTiming.Write("thumbnail-unavailable", path, clock?.ElapsedMilliseconds ?? 0);
+
+                        // With no thumbnail, the first presented frame is the
+                        // other safe moment to attach the panel. If that does
+                        // not arrive (some graphs only start after attachment),
+                        // this delayed deadline keeps playback reachable.
+                        if (_mediaSettled && !_published)
+                            StartPublishDeadline();
+                    }));
+                    return;
+                }
+
+                _ = Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    VideoTiming.Write(
+                        $"thumbnail-callback ui={Environment.CurrentManagedThreadId}",
+                        path,
+                        clock?.ElapsedMilliseconds ?? 0);
+
+                    // A thumbnail that finishes after the live surface was
+                    // revealed (or after a failure) must not cover it. While
+                    // the surface is still waiting for its first frame, a late
+                    // thumbnail is exactly what should be shown.
+                    if (_disposed || _quiesced || _revealGate.IsRevealed)
+                    {
+                        VideoTiming.Write(
+                            $"thumbnail-skip disposed={_disposed} quiesced={_quiesced} revealed={_revealGate.IsRevealed}",
+                            path,
+                            clock?.ElapsedMilliseconds ?? 0);
                         return;
+                    }
 
                     videoThumbnail.Source = source;
                     videoThumbnail.Visibility = Visibility.Visible;
+                    VideoTiming.Write("thumbnail-shown", path, clock?.ElapsedMilliseconds ?? 0);
+
+                    // The panel was built in the hidden preload slot; publish
+                    // it now that it has a picture instead of a black surface.
+                    PublishPanel();
                 }));
+
+                VideoTiming.Write("thumbnail-ready", path, clock?.ElapsedMilliseconds ?? 0);
             }
             catch (Exception e)
             {
                 Debug.WriteLine(e);
             }
         });
+    }
+
+    /// <summary>
+    /// Called by the media player on its own thread for every presented frame.
+    /// Only the first frame after MediaOpened does any work.
+    /// </summary>
+    private void PlayerFramePresented()
+    {
+        if (_disposed || _quiesced || !_revealGate.NotifyFrame())
+            return;
+
+        VideoTiming.Write(
+            "first-frame",
+            _timingPath,
+            _loadClock?.ElapsedMilliseconds ?? 0);
+
+        try
+        {
+            Dispatcher.BeginInvoke(new Action(BeginThumbnailReveal), DispatcherPriority.Render);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+        }
+    }
+
+    /// <summary>
+    /// Releases the thumbnail at most once. The live surface is already visible
+    /// underneath, so removing the thumbnail after a real frame cannot show an
+    /// empty renderer surface.
+    /// </summary>
+    private void BeginThumbnailReveal()
+    {
+        if (_disposed || _quiesced)
+            return;
+
+        // A renderer may present its first frame before a thumbnail (or no
+        // thumbnail at all) is available. At that point the panel is the only
+        // thing that can show the video, so attach it before dropping the
+        // cover image.
+        if (!_published)
+            PublishPanel();
+
+        if (!_revealGate.TryTakeReveal())
+            return;
+
+        VideoTiming.Write(
+            $"reveal-check|visibility={videoThumbnail.Visibility}|source={(videoThumbnail.Source != null)}",
+            _timingPath,
+            _loadClock?.ElapsedMilliseconds ?? 0);
+
+        CancelReveal();
+
+        if (videoThumbnail.Visibility != Visibility.Visible || videoThumbnail.Source == null)
+        {
+            ClearThumbnail();
+            return;
+        }
+
+        // The frame notification is raised from the presenter thread. Let the
+        // compositor draw at least one frame with the live surface underneath
+        // the thumbnail; hiding it in the same dispatcher turn can still catch
+        // the previous (empty) composition.
+        var frames = 0;
+        EventHandler handler = null;
+        handler = (_, _) =>
+        {
+            if (++frames < 2)
+                return;
+
+            FinishReveal();
+        };
+
+        _revealCompositionHandler = handler;
+        CompositionTarget.Rendering += handler;
+
+        // An occluded or minimized window may not compose at all; never leave
+        // the thumbnail or the handler behind.
+        _revealFallbackTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+        _revealFallbackTimer.Tick += (_, _) => FinishReveal();
+        _revealFallbackTimer.Start();
+    }
+
+    private void StartRevealFallback()
+    {
+        CancelReveal();
+
+        _revealFallbackTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(VideoRevealGate.DefaultFrameTimeoutMilliseconds)
+        };
+        _revealFallbackTimer.Tick += RevealFallbackTick;
+        _revealFallbackTimer.Start();
+    }
+
+    /// <summary>
+    /// Attaches the panel to the window for the first time. Until now the host
+    /// kept the previous preview (or its own backdrop) on screen, so the black
+    /// surface of a panel whose media graph is still opening is never visible.
+    /// </summary>
+    private void PublishPanel()
+    {
+        if (_published || _disposed || _quiesced)
+            return;
+
+        _published = true;
+        CancelReveal();
+
+        _context.ViewerContent = this;
+        _context.IsBusy = false;
+
+        VideoTiming.Write("panel-published", _timingPath, _loadClock?.ElapsedMilliseconds ?? 0);
+
+        if (_revealGate.IsWaitingForFrame)
+            StartRevealFallback();
+    }
+
+    private void StartPublishDeadline()
+    {
+        CancelReveal();
+
+        _revealFallbackTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(VideoRevealGate.DefaultFrameTimeoutMilliseconds)
+        };
+        _revealFallbackTimer.Tick += (_, _) => PublishPanel();
+        _revealFallbackTimer.Start();
+    }
+
+    private void RevealFallbackTick(object sender, EventArgs e)
+    {
+        if (!_revealGate.IsFrameTimeoutElapsed(Environment.TickCount64))
+            return;
+
+        VideoTiming.Write("first-frame-timeout", _timingPath, _loadClock?.ElapsedMilliseconds ?? 0);
+        BeginThumbnailReveal();
+    }
+
+    private void FinishReveal()
+    {
+        CancelReveal();
+        ClearThumbnail();
+        VideoTiming.Write("thumbnail-revealed", _timingPath, _loadClock?.ElapsedMilliseconds ?? 0);
+    }
+
+    private void ClearThumbnail()
+    {
+        videoThumbnail.Source = null;
+        videoThumbnail.Visibility = Visibility.Collapsed;
+    }
+
+    private void CancelReveal()
+    {
+        if (_revealFallbackTimer != null)
+        {
+            _revealFallbackTimer.Stop();
+            _revealFallbackTimer = null;
+        }
+
+        var handler = _revealCompositionHandler;
+        _revealCompositionHandler = null;
+        if (handler != null)
+            CompositionTarget.Rendering -= handler;
     }
 
     [NotifyPropertyChangedInvocator]

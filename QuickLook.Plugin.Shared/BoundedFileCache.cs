@@ -17,6 +17,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 
 namespace QuickLook.Plugin.Shared;
@@ -74,6 +75,7 @@ public sealed class BoundedFileCache<T>
     private readonly long _maxBytes;
     private readonly long _maxSingleBytes;
     private readonly Func<T, long> _sizeOf;
+    private readonly Action<T> _onEvicted;
 
     private long _bytes;
 
@@ -84,11 +86,17 @@ public sealed class BoundedFileCache<T>
     /// Values larger than this are used for the current preview but not cached;
     /// one huge value must not evict every ordinary one.
     /// </param>
+    /// <param name="onEvicted">
+    /// Optional cleanup for a value that leaves the cache because it was stale,
+    /// replaced, removed, cleared, or evicted. It runs after the cache lock is
+    /// released, so it may touch the value's files without blocking other lookups.
+    /// </param>
     public BoundedFileCache(
         int maxEntries,
         long maxBytes,
         Func<T, long> sizeOf,
-        long maxSingleBytes = long.MaxValue)
+        long maxSingleBytes = long.MaxValue,
+        Action<T> onEvicted = null)
     {
         if (maxEntries <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxEntries));
@@ -103,6 +111,7 @@ public sealed class BoundedFileCache<T>
         _maxBytes = maxBytes;
         _sizeOf = sizeOf;
         _maxSingleBytes = maxSingleBytes;
+        _onEvicted = onEvicted;
     }
 
     public int Count
@@ -133,6 +142,7 @@ public sealed class BoundedFileCache<T>
         if (string.IsNullOrEmpty(path))
             return false;
 
+        T evicted = default;
         lock (_sync)
         {
             if (!_map.TryGetValue(path, out var node))
@@ -140,34 +150,41 @@ public sealed class BoundedFileCache<T>
 
             if (node.Value.Stamp != stamp)
             {
+                evicted = node.Value.Value;
                 RemoveNode(node);
-                return false;
             }
-
-            _lru.Remove(node);
-            _lru.AddFirst(node);
-            value = node.Value.Value;
-            return true;
+            else
+            {
+                _lru.Remove(node);
+                _lru.AddFirst(node);
+                value = node.Value.Value;
+                return true;
+            }
         }
+
+        NotifyEvicted([evicted]);
+        return false;
     }
 
     /// <summary>
     /// Stores or replaces an entry. An oversized value is deliberately skipped:
     /// caching it would evict all ordinary entries for no net benefit.
     /// </summary>
-    public void Set(string path, FileCacheStamp stamp, T value)
+    public bool Set(string path, FileCacheStamp stamp, T value)
     {
         if (string.IsNullOrEmpty(path) || value is null)
-            return;
+            return false;
 
         var size = Math.Max(1, _sizeOf(value));
         if (size > _maxSingleBytes || size > _maxBytes)
-            return;
+            return false;
 
+        List<T> evicted = null;
+        var stored = false;
         lock (_sync)
         {
             if (_map.TryGetValue(path, out var existing))
-                RemoveNode(existing);
+                RemoveNode(existing, ref evicted);
 
             var node = new LinkedListNode<Entry>(new Entry(path, stamp, value, size));
             _map[path] = node;
@@ -175,8 +192,14 @@ public sealed class BoundedFileCache<T>
             _bytes += size;
 
             while ((_lru.Count > _maxEntries || _bytes > _maxBytes) && _lru.Last is { } last)
-                RemoveNode(last);
+                RemoveNode(last, ref evicted);
+
+            stored = _map.TryGetValue(path, out var storedNode) &&
+                     ReferenceEquals(storedNode.Value.Value, value);
         }
+
+        NotifyEvicted(evicted);
+        return stored;
     }
 
     public void Remove(string path)
@@ -184,21 +207,40 @@ public sealed class BoundedFileCache<T>
         if (string.IsNullOrEmpty(path))
             return;
 
+        T evicted = default;
+        var removed = false;
         lock (_sync)
         {
             if (_map.TryGetValue(path, out var node))
+            {
+                evicted = node.Value.Value;
                 RemoveNode(node);
+                removed = true;
+            }
         }
+
+        if (removed)
+            NotifyEvicted([evicted]);
     }
 
     public void Clear()
     {
+        List<T> evicted = null;
         lock (_sync)
         {
+            if (_onEvicted is not null)
+            {
+                evicted = [];
+                foreach (var node in _lru)
+                    evicted.Add(node.Value);
+            }
+
             _map.Clear();
             _lru.Clear();
             _bytes = 0;
         }
+
+        NotifyEvicted(evicted);
     }
 
     private void RemoveNode(LinkedListNode<Entry> node)
@@ -206,6 +248,33 @@ public sealed class BoundedFileCache<T>
         _bytes = Math.Max(0, _bytes - node.Value.Size);
         _map.Remove(node.Value.Path);
         _lru.Remove(node);
+    }
+
+    private void RemoveNode(LinkedListNode<Entry> node, ref List<T> evicted)
+    {
+        if (_onEvicted is not null)
+            (evicted ??= []).Add(node.Value.Value);
+
+        RemoveNode(node);
+    }
+
+    private void NotifyEvicted(List<T> values)
+    {
+        if (_onEvicted is null || values is null)
+            return;
+
+        foreach (var value in values)
+        {
+            try
+            {
+                _onEvicted(value);
+            }
+            catch (Exception e)
+            {
+                // A cleanup callback is not allowed to break the cache itself.
+                Debug.WriteLine(e.Message);
+            }
+        }
     }
 
     private readonly record struct Entry(

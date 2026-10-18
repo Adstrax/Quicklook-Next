@@ -78,6 +78,19 @@ internal class ImageZoomTests
         Assert.Equal(0d, ImageZoom.Step(0d, 3), "a zero factor stays zero");
     }
 
+    public void FitUsesTheSameViewportForMeasuringAndRendering()
+    {
+        Assert.True(Math.Abs(ImageZoom.FitFactor(
+                new System.Windows.Size(800, 1000),
+                new System.Windows.Size(600, 800)) - 1.25d) < 0.0001,
+            "the narrower axis decides the fit");
+
+        Assert.Equal(1d, ImageZoom.FitFactor(
+                new System.Windows.Size(0, 1000),
+                new System.Windows.Size(600, 800)),
+            "an unmeasured viewport does not produce a zero scale");
+    }
+
     public void MagnifyingPastTheDecodedDetailAsksForMore()
     {
         var viewport = new System.Windows.Size(800, 600);

@@ -47,12 +47,27 @@ public class SvgImagePanel : WebpagePanel, IWebImagePanel
         set
         {
             _objectForScripting = value;
-            _webView?.EnsureCoreWebView2Async()
-                .ContinueWith(_ =>
-                    _webView?.Dispatcher.Invoke(() =>
-                        _webView?.CoreWebView2.AddHostObjectToScript("external", value)
-                    )
-                );
+            _ = InitializeObjectForScriptingAsync(value);
+        }
+    }
+
+    private async Task InitializeObjectForScriptingAsync(object value)
+    {
+        try
+        {
+            await WebView2ControlPool.EnsureInitializedAsync(_webView);
+            if (_webView?.CoreWebView2 == null)
+                return;
+
+            await _webView.Dispatcher.InvokeAsync(() =>
+            {
+                if (_webView?.CoreWebView2 != null)
+                    _webView.CoreWebView2.AddHostObjectToScript("external", value);
+            });
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
         }
     }
 

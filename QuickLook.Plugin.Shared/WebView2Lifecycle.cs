@@ -81,6 +81,11 @@ public static class WebView2Lifecycle
     /// <param name="attempt">The attempt that just failed, 1-based.</param>
     public static void RecoverFromFailedInitialization(int attempt = 1)
     {
+        // The environment points at the browser/profile that just failed.
+        // The retry below must create a new one rather than await the faulted
+        // task or reuse a process that is being reaped.
+        WebView2EnvironmentCache.Forget();
+
         try
         {
             WebView2ControlPool.ClearIdle();
@@ -193,6 +198,7 @@ public static class WebView2Lifecycle
         }
 
         WebView2ControlPool.ClearIdle();
+        WebView2EnvironmentCache.Forget();
 
         // Give Chromium a moment to exit on its own before the process disappears.
         for (var attempt = 0; attempt < 10; attempt++)
@@ -291,6 +297,7 @@ public static class WebView2Lifecycle
         }
 
         ReapBrowserProcesses();
+        WebView2EnvironmentCache.Forget();
 
         // v3.40.0: the browser is down now, so this is both the cheapest and the
         // safest moment to drop the profile folders abandoned by earlier failures.

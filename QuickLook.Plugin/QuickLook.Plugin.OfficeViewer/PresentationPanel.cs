@@ -24,11 +24,10 @@ public sealed class PresentationPanel : OfficePanelBase
 
     public PresentationPanel(string path) : base(SlideDesk)
     {
-        NavigateAsync(() =>
-        {
-            var folder = OfficeImageStore.CreateFolder();
-            return PptxToHtml.Convert(path, folder, ImageHost);
-        });
+        // v6.1.2: reuse the parsed deck and its slide pictures across side-button switches.
+        NavigateAsync(() => OfficePanelCache.Get(
+            path,
+            folder => PptxToHtml.Convert(path, folder, ImageHost)));
     }
 
     protected override void OnNavigationSelected(int index)
