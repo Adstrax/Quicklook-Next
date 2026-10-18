@@ -716,14 +716,7 @@ public sealed class PluginManager
         IViewer instance = null;
         try
         {
-            foreach (var t in Assembly.LoadFrom(lib).GetExportedTypes())
-            {
-                if (t.IsInterface || t.IsAbstract || !typeof(IViewer).IsAssignableFrom(t))
-                    continue;
-
-                instance = t.CreateInstance<IViewer>();
-                break;
-            }
+            instance = CreatePluginInstances(lib, "lazy", firstOnly: true).FirstOrDefault();
         }
         catch (Exception ex)
         {
@@ -754,6 +747,47 @@ public sealed class PluginManager
         ClearMatchCache();
 
         return instance;
+    }
+
+    /// <summary>
+    /// Loads one plugin assembly and creates its viewer instances. The three stages
+    /// are recorded separately for /test-startup: loading a large assembly, walking
+    /// its types and running a constructor are different startup costs.
+    /// </summary>
+    private static List<IViewer> CreatePluginInstances(string lib, string mode, bool firstOnly)
+    {
+        var pluginName = Path.GetFileNameWithoutExtension(lib);
+        var timer = App.IsStartupTimingEnabled ? Stopwatch.StartNew() : null;
+        var instances = new List<IViewer>();
+
+        var assembly = Assembly.LoadFrom(lib);
+        MarkPluginLoad(timer, pluginName, mode + "-assembly");
+
+        var types = assembly.GetExportedTypes();
+        MarkPluginLoad(timer, pluginName, mode + "-inspect");
+
+        foreach (var type in types)
+        {
+            if (type.IsInterface || type.IsAbstract || !typeof(IViewer).IsAssignableFrom(type))
+                continue;
+
+            instances.Add(type.CreateInstance<IViewer>());
+            if (firstOnly)
+                break;
+        }
+
+        MarkPluginLoad(timer, pluginName, mode + "-construct");
+        return instances;
+    }
+
+    private static void MarkPluginLoad(Stopwatch timer, string pluginName, string stage)
+    {
+        if (timer is null)
+            return;
+
+        timer.Stop();
+        App.RecordPluginLoadPhase(pluginName, stage, timer.ElapsedMilliseconds);
+        timer.Restart();
     }
 
     private void LoadPluginsCore()
@@ -884,12 +918,8 @@ public sealed class PluginManager
 
             try
             {
-                foreach (var t in Assembly.LoadFrom(lib).GetExportedTypes())
+                foreach (var instance in CreatePluginInstances(lib, "startup", firstOnly: false))
                 {
-                    if (t.IsInterface || t.IsAbstract || !typeof(IViewer).IsAssignableFrom(t))
-                        continue;
-
-                    var instance = t.CreateInstance<IViewer>();
                     lock (sync)
                     {
                         loaded.Add((i, instance));

@@ -17,6 +17,7 @@
 
 using QuickLookNext.Helpers;
 using QuickLook.Common.Helpers;
+using System;
 using System.IO;
 
 namespace QuickLook.Tests;
@@ -57,6 +58,84 @@ internal class CacheUsageTests : SettingsFixture
             AppDataUsage.CacheBytes(_data, _temp) + AppDataUsage.DataBytes(_data),
             AppDataUsage.TotalBytes(_data, _temp),
             "total bytes");
+    }
+
+    public void PreviewTempUsageIsMeasuredAsItsOwnCategory()
+    {
+        var office = Path.Combine(_temp, "QuickLookNext-office", "session-office");
+        var mail = Path.Combine(_temp, "QuickLookNext.Mail", "session-mail");
+        var warmUp = Path.Combine(_temp, "QuickLookNext.WarmUp", "sample.png");
+
+        WriteFile(Path.Combine(office, "slide.jpg"), 1024);
+        WriteFile(Path.Combine(mail, "message.png"), 2048);
+        WriteFile(warmUp, 512);
+        WriteFile(Path.Combine(_temp, "QuickLookNext.Update", "package.zip"), 128);
+        WriteFile(Path.Combine(_temp, "QuickLookNext-update.cmd"), 64);
+
+        var usage = AppDataUsage.Breakdown(_data, _temp);
+
+        Assert.Equal(0L, usage.WebViewCacheBytes, "no WebView2 cache");
+        Assert.Equal(1024L + 2048L + 512L, usage.PreviewTempBytes, "all preview families are counted");
+        Assert.Equal(128L + 64L, usage.UpdateLeftoverBytes, "both kinds of update leftovers are counted");
+        Assert.Equal(1024L + 2048L + 512L + 128L + 64L, usage.CacheBytes, "cache total");
+        Assert.Equal(usage.CacheBytes, AppDataUsage.CacheBytes(_data, _temp), "legacy total agrees");
+    }
+
+    public void ClearingPreviewCacheKeepsRecentFilesAndTheRoots()
+    {
+        var oldOffice = Path.Combine(_temp, "QuickLookNext-office", "old-office");
+        var freshOffice = Path.Combine(_temp, "QuickLookNext-office", "fresh-office");
+        var freshMail = Path.Combine(_temp, "QuickLookNext.Mail", "fresh-mail");
+        var warmUpRoot = Path.Combine(_temp, "QuickLookNext.WarmUp");
+        var oldWarmUp = Path.Combine(warmUpRoot, "old-sample.png");
+        var freshWarmUp = Path.Combine(warmUpRoot, "fresh-sample.png");
+
+        WriteFile(Path.Combine(oldOffice, "old.jpg"), 1024);
+        WriteFile(Path.Combine(freshOffice, "fresh.jpg"), 2048);
+        WriteFile(Path.Combine(freshMail, "fresh.png"), 4096);
+        WriteFile(oldWarmUp, 512);
+        WriteFile(freshWarmUp, 256);
+
+        var twoDaysAgo = DateTime.UtcNow.AddDays(-2);
+        Directory.SetLastWriteTimeUtc(oldOffice, twoDaysAgo);
+        File.SetLastWriteTimeUtc(oldWarmUp, twoDaysAgo);
+
+        Assert.Equal(1024L + 2048L + 4096L + 512L + 256L,
+            AppDataUsage.CacheBytes(_data, _temp), "old and recent files are both measured");
+
+        var result = AppDataUsage.ClearCache(_data, _temp);
+
+        Assert.Equal(1024L + 512L, result.FreedBytes, "only the stale items were freed");
+        Assert.True(result.Complete, "nothing was in use");
+        Assert.False(Directory.Exists(oldOffice), "the stale Office preview folder is gone");
+        Assert.False(File.Exists(oldWarmUp), "the stale warm-up sample is gone");
+        Assert.True(Directory.Exists(freshOffice), "a recent Office preview folder survives");
+        Assert.True(Directory.Exists(freshMail), "a recent mail preview folder survives");
+        Assert.True(File.Exists(freshWarmUp), "a recent warm-up sample survives");
+        Assert.True(Directory.Exists(Path.Combine(_temp, "QuickLookNext-office")), "the Office root stays");
+        Assert.True(Directory.Exists(Path.Combine(_temp, "QuickLookNext.Mail")), "the mail root stays");
+        Assert.True(Directory.Exists(warmUpRoot), "the warm-up root stays");
+    }
+
+    public void InUseStalePreviewFilesAreReportedInsteadOfThrowing()
+    {
+        var stale = Path.Combine(_temp, "QuickLookNext.Mail", "session-locked");
+        var locked = Path.Combine(stale, "message.html");
+
+        WriteFile(locked, 2048);
+        Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+
+        using (File.Open(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var result = AppDataUsage.ClearCache(_data, _temp);
+
+            Assert.Equal(0L, result.FreedBytes, "nothing could be freed");
+            Assert.Equal(1, result.FailedItems, "the in-use item is reported");
+            Assert.False(result.Complete, "cleanup reports itself as incomplete");
+        }
+
+        Assert.True(File.Exists(locked), "the in-use preview file is still there");
+        Assert.True(Directory.Exists(Path.Combine(_temp, "QuickLookNext.Mail")), "the mail root stays");
     }
 
     public void ClearingRemovesOnlyTheWhitelistedCaches()

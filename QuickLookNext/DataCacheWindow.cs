@@ -33,9 +33,10 @@ namespace QuickLookNext;
 /// <summary>
 /// v5.0.7: the "data &amp; cache" panel behind the tray entry of the same name - upstream issue
 /// #1933 asked for a way to see and clear what the app stores. It reports how much of the data
-/// folder is rebuildable cache (WebView2 shader/HTTP caches, leftover update packages) versus
-/// kept data (settings, cookies, statistics, log), and clears only the former - see
-/// <see cref="AppDataUsage"/> for the whitelist.
+/// folder and %TEMP% is rebuildable cache (WebView2 caches, preview temp files, leftover update
+/// packages) versus kept data (settings, cookies, statistics, log). It clears only the former,
+/// and preview temp items only once they are a day old - see <see cref="AppDataUsage"/> for the
+/// whitelist.
 /// </summary>
 internal sealed class DataCacheWindow : Window
 {
@@ -43,7 +44,9 @@ internal sealed class DataCacheWindow : Window
 
     private readonly bool _isDark;
     private readonly bool _smokeMode;
-    private readonly TextBlock _cacheValue;
+    private readonly TextBlock _webViewCacheValue;
+    private readonly TextBlock _previewTempValue;
+    private readonly TextBlock _updateLeftoverValue;
     private readonly TextBlock _dataValue;
     private readonly TextBlock _totalValue;
     private readonly TextBlock _status;
@@ -71,7 +74,8 @@ internal sealed class DataCacheWindow : Window
         Foreground = ThemePalette.Text(_isDark);
         Background = Brushes.Transparent;
 
-        (_cacheValue, _dataValue, _totalValue, _status, _buttonLabels) = BuildValues();
+        (_webViewCacheValue, _previewTempValue, _updateLeftoverValue,
+            _dataValue, _totalValue, _status, _buttonLabels) = BuildValues();
         Content = BuildContent();
 
         MouseLeftButtonDown += (_, e) =>
@@ -114,16 +118,25 @@ internal sealed class DataCacheWindow : Window
 
     /// <summary>Reported by /test-data-cache, so the numbers can be asserted later.</summary>
     internal string Diagnose()
-        => $"title={Title}\n" +
-           $"cache={AppDataUsage.CacheBytes()}\n" +
-           $"data={AppDataUsage.DataBytes()}\n" +
-           $"total={AppDataUsage.TotalBytes()}\n" +
+    {
+        var usage = AppDataUsage.Breakdown();
+
+        return $"title={Title}\n" +
+           $"webviewCache={usage.WebViewCacheBytes}\n" +
+           $"previewTemp={usage.PreviewTempBytes}\n" +
+           $"updateLeftovers={usage.UpdateLeftoverBytes}\n" +
+           $"cache={usage.CacheBytes}\n" +
+           $"data={usage.DataBytes}\n" +
+           $"total={usage.TotalBytes}\n" +
            $"buttons={_buttonLabels}\n" +
            $"backdrop={MenuSurface.Diagnose()}\n";
+    }
 
-    private (TextBlock, TextBlock, TextBlock, TextBlock, string) BuildValues()
+    private (TextBlock, TextBlock, TextBlock, TextBlock, TextBlock, TextBlock, string) BuildValues()
     {
-        var cache = ValueText();
+        var webViewCache = ValueText();
+        var previewTemp = ValueText();
+        var updateLeftover = ValueText();
         var data = ValueText();
         var total = ValueText();
 
@@ -136,7 +149,7 @@ internal sealed class DataCacheWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
         };
 
-        return (cache, data, total, status,
+        return (webViewCache, previewTemp, updateLeftover, data, total, status,
             "clear=" + TranslationHelper.Get("DataCache_Clear", failsafe: "Clear cache") +
             ";log=" + TranslationHelper.Get("DataCache_ClearLog", failsafe: "Clear log"));
     }
@@ -187,15 +200,24 @@ internal sealed class DataCacheWindow : Window
         header.Children.Add(titleRow);
 
         var rows = new StackPanel();
-        rows.Children.Add(Row(TranslationHelper.Get("DataCache_Cache", failsafe: "Cache"), _cacheValue));
+        rows.Children.Add(Row(
+            TranslationHelper.Get("DataCache_WebViewCache", failsafe: "WebView2 cache"),
+            _webViewCacheValue));
+        rows.Children.Add(Row(
+            TranslationHelper.Get("DataCache_PreviewTemp", failsafe: "Preview temp files"),
+            _previewTempValue));
+        rows.Children.Add(Row(
+            TranslationHelper.Get("DataCache_UpdateLeftovers", failsafe: "Update leftovers"),
+            _updateLeftoverValue));
         rows.Children.Add(Row(TranslationHelper.Get("DataCache_Data", failsafe: "Settings & logs"), _dataValue));
         rows.Children.Add(Row(TranslationHelper.Get("DataCache_Total", failsafe: "Total"), _totalValue));
 
         var hint = new TextBlock
         {
             Text = TranslationHelper.Get("DataCache_Hint",
-                failsafe: "Clearing removes only rebuildable caches (WebView2 shader and web caches, " +
-                          "leftover update files). Sign-in data, settings and the log are kept."),
+                failsafe: "Clearing removes WebView2 caches and leftover update files, plus preview " +
+                          "temp files older than one day. Recent preview files, sign-in data, settings " +
+                          "and the log are kept."),
             Foreground = ThemePalette.SecondaryText(_isDark),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
@@ -297,11 +319,13 @@ internal sealed class DataCacheWindow : Window
         _busy = true;
         try
         {
-            var (cache, data) = await Task.Run(() => (AppDataUsage.CacheBytes(), AppDataUsage.DataBytes()));
+            var usage = await Task.Run(() => AppDataUsage.Breakdown());
 
-            _cacheValue.Text = cache.ToPrettySize(1);
-            _dataValue.Text = data.ToPrettySize(1);
-            _totalValue.Text = (cache + data).ToPrettySize(1);
+            _webViewCacheValue.Text = usage.WebViewCacheBytes.ToPrettySize(1);
+            _previewTempValue.Text = usage.PreviewTempBytes.ToPrettySize(1);
+            _updateLeftoverValue.Text = usage.UpdateLeftoverBytes.ToPrettySize(1);
+            _dataValue.Text = usage.DataBytes.ToPrettySize(1);
+            _totalValue.Text = usage.TotalBytes.ToPrettySize(1);
         }
         catch (Exception e)
         {
@@ -318,9 +342,12 @@ internal sealed class DataCacheWindow : Window
         if (_smokeMode)
         {
             // /test-data-cache: measure synchronously, dump the numbers, then go away.
-            _cacheValue.Text = AppDataUsage.CacheBytes().ToPrettySize(1);
-            _dataValue.Text = AppDataUsage.DataBytes().ToPrettySize(1);
-            _totalValue.Text = AppDataUsage.TotalBytes().ToPrettySize(1);
+            var usage = AppDataUsage.Breakdown();
+            _webViewCacheValue.Text = usage.WebViewCacheBytes.ToPrettySize(1);
+            _previewTempValue.Text = usage.PreviewTempBytes.ToPrettySize(1);
+            _updateLeftoverValue.Text = usage.UpdateLeftoverBytes.ToPrettySize(1);
+            _dataValue.Text = usage.DataBytes.ToPrettySize(1);
+            _totalValue.Text = usage.TotalBytes.ToPrettySize(1);
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
             timer.Tick += (_, _) =>

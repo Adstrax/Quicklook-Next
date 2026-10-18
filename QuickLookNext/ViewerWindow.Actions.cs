@@ -548,12 +548,14 @@ public partial class ViewerWindow
     internal void BeginShow(IViewer matchedPlugin, string path,
         Action<string, ExceptionDispatchInfo> exceptionHandler)
     {
+        App.RecordPreviewPhase("begin-show", path);
         var showVersion = _showGate.Begin();
         _path = path;
         Plugin = matchedPlugin;
         _quiesceGate.Reset();
 
         ReplaceContextObject();
+        App.RecordPreviewPhase("context-replaced", path);
 
         // v5.0.10 (#827): hand the plugin the monitor this preview is going to
         // be shown on, so that the size it asks for and the screen the window is
@@ -562,6 +564,7 @@ public partial class ViewerWindow
         // A live lookup is used rather than a cached one: this runs on every
         // preview, right before the first placement and before Prepare below.
         ContextObject.HostDesktopSize = GetTargetDesktopSizeInDip();
+        App.RecordPreviewPhase("desktop-size", path);
 
         // v1.2.14: keep the previous content visible until the new one takes
         // over (avoids the blank gray window during switches); _staleViewerContent
@@ -581,6 +584,7 @@ public partial class ViewerWindow
 
         // Assign monitor color profile
         ContextObject.ColorProfileName = DisplayDeviceHelper.GetMonitorColorProfileFromWindow(this);
+        App.RecordPreviewPhase("color-profile", path);
 
         // v1.2.27: show the window right away (before the potentially slow
         // Prepare) so previews feel instant. Prepare can still block briefly,
@@ -612,6 +616,8 @@ public partial class ViewerWindow
             }
         }
 
+        App.RecordPreviewPhase("positioned", path);
+
         // v3.0.1: raise the preview above other windows on every open or
         // switch. The 1.2.36 off-screen warm-up makes IsVisible true before
         // the first real preview, so the old `if (!IsVisible)` guard skipped
@@ -624,6 +630,7 @@ public partial class ViewerWindow
         }), DispatcherPriority.Render);
 
         // Get the content size (and do any slow prepare work).
+        App.RecordPreviewPhase("prepare-enter", path);
         try
         {
         Plugin.Prepare(path, ContextObject);
@@ -633,6 +640,8 @@ public partial class ViewerWindow
             exceptionHandler(path, ExceptionDispatchInfo.Capture(e));
             return;
         }
+
+        App.RecordPreviewPhase("prepared", path);
 
         if (ContextObject.IsBlocked)
         {
@@ -682,7 +691,8 @@ public partial class ViewerWindow
 
         // v1.2.14: re-apply the backdrop so a change made from the tray menu
         // takes effect on the current preview (the setting is read here, not
-        // cached at startup).
+        // cached at startup). The key includes the theme, which Prepare may
+        // have changed for this preview.
         ApplyWindowBackgroundEffects();
 
         // v1.3.5: hidden test hook (/test-preview-diag) - write the backdrop
@@ -725,7 +735,9 @@ public partial class ViewerWindow
                     !string.Equals(_path, path, StringComparison.Ordinal))
                     return;
 
+                App.RecordPreviewPhase("view-enter", path);
                 matchedPlugin.View(path, ContextObject);
+                App.RecordPreviewPhase("view-done", path);
 
                 // Initialize the more menu
                 ClearMoreMenuEntries();

@@ -31,11 +31,14 @@ if ($files.Count -eq 0) {
     throw "test files are missing ($smoke) - run test.ps1 first"
 }
 
-if (Test-Path -LiteralPath $timing) {
-    Remove-Item -LiteralPath $timing -Force
-}
-if (Test-Path -LiteralPath $startup) {
-    Remove-Item -LiteralPath $startup -Force
+foreach ($diagnostic in @(
+        $timing,
+        $startup,
+        (Join-Path $smoke 'plugin-load.txt'),
+        (Join-Path $smoke 'plugin-init.txt'))) {
+    if (Test-Path -LiteralPath $diagnostic) {
+        Remove-Item -LiteralPath $diagnostic -Force
+    }
 }
 
 $p = Start-Process -FilePath $exe -ArgumentList '/autorun', '/test-timing', '/test-startup' -PassThru
@@ -115,3 +118,52 @@ if (Test-Path -LiteralPath $startup) {
         PluginsReady = if ($plugins) { "$plugins ms" } else { 'N/A' }
     } | Format-Table -AutoSize
 }
+
+function Show-PluginTiming([string]$Path, [string]$Title) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $entries = foreach ($line in Get-Content -LiteralPath $Path) {
+        $parts = $line.Split('|')
+        if ($parts.Count -lt 2) {
+            continue
+        }
+
+        try {
+            $elapsed = [long]$parts[0]
+        }
+        catch {
+            continue
+        }
+
+        [pscustomobject]@{
+            Plugin = $parts[1]
+            Stage = if ($parts.Count -ge 3) { $parts[2] } else { 'init' }
+            ElapsedMs = $elapsed
+        }
+    }
+
+    $entries = @($entries)
+    if ($entries.Count -eq 0) {
+        return
+    }
+
+    Write-Host $Title -ForegroundColor Cyan
+    $entries |
+        Group-Object Plugin |
+        ForEach-Object {
+            [pscustomobject]@{
+                Plugin = $_.Name
+                TotalMs = ($_.Group | Measure-Object ElapsedMs -Sum).Sum
+                Stages = (($_.Group | Sort-Object ElapsedMs -Descending |
+                    ForEach-Object { "$($_.Stage)=$($_.ElapsedMs)" }) -join ', ')
+            }
+        } |
+        Sort-Object TotalMs -Descending |
+        Select-Object -First 10 |
+        Format-Table -AutoSize
+}
+
+Show-PluginTiming (Join-Path $smoke 'plugin-load.txt') 'Plugin load timings (ms):'
+Show-PluginTiming (Join-Path $smoke 'plugin-init.txt') 'Plugin init timings (ms):'

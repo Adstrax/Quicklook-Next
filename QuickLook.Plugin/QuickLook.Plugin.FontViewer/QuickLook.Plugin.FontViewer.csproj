@@ -76,19 +76,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Content Include="$(NuGetPackageRoot)\FreeTypeSharp\3.1.0\runtimes\win-x64\native\freetype.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            <DestinationFolder>$(OutDir)win-x64\</DestinationFolder>
-            <Link>runtimes\win-x64\freetype.dll</Link>
-        </Content>
-        <!--<Content Include="$(NuGetPackageRoot)\FreeTypeSharp\3.1.0\runtimes\win-arm64\native\freetype.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            <DestinationFolder>$(OutDir)win-arm64\</DestinationFolder>
-            <Link>runtimes\win-arm64\freetype.dll</Link>
-        </Content>-->
-    </ItemGroup>
-
-    <ItemGroup>
         <PackageReference Include="FreeTypeSharp" Version="3.1.0" />
         <PackageReference Include="QuickLook.Typography.OpenFont" Version="1.0.1" />
         <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44">

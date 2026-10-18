@@ -19,9 +19,11 @@ using ImageMagick;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Xml;
 
 namespace QuickLook.Plugin.ImageViewer;
@@ -109,7 +111,18 @@ public partial class MetaProvider
             if (_pingSize.HasValue)
                 return _pingSize.Value;
 
-            // Fast path: header-only read via MagickImage.Ping.
+            // v6.1.1: probe with the decoder the panel itself uses (WIC). Magick.NET
+            // is a large native library; loading it here just to learn the size cost
+            // ~600 ms on the first image of a session (measured: 653 ms inside
+            // Prepare for a 1.6 KB PNG). WIC reads the header in a few milliseconds.
+            if (TryGetWicSize(_path, out var wicSize))
+            {
+                _pingSize = wicSize;
+                return wicSize;
+            }
+
+            // Fallback: header-only read via MagickImage.Ping, for the formats WIC
+            // does not have a codec for.
             try
             {
                 using var mi = new MagickImage();
@@ -135,6 +148,43 @@ public partial class MetaProvider
 
             _pingSize = new Size(w, h);
             return _pingSize.Value;
+        }
+    }
+
+    /// <summary>
+    /// Reads only the image header through WIC, the same decoder the panel uses.
+    /// <see cref="BitmapCreateOptions.DelayCreation"/> plus
+    /// <see cref="BitmapCacheOption.None"/> keep the pixels off the heap; only the
+    /// frame's dimensions are touched.
+    /// </summary>
+    private static bool TryGetWicSize(string path, out Size size)
+    {
+        size = Size.Empty;
+
+        try
+        {
+            using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var decoder = BitmapDecoder.Create(
+                stream,
+                BitmapCreateOptions.DelayCreation | BitmapCreateOptions.IgnoreColorProfile,
+                BitmapCacheOption.None);
+
+            if (decoder.Frames.Count == 0)
+                return false;
+
+            var frame = decoder.Frames[0];
+            if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0)
+                return false;
+
+            size = new Size(frame.PixelWidth, frame.PixelHeight);
+            return true;
+        }
+        catch
+        {
+            // Not a format WIC can open - the caller falls back to Magick.
+            return false;
         }
     }
 

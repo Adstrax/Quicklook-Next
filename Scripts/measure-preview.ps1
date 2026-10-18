@@ -23,10 +23,16 @@ $exe = Join-Path $root 'Build\Release\QuickLook-Next.exe'
 $smoke = Join-Path $root 'ql-smoke'
 $env:QL_SMOKE_DIR = $smoke
 $timing = Join-Path $smoke 'timing.txt'
+$phases = Join-Path $smoke 'preview-phases.txt'
 
-Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
+# Only ever close the build under test: another QuickLook-Next install on this
+# machine may be the user's real tray app, and the measurement must not kill it.
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue |
+    Where-Object { try { $_.Path -eq $exe } catch { $false } } |
+    Stop-Process -Force
 Start-Sleep -Milliseconds 800
 Remove-Item -LiteralPath $timing -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $phases -Force -ErrorAction SilentlyContinue
 
 $appArgs = @('/autorun', '/test-timing', '/test-no-focusmonitor')
 if ($Memory) { $appArgs += '/test-memory' }
@@ -82,4 +88,6 @@ if ($Memory) {
     }
 }
 
-Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue |
+    Where-Object { try { $_.Path -eq $exe } catch { $false } } |
+    Stop-Process -Force

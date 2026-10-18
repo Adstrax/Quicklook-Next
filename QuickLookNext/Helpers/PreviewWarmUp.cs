@@ -20,6 +20,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -120,6 +121,27 @@ internal static class PreviewWarmUp
     private static bool _started;
 
     /// <summary>
+    /// When the last real preview request arrived. The warm-up builds panels on the
+    /// UI thread, so a request that lands just before one of those builds would sit
+    /// behind it; the loop below waits for a quiet moment instead.
+    /// </summary>
+    private static long _lastPreviewRequestMs;
+
+    /// <summary>How long after a preview request the warm-up keeps its hands off the UI thread.</summary>
+    private static readonly TimeSpan PreviewQuiet = TimeSpan.FromMilliseconds(1200);
+
+    /// <summary>The longest the warm-up waits for that quiet moment before going ahead.</summary>
+    private static readonly TimeSpan PreviewQuietLimit = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan PreviewQuietPoll = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// Called (on the UI thread) whenever a real preview is about to be shown.
+    /// </summary>
+    internal static void NotePreviewRequested()
+        => Volatile.Write(ref _lastPreviewRequestMs, Environment.TickCount64);
+
+    /// <summary>
     /// v5.8.0: whether a call to <see cref="Start"/> from this point may begin. The normal
     /// mode prepares the families while the user is doing something else, so it starts at
     /// startup; the low memory mode has no such budget and waits for the first preview of
@@ -140,15 +162,7 @@ internal static class PreviewWarmUp
         if (!ShouldStart(afterFirstPreview))
             return;
 
-        var families = ChooseFamilies(DefaultFamilyCount);
-        if (families.Count == 0)
-            return;
-
         _started = true;
-
-        // Samples of the previous session: dropped here, while nothing can be
-        // reading them yet (see WarmUpSamples).
-        WarmUpSamples.ResetFolder();
 
         // ApplicationIdle: the work starts only once the UI thread has nothing else
         // to do, and a preview request always wins the race for the dispatcher. The
@@ -156,10 +170,35 @@ internal static class PreviewWarmUp
         Application.Current?.Dispatcher.BeginInvoke(
             new Action(async () =>
             {
+                // Reading the usage history and dropping the previous session's
+                // samples are file-system work. Keep both off the cold-start UI
+                // thread; the first family still waits its normal delay after this.
+                List<string> families;
+                try
+                {
+                    families = await Task.Run(() => ChooseFamilies(DefaultFamilyCount));
+                }
+                catch
+                {
+                    // A warm-up that cannot choose its families simply does nothing.
+                    return;
+                }
+
+                if (families.Count == 0)
+                    return;
+
+                await Task.Run(WarmUpSamples.ResetFolder);
                 await Task.Delay(FirstDelay);
 
                 foreach (var family in families)
                 {
+                    await WaitForPreviewQuietAsync();
+
+                    // A request queued while the previous family loaded must be
+                    // dispatched before the next panel build: the loop's awaits
+                    // otherwise resume at Normal priority, ahead of it.
+                    await YieldToDispatcherAsync(DispatcherPriority.Background);
+
                     try
                     {
                         await WarmOneAsync(family);
@@ -175,6 +214,46 @@ internal static class PreviewWarmUp
                 WriteDiagnostics();
             }),
             DispatcherPriority.ApplicationIdle);
+    }
+
+    /// <summary>
+    /// Waits until no preview has been requested for <see cref="PreviewQuiet"/>, so a
+    /// panel build does not hold the UI thread when someone asks for a preview.
+    /// Bounded by <see cref="PreviewQuietLimit"/>: a user who previews continuously
+    /// still gets a completed warm-up eventually.
+    /// </summary>
+    private static async Task WaitForPreviewQuietAsync()
+    {
+        var deadline = Environment.TickCount64 + (long)PreviewQuietLimit.TotalMilliseconds;
+
+        while (Environment.TickCount64 < deadline)
+        {
+            var since = Environment.TickCount64 - Volatile.Read(ref _lastPreviewRequestMs);
+            if (since >= (long)PreviewQuiet.TotalMilliseconds)
+                return;
+
+            await Task.Delay(PreviewQuietPoll);
+        }
+    }
+
+    /// <summary>
+    /// Finishes once the dispatcher has drained everything at a higher priority than
+    /// <paramref name="priority"/>. Runs on the UI thread, so a caller that awaited
+    /// from a Normal-priority continuation can let queued input and preview requests
+    /// go first.
+    /// </summary>
+    private static Task YieldToDispatcherAsync(DispatcherPriority priority)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || !dispatcher.CheckAccess() ||
+            dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return Task.CompletedTask;
+        }
+
+        var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        dispatcher.BeginInvoke(priority, new Action(() => done.TrySetResult(true)));
+        return done.Task;
     }
 
     /// <summary>

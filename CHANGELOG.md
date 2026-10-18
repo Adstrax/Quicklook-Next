@@ -7,6 +7,40 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.1.1
+
+### A faster start, a lighter first image, and a clearer cache panel
+
+6.1.1 moves the most expensive cold-start and image-preview work off the critical path, and
+finishes the cache panel with categories and safe cleanup boundaries.
+
+- **The tray appears sooner.** The preview window moved from the startup critical path to the
+  first Background turn, taking the measured startup path from 231-245 ms to 88-93 ms. The
+  window is still prepared in the background at about 230-240 ms, and a preview requested
+  earlier creates it on demand.
+- **Closing a preview no longer rebuilds it synchronously.** The next window is built on the
+  following Background turn, removing about 120 ms of UI blocking after Esc. Pressing Space
+  during that gap creates the window on demand.
+- **Warm-up yields to real previews.** Usage-history reads and sample cleanup run off the UI
+  thread, and warm-up stays out of the UI thread for 1.2 seconds after a real preview request,
+  so rapid previewing wins.
+- **Image dimensions are read from the header.** WIC reads the size first; Magick.NET is only
+  the fallback for formats WIC cannot open. Preparing a 1.6 KB PNG dropped from about 653 ms
+  to about 10 ms, and a 6000x4000 image shows in about 152 ms once the window is warm. The
+  measured size stays consistent with the pixel decode.
+- **The data/cache panel reports categories.** WebView2 cache, preview temp files, update
+  leftovers, and settings/logs are measured separately. Cleanup removes rebuildable caches
+  and preview temp items older than one day while keeping recent files, in-use files, and the
+  cache roots.
+- **Shared plugin dependencies have one copy.** Identical managed dependencies are published
+  once in the application root, packaging rejects duplicates, and FontViewer keeps exactly one
+  `freetype.dll`.
+- **Release quality.** 217 unit tests pass, the Release build has 0 warnings, and new timing
+  scripts cover startup, preview phases, and plugin loading.
+
+The remaining cost of the very first image preview is still the window's first real-size
+presentation on screen; that is the next optimization target.
+
 ## QuickLook-Next 6.1.0
 
 ### A steadier preview pipeline, with a smaller runtime

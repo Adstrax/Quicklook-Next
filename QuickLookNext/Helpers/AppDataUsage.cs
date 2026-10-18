@@ -30,9 +30,10 @@ namespace QuickLookNext.Helpers;
 /// this ("display cache data size and clearing cache").
 /// <para>
 /// Only whitelisted cache locations are ever deleted: the shader / GPU / HTTP caches inside the
-/// WebView2 profile and the leftovers of a cancelled update in %TEMP%. Sign-in data (cookies,
-/// local storage), settings, the plugin-usage statistics and the diagnostic log are never
-/// touched - they are what the dialog reports as "data".
+/// WebView2 profile, the leftovers of a cancelled update in %TEMP%, and preview temp items that
+/// have been idle for a day. Sign-in data (cookies, local storage), settings, the plugin-usage
+/// statistics and the diagnostic log are never touched - they are what the dialog reports as
+/// "data".
 /// </para>
 /// </summary>
 internal static class AppDataUsage
@@ -53,15 +54,64 @@ internal static class AppDataUsage
         Path.Combine("Default", "DawnWebGPUCache"),
     ];
 
+    /// <summary>
+    /// One folder per preview family. Office and mail use a child folder per preview; the
+    /// warm-up keeps its samples directly in the root, so both shapes are cleaned below.
+    /// </summary>
+    private static readonly string[] PreviewTempRootNames =
+    [
+        "QuickLookNext-office",
+        "QuickLookNext.Mail",
+        "QuickLookNext.WarmUp",
+    ];
+
+    /// <summary>
+    /// A preview that is merely slow is measured in seconds, not days. Keeping today's items
+    /// means a cleanup cannot pull files out from under a preview that is still reading them.
+    /// </summary>
+    private static readonly TimeSpan PreviewTempRetention = TimeSpan.FromDays(1);
+
     /// <summary>Result of a cleanup: how much was freed, and how many items were in use.</summary>
     internal readonly record struct ClearResult(long FreedBytes, int FailedItems)
     {
         internal bool Complete => FailedItems == 0;
     }
 
+    /// <summary>The app's footprint, split so the panel can explain what each cleanup touches.</summary>
+    internal readonly record struct UsageBreakdown(
+        long WebViewCacheBytes,
+        long PreviewTempBytes,
+        long UpdateLeftoverBytes,
+        long DataBytes)
+    {
+        internal long CacheBytes => WebViewCacheBytes + PreviewTempBytes + UpdateLeftoverBytes;
+
+        internal long TotalBytes => CacheBytes + DataBytes;
+    }
+
+    /// <summary>Measures every category in one pass, for the data/cache panel.</summary>
+    internal static UsageBreakdown Breakdown(string dataPath = null, string tempPath = null)
+    {
+        dataPath ??= SettingHelper.LocalDataPath;
+        tempPath ??= Path.GetTempPath();
+
+        return new UsageBreakdown(
+            MeasureExisting(WebViewCachePaths(dataPath)),
+            MeasureExisting(PreviewTempRoots(tempPath)),
+            MeasureExisting(UpdateLeftoverPaths(tempPath)),
+            DataBytes(dataPath));
+    }
+
     /// <summary>Bytes that can be deleted and rebuilt on demand.</summary>
     internal static long CacheBytes(string dataPath = null, string tempPath = null)
-        => CachePaths(dataPath, tempPath).Where(Directory.Exists).Sum(MeasurePath);
+    {
+        dataPath ??= SettingHelper.LocalDataPath;
+        tempPath ??= Path.GetTempPath();
+
+        return MeasureExisting(WebViewCachePaths(dataPath)) +
+               MeasureExisting(PreviewTempRoots(tempPath)) +
+               MeasureExisting(UpdateLeftoverPaths(tempPath));
+    }
 
     /// <summary>
     /// Bytes that are kept: settings, plugin configurations, usage statistics, the diagnostic log
@@ -73,7 +123,7 @@ internal static class AppDataUsage
         if (!Directory.Exists(dataPath))
             return 0;
 
-        var cacheInsideData = CachePaths(dataPath, tempPath: null)
+        var cacheInsideData = WebViewCachePaths(dataPath)
             .Where(path => IsUnder(dataPath, path) && Directory.Exists(path))
             .Sum(MeasurePath);
 
@@ -90,10 +140,13 @@ internal static class AppDataUsage
     /// </summary>
     internal static ClearResult ClearCache(string dataPath = null, string tempPath = null)
     {
+        dataPath ??= SettingHelper.LocalDataPath;
+        tempPath ??= Path.GetTempPath();
+
         long freed = 0;
         var failed = 0;
 
-        foreach (var path in CachePaths(dataPath, tempPath))
+        foreach (var path in WebViewCachePaths(dataPath).Concat(UpdateLeftoverPaths(tempPath)))
         {
             var isDirectory = Directory.Exists(path);
             if (!isDirectory && !File.Exists(path))
@@ -114,6 +167,33 @@ internal static class AppDataUsage
             {
                 failed++;
                 ProcessHelper.WriteLog($"Cache cleanup skipped \"{path}\": {e.Message}");
+            }
+        }
+
+        // Preview temp items are different from the caches above: the newest ones belong to a
+        // preview that may still be running. Only top-level items inside these roots are touched,
+        // and only after the full retention period - the roots themselves are never deleted.
+        foreach (var path in StalePreviewTempItems(tempPath))
+        {
+            var isDirectory = Directory.Exists(path);
+            if (!isDirectory && !File.Exists(path))
+                continue;
+
+            var size = MeasurePath(path);
+
+            try
+            {
+                if (isDirectory)
+                    Directory.Delete(path, recursive: true);
+                else
+                    File.Delete(path);
+
+                freed += size;
+            }
+            catch (Exception e)
+            {
+                failed++;
+                ProcessHelper.WriteLog($"Preview temp cleanup skipped \"{path}\": {e.Message}");
             }
         }
 
@@ -156,20 +236,74 @@ internal static class AppDataUsage
         return new ClearResult(freed, failed);
     }
 
-    private static IEnumerable<string> CachePaths(string dataPath, string tempPath)
+    private static IEnumerable<string> WebViewCachePaths(string dataPath)
     {
-        foreach (var profile in WebViewProfiles(dataPath ?? SettingHelper.LocalDataPath))
+        foreach (var profile in WebViewProfiles(dataPath))
         {
             foreach (var relative in WebViewCacheFolders)
                 yield return Path.Combine(profile, "EBWebView", relative);
         }
+    }
 
-        var temp = tempPath ?? Path.GetTempPath();
+    private static IEnumerable<string> PreviewTempRoots(string tempPath)
+    {
+        foreach (var name in PreviewTempRootNames)
+            yield return Path.Combine(tempPath, name);
+    }
+
+    private static IEnumerable<string> UpdateLeftoverPaths(string tempPath)
+    {
         // A cancelled or failed update leaves its work folder and script behind; the updater
         // deletes them at the start of the next attempt, so they are pure cache.
-        yield return Path.Combine(temp, "QuickLookNext.Update");
-        yield return Path.Combine(temp, "QuickLookNext-update.cmd");
+        yield return Path.Combine(tempPath, "QuickLookNext.Update");
+        yield return Path.Combine(tempPath, "QuickLookNext-update.cmd");
     }
+
+    private static IEnumerable<string> StalePreviewTempItems(string tempPath)
+    {
+        var cutoff = DateTime.UtcNow - PreviewTempRetention;
+
+        foreach (var root in PreviewTempRoots(tempPath))
+        {
+            string[] items;
+            try
+            {
+                if (!Directory.Exists(root))
+                    continue;
+
+                items = Directory.GetFileSystemEntries(root);
+            }
+            catch (Exception e)
+            {
+                ProcessHelper.WriteLog($"Preview temp folder \"{root}\" could not be listed: {e.Message}");
+                continue;
+            }
+
+            foreach (var item in items)
+            {
+                if (TryGetLastWriteTimeUtc(item) is { } lastWrite && lastWrite < cutoff)
+                    yield return item;
+            }
+        }
+    }
+
+    private static DateTime? TryGetLastWriteTimeUtc(string path)
+    {
+        try
+        {
+            return Directory.Exists(path)
+                ? Directory.GetLastWriteTimeUtc(path)
+                : File.GetLastWriteTimeUtc(path);
+        }
+        catch (Exception e)
+        {
+            ProcessHelper.WriteLog($"Preview temp age of \"{path}\" could not be read: {e.Message}");
+            return null;
+        }
+    }
+
+    private static long MeasureExisting(IEnumerable<string> paths)
+        => paths.Where(path => Directory.Exists(path) || File.Exists(path)).Sum(MeasurePath);
 
     private static IEnumerable<string> WebViewProfiles(string dataPath)
     {

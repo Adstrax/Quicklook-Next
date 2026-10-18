@@ -83,6 +83,12 @@ public partial class ViewerWindow : Window
     // unchanged backdrop is applied only once.
     private string _lastBackgroundKey;
 
+    /// <summary>
+    /// v6.1.1: WPF exposes no IsClosed. The manager keeps the closed instance for one
+    /// Background turn (see ViewWindowManager), so it needs a way to tell it apart.
+    /// </summary>
+    internal bool IsClosedWindow { get; private set; }
+
     internal ViewerWindow()
     {
         // v1.3.1: Win11's DWM SystembackdropType.Acrylic renders a solid tint
@@ -105,8 +111,10 @@ public partial class ViewerWindow : Window
         _contextLease = new PreviewContextLease(
             this, ContextObject_PropertyChanged, ApplyResizeRequest);
         ContextObject = _contextLease.Initialize(Themes.None);
+        App.RecordStartupPhase("viewer-ctor-context");
 
         InitializeComponent();
+        App.RecordStartupPhase("viewer-ctor-xaml");
 
         // v1.2.1: start with the user's saved light/dark choice (None = follow system).
         ContextObject.Theme = (Themes)SettingHelper.Get(
@@ -115,6 +123,7 @@ public partial class ViewerWindow : Window
         _autoReload = SettingHelper.Get("AutoReload", false);
 
         Icon = (App.IsWin10 ? Properties.Resources.app_white_png : Properties.Resources.app_png).ToBitmapSource();
+        App.RecordStartupPhase("viewer-ctor-icon");
 
         FontFamily = new FontFamily(TranslationHelper.Get("UI_FontFamily", failsafe: "Segoe UI"));
 
@@ -151,6 +160,9 @@ public partial class ViewerWindow : Window
 
         Closed += (_, _) =>
         {
+            // v6.1.1: WPF has no IsClosed, but the manager now keeps the closed
+            // instance until its Background rebuild, and must not Show it again.
+            IsClosedWindow = true;
             // v5.2.0: SystemEvents is process wide - the window must let go of it.
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             StopTopBarPolling();
@@ -407,6 +419,9 @@ public partial class ViewerWindow : Window
             return;
 
         _lastBackgroundKey = key;
+        // Only the acrylic branches set this back to true; every other material
+        // (opaque preview, transparency off, Mica) must not report a stale success.
+        _lastAcrylicOk = false;
 
         if (useTransparency)
         {

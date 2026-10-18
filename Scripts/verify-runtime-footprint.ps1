@@ -38,7 +38,16 @@ $sharedRuntime = @(
     'Microsoft.Web.WebView2.Core.dll',
     'Microsoft.Web.WebView2.Wpf.dll',
     'Microsoft.Web.WebView2.WinForms.dll',
-    'WebView2Loader.dll'
+    'WebView2Loader.dll',
+    'PureSharpCompress.dll',
+    'UtfUnknown.dll',
+    'Newtonsoft.Json.dll',
+    'MiniExcel.dll',
+    'System.ComponentModel.Composition.dll',
+    'ICSharpCode.SharpZipLib.dll',
+    'Microsoft.Extensions.Logging.Abstractions.dll',
+    'Microsoft.Extensions.DependencyInjection.Abstractions.dll',
+    'UnblockZoneIdentifier.dll'
 )
 
 foreach ($name in $sharedRuntime) {
@@ -54,4 +63,12 @@ foreach ($name in $sharedRuntime) {
     }
 }
 
-Write-Host 'Runtime footprint check passed: no WinRT projection or duplicated shared runtime.'
+$fontRoot = Join-Path $ReleasePath 'QuickLook.Plugin\QuickLook.Plugin.FontViewer'
+if (Test-Path -LiteralPath $fontRoot) {
+    $fontCopies = @(Get-ChildItem -LiteralPath $fontRoot -Recurse -File -Filter 'freetype.dll')
+    if ($fontCopies.Count -ne 1 -or $fontCopies[0].Directory.FullName -ne (Get-Item -LiteralPath $fontRoot).FullName) {
+        throw "Runtime footprint check failed: FontViewer must keep exactly one flattened freetype.dll."
+    }
+}
+
+Write-Host 'Runtime footprint check passed: no WinRT projection or duplicated shared runtime/plugin dependency.'

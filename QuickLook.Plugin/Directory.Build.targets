@@ -27,6 +27,34 @@
   </Target>
 
   <!--
+    A managed dependency that every affected plugin uses at exactly the same
+    version belongs in the application root, not in each plugin folder.
+    The first plugin to build publishes its copy there; later builds verify the
+    bytes match and then drop their own copy. A version mismatch is a build
+    error instead of silently binding one plugin to another plugin's assembly.
+
+    SQLite is intentionally absent: DbViewer and ImageViewer currently carry
+    different Microsoft.Data.Sqlite / SQLitePCLRaw versions.
+  -->
+  <PropertyGroup>
+    <SharedPluginDependencyNames>PureSharpCompress.dll,UtfUnknown.dll,Newtonsoft.Json.dll,MiniExcel.dll,System.ComponentModel.Composition.dll,ICSharpCode.SharpZipLib.dll,Microsoft.Extensions.Logging.Abstractions.dll,Microsoft.Extensions.DependencyInjection.Abstractions.dll,UnblockZoneIdentifier.dll</SharedPluginDependencyNames>
+  </PropertyGroup>
+
+  <Target Name="ShareExactPluginDependencies" AfterTargets="Build"
+          Condition="Exists('$(OutputPath)PureSharpCompress.dll') or
+                     Exists('$(OutputPath)UtfUnknown.dll') or
+                     Exists('$(OutputPath)Newtonsoft.Json.dll') or
+                     Exists('$(OutputPath)MiniExcel.dll') or
+                     Exists('$(OutputPath)System.ComponentModel.Composition.dll') or
+                     Exists('$(OutputPath)ICSharpCode.SharpZipLib.dll') or
+                     Exists('$(OutputPath)Microsoft.Extensions.Logging.Abstractions.dll') or
+                     Exists('$(OutputPath)Microsoft.Extensions.DependencyInjection.Abstractions.dll') or
+                     Exists('$(OutputPath)UnblockZoneIdentifier.dll')">
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -file &quot;$(MSBuildThisFileDirectory)..\Scripts\share-plugin-dependency.ps1&quot; -ProjectDir &quot;$(MSBuildProjectDirectory)&quot; -Configuration &quot;$(Configuration)&quot; -Names &quot;$(SharedPluginDependencyNames)&quot;" />
+  </Target>
+
+  <!--
     flatten-native.ps1 runs after Build and copies the loader into each
     plugin's runtimes\<rid>\native folder. The application root already has the
     loader for the build's own architecture, so those nested copies are dead

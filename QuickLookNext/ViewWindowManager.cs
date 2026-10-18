@@ -44,17 +44,38 @@ public class ViewWindowManager : IDisposable
 
     internal ViewWindowManager()
     {
-        // v3.40.0: build and warm the preview window right here, before the keyboard
-        // hook, the tray menu and the pipe server start accepting requests, instead
-        // of at ApplicationIdle. The window is built either way - the difference is
-        // who waits for it. At ApplicationIdle the first preview of a session (the
-        // one asked for right after login) arrived while the window was still being
-        // created and waited for it; here it happens while nothing can ask yet, at
-        // the cost of the tray icon appearing ~0.3 s later.
-        InitNewViewerWindow();
+        // v3.40.0 used to build the window here, inside RunListener, so the first
+        // preview of a session would never wait for it.
+        // v6.1.1: measurement showed that construction is ~170 ms on its own and
+        // was the whole remaining cold-start cost (plugins finish at ~66 ms, the
+        // window at ~234 ms). Nothing can ask for a preview before the message
+        // loop is running, so the window is built on the first Background turn
+        // instead: the tray icon appears while the window is still being parsed,
+        // and any preview requested before it exists builds it on demand through
+        // EnsureViewerWindow - the same path a preview uses after a close.
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null)
+        {
+            InitNewViewerWindow();
+            return;
+        }
+
+        dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            // The app can be asked to exit before this turn runs; building a
+            // window after the dispatcher is gone would throw on shutdown.
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                return;
+
+            EnsureViewerWindow();
+            App.RecordStartupPhase("after-deferred-viewer-window");
+        }));
     }
 
-    internal ViewerWindow CurrentViewerWindow => _viewerWindow;
+    // v6.1.1: the closed instance survives one Background turn before its rebuild;
+    // callers must not treat it as the live preview window.
+    internal ViewerWindow CurrentViewerWindow =>
+        _viewerWindow is { IsClosedWindow: false } ? _viewerWindow : null;
 
     /// <summary>
     /// v5.6.9: the file being previewed, empty when nothing is. The mouse hook asks this instead of the
@@ -67,11 +88,16 @@ public class ViewWindowManager : IDisposable
     /// shown - a handle that does not exist cannot be under the cursor.
     /// </summary>
     internal nint PreviewWindowHandle =>
-        _viewerWindow == null ? IntPtr.Zero : new System.Windows.Interop.WindowInteropHelper(_viewerWindow).Handle;
+        _viewerWindow == null || _viewerWindow.IsClosedWindow
+            ? IntPtr.Zero
+            : new System.Windows.Interop.WindowInteropHelper(_viewerWindow).Handle;
 
     private ViewerWindow EnsureViewerWindow()
     {
-        if (_viewerWindow == null)
+        // v6.1.1: a closed window is rebuilt on the next Background turn (see the
+        // Closed handler), so between the close and that turn the field still holds
+        // the closed instance. Showing it again would throw.
+        if (_viewerWindow == null || _viewerWindow.IsClosedWindow)
             InitNewViewerWindow();
 
         return _viewerWindow;
@@ -249,6 +275,11 @@ public class ViewWindowManager : IDisposable
         if (!isDirectory && !ExtensionFilterHelper.IsExtensionAllowed(path))
             return;
 
+        // v6.1.1: a real preview is the work that matters; the background warm-up
+        // must not queue a panel build in front of it (see PreviewWarmUp).
+        Helpers.PreviewWarmUp.NotePreviewRequested();
+        App.RecordPreviewPhase("request", path);
+
         var switching = window.IsVisible && !string.IsNullOrEmpty(_invokedPath);
         if (switching)
             window.QuiescePreview();
@@ -304,6 +335,7 @@ public class ViewWindowManager : IDisposable
         if (requestVersion != _previewRequestVersion || _invokedPath != path)
             return;
 
+        App.RecordPreviewPhase("matched", path);
         BeginShowNewWindow(path, matchedPlugin, requestVersion);
     }
 
@@ -322,6 +354,8 @@ public class ViewWindowManager : IDisposable
         // Check extension filtering before proceeding (skip for directories)
         if (!isDirectory && !ExtensionFilterHelper.IsExtensionAllowed(path))
             return;
+
+        Helpers.PreviewWarmUp.NotePreviewRequested();
 
         RunFocusMonitor();
 
@@ -351,6 +385,8 @@ public class ViewWindowManager : IDisposable
         if (!window.IsVisible || string.IsNullOrEmpty(_invokedPath))
             return;
 
+        Helpers.PreviewWarmUp.NotePreviewRequested();
+
         window.QuiescePreview();
         var requestVersion = ++_previewRequestVersion;
         _ = BeginShowAsync(_invokedPath, requestVersion);
@@ -374,6 +410,7 @@ public class ViewWindowManager : IDisposable
         // fallback after a failure. Keep the toggle state true even if parking the
         // failed preview cleared it a moment ago.
         _invokedPath = path;
+        App.RecordPreviewPhase("show", path);
 
         if (App.IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Snapshot("preview-open");
@@ -428,6 +465,7 @@ public class ViewWindowManager : IDisposable
 private void InitNewViewerWindow()
 {
     _viewerWindow = new ViewerWindow();
+    App.RecordStartupPhase("after-viewer-window-ctor");
     _viewerWindow.Closed += (sender, e) =>
         {
             if (ProcessHelper.IsShuttingDown())
@@ -445,7 +483,29 @@ private void InitNewViewerWindow()
         _invokedPath = string.Empty;
         _session.Closed(Environment.TickCount64);
         StopFocusMonitor();
-        InitNewViewerWindow();
+
+        // v6.1.1: rebuilding here cost ~120 ms of UI thread inside the close, right
+        // after Esc. The next window is built on the next Background turn instead;
+        // a Space pressed before that builds it through EnsureViewerWindow.
+        var closedWindow = w;
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            InitNewViewerWindow();
+            return;
+        }
+
+        dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                return;
+
+            // A preview already asked for a window in the meantime.
+            if (!ReferenceEquals(_viewerWindow, closedWindow))
+                return;
+
+            InitNewViewerWindow();
+        }));
         };
 
     // v1.2.36: warm up the first Show during startup idle, off-screen, so the
@@ -459,6 +519,7 @@ private void InitNewViewerWindow()
     // of no previews.
     if (_session.ShouldWarm(Helpers.StartupWarmUp.IsLowMemoryMode))
         _viewerWindow.WarmUp();
+    App.RecordStartupPhase("after-viewer-window-warmup");
 
     ArmSessionTimer();
 }

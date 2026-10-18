@@ -658,6 +658,58 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// /test-startup diagnostic: separates an eager or lazy plugin's assembly load,
+    /// type inspection and instance creation. A plugin that looks slow in the total
+    /// startup phase can then be attributed to one of those three costs.
+    /// </summary>
+    internal static void RecordPluginLoadPhase(string pluginName, string stage, long elapsedMs)
+    {
+        if (!IsStartupTimingEnabled)
+            return;
+
+        try
+        {
+            // Plugins load in parallel; one line per stage keeps the file parseable.
+            lock (StartupDiagLock)
+            {
+                var dir = SmokeDir;
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(
+                    Path.Combine(dir, "plugin-load.txt"),
+                    $"{elapsedMs}|{pluginName}|{stage}{Environment.NewLine}");
+            }
+        }
+        catch
+        {
+            // The hook is for measurement only; never break startup.
+        }
+    }
+
+    /// <summary>
+    /// /test-timing diagnostic: one line per preview stage, with the UTC timestamp
+    /// and the file being previewed, so a slow "request -> ready" number can be
+    /// attributed to plugin matching, Prepare, View or the first layout.
+    /// </summary>
+    internal static void RecordPreviewPhase(string stage, string path)
+    {
+        if (!IsTimingEnabled)
+            return;
+
+        try
+        {
+            var dir = SmokeDir;
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(
+                Path.Combine(dir, "preview-phases.txt"),
+                $"{DateTime.UtcNow:o}|{stage}|{path}{Environment.NewLine}");
+        }
+        catch
+        {
+            // The hook is for measurement only; never break a preview.
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _lifetimeCts.Cancel();
@@ -871,22 +923,38 @@ public partial class App : Application
 
     private void RunListener(StartupEventArgs e)
     {
+        RecordStartupPhase("runlistener-begin");
+
         TrayIconManager.Start();
+        RecordStartupPhase("after-tray-start");
+
         if (!e.Args.Contains("/autorun") && !IsUWP)
             TrayIconManager.ShowNotification(string.Empty, TranslationHelper.Get("APP_START"));
+        RecordStartupPhase("after-tray-notification");
+
         if (e.Args.Contains("/first"))
             AutoStartupHelper.CreateAutorunShortcut();
 
         NativeMethods.QuickLookNext.Init();
+        RecordStartupPhase("after-native-init");
 
         PluginManager.GetInstance();
+        RecordStartupPhase("after-plugin-manager");
+
         ViewWindowManager.GetInstance();
+        RecordStartupPhase("after-view-window-manager");
+
         KeystrokeDispatcher.GetInstance();
+        RecordStartupPhase("after-keyboard-hook");
+
         // v5.6.9: the mouse hook belongs to the process, not to the preview window - the middle button
         // has to work before anything has been previewed, and the window only exists after that (see
         // PreviewMouseHook).
         Helpers.PreviewMouseHook.GetInstance();
+        RecordStartupPhase("after-mouse-hook");
+
         PipeServerManager.GetInstance();
+        RecordStartupPhase("after-pipe-server");
 
         // v5.6.1: keep the plugin catalogue fresh without waiting for someone to
         // open the panel and press refresh - one ~30 KB request in the
