@@ -34,9 +34,19 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
     [
         ".doc", ".docx", ".docm", ".odt",
         ".xls", ".xlsx", ".xlsm", ".xlsb", ".ods",
-        ".ppt", ".pptx", ".odp",
+        ".ppt", ".pptx", ".pptm", ".odp",
         ".vsd", ".vsdx",
     ];
+
+    // Presentations keep the self-rendered rail and continuous scrolling. If
+    // that renderer cannot parse the deck, use PowerPoint's system preview
+    // handler as a last resort because it understands the complete OOXML
+    // drawing model.
+    private static readonly HashSet<string> PresentationExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pptx",
+        ".pptm",
+    };
 
     // v3.12.0-v3.15.0: OOXML formats rendered by our own panels instead of the
     // Windows system preview component (rounded corners / acrylic / theme).
@@ -46,8 +56,6 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         ".xlsm",
         ".docx",
         ".docm",
-        ".pptx",
-        ".pptm",
     };
 
     private object _panel;
@@ -69,11 +77,14 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         if (!Extensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
             return false;
 
-        // Self-rendered formats do not depend on a registered system handler.
-        if (SelfRenderedExtensions.Contains(Path.GetExtension(path)))
+        // These formats always have a working viewer: presentations fall back
+        // to their system handler only when our renderer cannot open the deck.
+        var extension = Path.GetExtension(path);
+        if (SelfRenderedExtensions.Contains(extension) ||
+            PresentationExtensions.Contains(extension))
             return true;
 
-        var previewHandler = ShellExRegister.GetPreviewHandlerGUID(Path.GetExtension(path));
+        var previewHandler = ShellExRegister.GetPreviewHandlerGUID(extension);
         if (previewHandler == Guid.Empty)
             return false;
 
@@ -162,36 +173,11 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
 
     public void View(string path, ContextObject context)
     {
-        // v3.12.0-v3.15.0: self-rendered OOXML - no system component, so the
-        // preview inherits the app's backdrop / corners / theme.
         var extension = Path.GetExtension(path);
-        if (SelfRenderedExtensions.Contains(extension))
+        if (SelfRenderedExtensions.Contains(extension) ||
+            PresentationExtensions.Contains(extension))
         {
-            if (extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase) ||
-                extension.Equals(".xlsm", StringComparison.OrdinalIgnoreCase))
-            {
-                _panel = new SpreadsheetPanel(path);
-                context.ViewerContent = (UIElement)_panel;
-                context.Title = Path.GetFileName(path);
-            }
-            else if (extension.Equals(".docx", StringComparison.OrdinalIgnoreCase) ||
-                extension.Equals(".docm", StringComparison.OrdinalIgnoreCase))
-            {
-                _panel = new DocumentPanel(path);
-                context.ViewerContent = (UIElement)_panel;
-                context.Title = Path.GetFileName(path);
-            }
-            else
-            {
-                _panel = new PresentationPanel(path);
-                context.ViewerContent = (UIElement)_panel;
-                context.Title = Path.GetFileName(path);
-            }
-
-            // v3.25.0: parsing runs off the UI thread, but the busy spinner
-            // made previews *feel* slower. Clear it immediately; the rendered
-            // page simply appears when ready.
-            context.IsBusy = false;
+            ShowSelfRendered(path, extension, context);
             return;
         }
 
@@ -245,10 +231,82 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
             _panel = previewPanel;
             context.ViewerContent = previewPanel;
             context.Title = Path.GetFileName(path);
-            previewPanel.PreviewFile(path, context);
+            if (!previewPanel.PreviewFile(path, context))
+            {
+                throw new InvalidOperationException(
+                    "The registered preview handler could not open this file.");
+            }
         }
         catch (Exception e)
         {
+            context.ViewerContent = new Label()
+            {
+                Content = e.ToString(),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+        }
+
+        context.IsBusy = false;
+    }
+
+    private void ShowSelfRendered(string path, string extension, ContextObject context)
+    {
+        if (extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".xlsm", StringComparison.OrdinalIgnoreCase))
+        {
+            _panel = new SpreadsheetPanel(path);
+        }
+        else if (extension.Equals(".docx", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".docm", StringComparison.OrdinalIgnoreCase))
+        {
+            _panel = new DocumentPanel(path);
+        }
+        else
+        {
+            PresentationPanel presentation = null;
+            presentation = new PresentationPanel(
+                path,
+                _ =>
+                {
+                    if (ReferenceEquals(_panel, presentation))
+                        ShowNativePresentationFallback(path, context);
+                });
+            _panel = presentation;
+        }
+
+        context.ViewerContent = (UIElement)_panel;
+        context.Title = Path.GetFileName(path);
+
+        // Parsing runs off the UI thread; the rendered page simply appears
+        // when ready instead of holding a busy spinner over the preview.
+        context.IsBusy = false;
+    }
+
+    private void ShowNativePresentationFallback(string path, ContextObject context)
+    {
+        if (_panel is PresentationPanel failedPanel)
+            failedPanel.Dispose();
+
+        _panel = null;
+
+        try
+        {
+            var previewPanel = new PreviewPanel();
+            _panel = previewPanel;
+            context.ViewerContent = previewPanel;
+            context.Title = Path.GetFileName(path);
+
+            if (!previewPanel.PreviewFile(path, context))
+                throw new InvalidOperationException(
+                    "Neither the self-rendered nor the native preview could open this presentation.");
+        }
+        catch (Exception e)
+        {
+            if (_panel is PreviewPanel failedPreview)
+                failedPreview.Dispose();
+
+            _panel = null;
             context.ViewerContent = new Label()
             {
                 Content = e.ToString(),

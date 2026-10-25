@@ -7,6 +7,30 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.3.1
+
+### PowerPoint drawings are restored, with a native safety net
+
+6.3.1 is a focused PowerPoint release. It keeps the self-rendered preview and its
+cleaner interface, but expands the amount of the presentation drawing model that
+can be reproduced without Microsoft Office.
+
+- **Decks scroll continuously and the rail follows.** All slides form one vertical
+  deck, mouse-wheel movement carries through page boundaries, and the slide list
+  updates as the visible page changes.
+- **More slide content is drawn.** Shape groups, picture fills and crops, rotations,
+  transparency, duotone effects, gradients, preset and custom vector geometry,
+  straight/bent/curved connectors, arrowheads, charts, tables, and precomputed
+  SmartArt shapes and text are now rendered in the custom view.
+- **PowerPoint preview has a fallback.** PPTX and PPTM files use the custom renderer
+  first. If its page cannot be created or WebView2 cannot start, QuickLook Next
+  switches to the registered native PowerPoint preview handler instead of showing
+  a broken page.
+- **Release quality.** 329 unit tests pass with a Release build of 0 warnings and
+  0 errors. The new coverage exercises inherited layout data, picture relationships,
+  vector drawing, connectors, charts, tables, SmartArt text geometry, and viewer
+  routing.
+
 ## QuickLook-Next 6.3.0
 
 ### PowerPoint content is back, and first-time plugin installation works

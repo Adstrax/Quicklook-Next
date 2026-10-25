@@ -83,19 +83,10 @@ public class PreviewHandlerHost : Control
     /// </summary>
     protected override void Dispose(bool disposing)
     {
-        UnloadPreviewHandler();
+        ReleaseCurrentPreviewHandler();
 
         _fileStream?.Dispose();
         _fileStream = null;
-
-        if (_mCurrentPreviewHandler != null)
-        {
-            Marshal.FinalReleaseComObject(_mCurrentPreviewHandler);
-            _mCurrentPreviewHandler = null;
-            // Release the RCW without blocking the UI thread (prevents a
-            // visible freeze when switching away from an Office preview).
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
-        }
 
         base.Dispose(disposing);
     }
@@ -128,7 +119,7 @@ public class PreviewHandlerHost : Control
     /// </summary>
     public bool Open(string path)
     {
-        UnloadPreviewHandler();
+        ReleaseCurrentPreviewHandler();
         _fileStream?.Dispose();
         _fileStream = null;
 
@@ -205,11 +196,22 @@ public class PreviewHandlerHost : Control
         }
 
         if (IsDisposed)
+        {
+            ReleaseCurrentPreviewHandler();
             return false;
+        }
 
-        var r = ClientRectangle;
-        _mCurrentPreviewHandler.SetWindow(Handle, ref r);
-        _mCurrentPreviewHandler.DoPreview();
+        try
+        {
+            var r = ClientRectangle;
+            _mCurrentPreviewHandler.SetWindow(Handle, ref r);
+            _mCurrentPreviewHandler.DoPreview();
+        }
+        catch
+        {
+            ReleaseCurrentPreviewHandler();
+            return false;
+        }
 
         return true;
     }
@@ -227,6 +229,36 @@ public class PreviewHandlerHost : Control
         {
             // ignored
         }
+    }
+
+    private void ReleaseCurrentPreviewHandler()
+    {
+        var handler = _mCurrentPreviewHandler;
+        _mCurrentPreviewHandler = null;
+        if (handler == null)
+            return;
+
+        try
+        {
+            handler.Unload();
+        }
+        catch
+        {
+            // The handler may already have closed its out-of-process host.
+        }
+
+        try
+        {
+            Marshal.FinalReleaseComObject(handler);
+        }
+        catch
+        {
+            // A failed preview must still be disposable.
+        }
+
+        // Release the RCW without blocking the UI thread when switching away
+        // from an Office preview.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false);
     }
 
     /// <summary>

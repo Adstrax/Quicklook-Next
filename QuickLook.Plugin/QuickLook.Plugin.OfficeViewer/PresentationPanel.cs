@@ -7,11 +7,15 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
+using System;
+using System.Text.Json;
+
 namespace QuickLook.Plugin.OfficeViewer;
 
 /// <summary>
-/// v3.12.0: the page for a .pptx/.pptm. v5.7.0: the rail lists the slides, and picking one shows that
-/// slide - the deck is not one long scroll any more.
+/// v3.12.0: the page for a .pptx/.pptm. v5.7.0 added the slide rail. v6.3.1
+/// restores one continuous deck: the wheel moves from slide to slide, while the
+/// rail remains a direct way to jump to any page.
 /// </summary>
 public sealed class PresentationPanel : OfficePanelBase
 {
@@ -22,8 +26,10 @@ public sealed class PresentationPanel : OfficePanelBase
     private static readonly System.Windows.Media.Color SlideDesk =
         System.Windows.Media.Color.FromRgb(0xF3, 0xF3, 0xF3);
 
-    public PresentationPanel(string path) : base(SlideDesk)
+    public PresentationPanel(string path, Action<Exception> renderFailureFallback = null) : base(SlideDesk)
     {
+        RenderFailureFallback = renderFailureFallback;
+
         // v6.1.2: reuse the parsed deck and its slide pictures across side-button switches.
         NavigateAsync(() => OfficePanelCache.Get(
             path,
@@ -35,6 +41,26 @@ public sealed class PresentationPanel : OfficePanelBase
         if (index < 0 || index >= Navigation.Count)
             return;
 
-        RunScript($"showSlide({index})");
+        RunScript($"scrollSlide({index})");
+    }
+
+    protected override void OnWebMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        try
+        {
+            using var json = JsonDocument.Parse(message);
+            if (json.RootElement.TryGetProperty("type", out var type) &&
+                type.GetString() == "slide" &&
+                json.RootElement.TryGetProperty("index", out var index))
+                SelectNavigation(index.GetInt32());
+        }
+        catch (JsonException)
+        {
+            // The web surface only carries navigation hints; malformed messages
+            // must never interrupt scrolling.
+        }
     }
 }

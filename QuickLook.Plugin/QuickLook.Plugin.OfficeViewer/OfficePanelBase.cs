@@ -59,6 +59,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     private bool _suppressRail;
     private bool _quiesced;
     private bool _disposed;
+    private bool _reportedRenderFailure;
 
     /// <summary>
     /// v5.7.1: <paramref name="surface"/> is the colour of the page this panel is about to show - the sheet
@@ -131,6 +132,13 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         else
             Loaded += (_, _) => WarmUpCore();
     }
+
+    /// <summary>
+    /// An optional last-resort renderer supplied by the owning plugin. A
+    /// presentation uses it when the self-rendered page cannot be parsed or
+    /// when WebView2 itself cannot start.
+    /// </summary>
+    internal Action<Exception> RenderFailureFallback { get; set; }
 
     /// <summary>
     /// v5.7.1: brings the Chromium controller up ahead of the page. This is only a head start - a failure is
@@ -271,6 +279,27 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     {
     }
 
+    /// <summary>
+    /// v6.3.1: the page can report which slide is on screen while the user
+    /// scrolls. Selecting that row here does not navigate back into the page.
+    /// </summary>
+    protected void SelectNavigation(int index)
+    {
+        if (index < 0 || index >= _rail.Items.Count || _rail.SelectedIndex == index)
+            return;
+
+        _suppressRail = true;
+        try
+        {
+            _rail.SelectedIndex = index;
+            _rail.ScrollIntoView(_rail.Items[index]);
+        }
+        finally
+        {
+            _suppressRail = false;
+        }
+    }
+
     /// <summary>v5.7.0: runs JavaScript in the page, ignoring failures (the surface is decoration).</summary>
     protected void RunScript(string script)
     {
@@ -352,7 +381,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
                 if (attempt == attempts)
                 {
-                    ShowInitializationFailure();
+                    ReportRenderFailure(e, initializationFailure: true);
                     return;
                 }
 
@@ -476,7 +505,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
                 if (t.IsFaulted || t.Result is null)
                 {
-                    Navigate(ErrorHtml(t.Exception));
+                    ReportRenderFailure(t.Exception);
                     return;
                 }
 
@@ -522,6 +551,32 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         }
 
         NavigatePage(content.Html);
+    }
+
+    private void ReportRenderFailure(Exception error, bool initializationFailure = false)
+    {
+        if (_disposed || _reportedRenderFailure)
+            return;
+
+        _reportedRenderFailure = true;
+        var fallback = RenderFailureFallback;
+        if (fallback is not null)
+        {
+            try
+            {
+                fallback(error);
+                return;
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine($"[OfficePanel] fallback renderer failed: {e.Message}");
+            }
+        }
+
+        if (initializationFailure)
+            ShowInitializationFailure();
+        else
+            Navigate(ErrorHtml(error));
     }
 
     public void Dispose()

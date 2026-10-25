@@ -39,11 +39,18 @@ public class PreviewPanel : WindowsFormsHost, IDisposable
         });
     }
 
-    public void PreviewFile(string file, ContextObject context)
+    public bool PreviewFile(string file, ContextObject context)
     {
         _control = new PreviewHandlerHost();
         Child = _control;
-        _control.Open(file);
+
+        if (_control.Open(file))
+            return true;
+
+        Child = null;
+        _control.Dispose();
+        _control = null;
+        return false;
     }
 
     [DllImport("user32.dll")]
