@@ -7,6 +7,29 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.3.0
+
+### PowerPoint content is back, and first-time plugin installation works
+
+6.3.0 fixes two regressions that could make supported files appear broken: PowerPoint slides
+that rely on inherited placeholder definitions, and the first plugin installed into a fresh
+portable profile.
+
+- **PowerPoint placeholders inherit their real layout.** Titles and body text now take position,
+  size, font size, colour and alignment from the slide layout and master when the slide does
+  not repeat those values. This restores the text that was previously dropped, including
+  layouts that inherit their geometry from the master.
+- **PowerPoint relationships resolve correctly.** Slide, layout, master and picture targets are
+  resolved relative to their owning package part, so title-page content and slide images are
+  included. Picture caching now uses the resolved package path, preventing two slides that both
+  use `rId1` from showing each other's image.
+- **The first plugin installation succeeds.** The installer now creates the missing
+  `UserData\QuickLook.Plugin` folder before moving the verified package into place. Previously
+  the download and hash could pass, then installation failed with `DirectoryNotFoundException`.
+- **Release quality.** 328 unit tests pass with a Release build of 0 warnings and 0 errors. New
+  coverage exercises inherited PowerPoint geometry and styles, relative picture relationships,
+  cross-slide image isolation, and installation into a fresh portable profile.
+
 ## QuickLook-Next 6.2.1
 
 ### A stable Data & cache backdrop and a clearer action row

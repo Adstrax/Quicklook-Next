@@ -262,8 +262,15 @@ internal static class PluginInstallService
     /// recoverable. A crash between the two moves is repaired on the next start:
     /// the backup is restored when the target is missing, otherwise it is removed.
     /// </summary>
-    private static void ReplaceInstalledPlugin(string stagingFolder, string targetFolder)
+    internal static void ReplaceInstalledPlugin(string stagingFolder, string targetFolder)
     {
+        // A fresh portable profile has UserData but not UserData\QuickLook.Plugin
+        // yet. Directory.Move does not create the destination's parent, and its
+        // DirectoryNotFound exception used to make every first plugin install fail.
+        var targetParent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(targetFolder));
+        if (!string.IsNullOrEmpty(targetParent))
+            Directory.CreateDirectory(targetParent);
+
         string backup = null;
 
         if (Directory.Exists(targetFolder))

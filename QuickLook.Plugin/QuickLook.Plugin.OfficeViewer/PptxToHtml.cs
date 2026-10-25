@@ -85,7 +85,7 @@ internal static class PptxToHtml
                     if (rid is null || !presRels.TryGetValue(rid, out var entry))
                         continue;
 
-                    var slidePath = "ppt/" + Part(entry).TrimStart('/');
+                    var slidePath = Part(entry).TrimStart('/');
                     var title = SlideToHtml(context, slidePath, slideW, slideH, count, slides);
                     outline.Add(new OfficeNavEntry(
                         string.IsNullOrEmpty(title) ? $"Slide {count}" : $"{count}  {title}",
@@ -147,6 +147,9 @@ internal static class PptxToHtml
         var masterRels = masterPath is null
             ? new Dictionary<string, string>()
             : ReadRels(archive, RelsPathFor(masterPath));
+        var layoutPlaceholders = PlaceholderShapes(layout?.Root?.Element(P + "cSld")?.Element(P + "spTree"));
+        var masterPlaceholders = PlaceholderShapes(master?.Root?.Element(P + "cSld")?.Element(P + "spTree"));
+        var slidePlaceholders = layoutPlaceholders.Concat(masterPlaceholders).ToArray();
 
         var background = BackgroundCss(cSld, rels, context)
             ?? BackgroundCss(layout?.Root?.Element(P + "cSld"), layoutRels, context)
@@ -165,12 +168,16 @@ internal static class PptxToHtml
         {
             var tree = layer.Root?.Element(P + "spTree");
             if (tree is not null)
-                WalkShapes(context, tree, layer.Rels, Xform.Identity, shapes, true);
+                WalkShapes(
+                    context, tree, layer.Rels, Xform.Identity, shapes, true,
+                    layer.Root == layout?.Root?.Element(P + "cSld") ? masterPlaceholders : null,
+                    master?.Root);
         }
 
         var slideTree = cSld?.Element(P + "spTree");
         if (slideTree is not null)
-            WalkShapes(context, slideTree, new Dictionary<string, string>(), Xform.Identity, shapes, false);
+            WalkShapes(
+                context, slideTree, rels, Xform.Identity, shapes, false, slidePlaceholders, master?.Root);
 
         var title = FirstText(slide.Root) ?? FirstText(layout?.Root);
 
@@ -213,39 +220,69 @@ internal static class PptxToHtml
         Dictionary<string, string> rels,
         Xform transform,
         StringBuilder sb,
-        bool designLayer)
+        bool designLayer,
+        IReadOnlyList<XElement> inheritedPlaceholders = null,
+        XElement masterRoot = null)
     {
         foreach (var node in container.Elements())
         {
             if (node.Name == P + "sp")
-                sb.Append(ShapeToHtml(context, node, rels, transform, designLayer));
+                sb.Append(ShapeToHtml(
+                    context, node, rels, transform, designLayer, inheritedPlaceholders, masterRoot));
             else if (node.Name == P + "pic")
                 sb.Append(PictureToHtml(context, node, rels, transform));
             else if (node.Name == P + "graphicFrame")
                 sb.Append(GraphicFrameToHtml(context, node, rels, transform));
             else if (node.Name == P + "grpSp")
-                WalkShapes(context, node, rels, transform.Compose(node.Element(P + "grpSpPr")), sb, designLayer);
+                WalkShapes(
+                    context, node, rels, transform.Compose(node.Element(P + "grpSpPr")), sb,
+                    designLayer, inheritedPlaceholders, masterRoot);
         }
     }
 
     private static string ShapeToHtml(
-        RenderContext context, XElement sp, Dictionary<string, string> rels, Xform transform, bool designLayer)
+        RenderContext context,
+        XElement sp,
+        Dictionary<string, string> rels,
+        Xform transform,
+        bool designLayer,
+        IReadOnlyList<XElement> inheritedPlaceholders,
+        XElement masterRoot)
     {
         var properties = sp.Element(P + "spPr");
-        var position = transform.Map(Transform(properties));
+        var isPlaceholder = PlaceholderOf(sp) is not null;
+        var inherited = isPlaceholder
+            ? FindInheritedPlaceholder(sp, inheritedPlaceholders)
+            : null;
+        var ownTransform = Transform(properties);
+        var effectiveTransform = HasGeometry(ownTransform)
+            ? ownTransform
+            : Transform(inherited?.Element(P + "spPr"));
+        var position = transform.Map(effectiveTransform);
         var txBody = sp.Element(P + "txBody");
         var content = new StringBuilder();
         if (txBody is not null)
         {
             foreach (var para in txBody.Elements(A + "p"))
-                content.Append(ParagraphToHtml(context, para));
+            {
+                var level = int.TryParse(
+                    (string)para.Element(A + "pPr")?.Attribute("lvl"),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var paragraphLevel)
+                    ? Math.Clamp(paragraphLevel, 0, 8)
+                    : 0;
+                var inheritedLevel = isPlaceholder
+                    ? FindInheritedLevelStyle(
+                        sp, inheritedPlaceholders, masterRoot, level)
+                    : null;
+                content.Append(ParagraphToHtml(context, para, inheritedLevel));
+            }
         }
 
-        var isPlaceholder = sp.Descendants(P + "ph").Any();
-
-        // A placeholder the slide leaves empty is a prompt, not content: drawing it would litter the design
-        // layer with empty boxes.
-        if (content.Length == 0 && (isPlaceholder || designLayer))
+        // Placeholders in a master/layout are prompts, not visible slide content. An
+        // empty placeholder on the slide itself is likewise space reserved for the user.
+        if (isPlaceholder && (designLayer || content.Length == 0))
             return string.Empty;
 
         if (position is null)
@@ -260,6 +297,120 @@ internal static class PptxToHtml
 
         return $"<div class=\"shape\" style=\"{style}\">{content}</div>";
     }
+
+    private static XElement PlaceholderOf(XElement shape) =>
+        shape?.Element(P + "nvSpPr")?.Element(P + "nvPr")?.Element(P + "ph");
+
+    private static IReadOnlyList<XElement> PlaceholderShapes(XElement tree) =>
+        tree?.Elements(P + "sp").Where(sp => PlaceholderOf(sp) is not null).ToArray()
+            ?? Array.Empty<XElement>();
+
+    /// <summary>
+    /// A slide placeholder commonly omits its own geometry: the coordinates live on
+    /// the matching placeholder in the slide layout, or in the master when the layout
+    /// also inherits them. Match idx first and type second, as PresentationML defines.
+    /// </summary>
+    private static XElement FindInheritedPlaceholder(
+        XElement shape, IReadOnlyList<XElement> candidates)
+    {
+        var placeholder = PlaceholderOf(shape);
+        if (placeholder is null || candidates is null || candidates.Count == 0)
+            return null;
+
+        XElement best = null;
+        var bestScore = 0;
+
+        foreach (var candidate in candidates)
+        {
+            var score = PlaceholderMatchScore(shape, candidate);
+
+            // Some layouts intentionally leave only the style (not the geometry)
+            // to themselves and inherit their boxes from the master. Prefer a
+            // matching source that actually carries a usable xfrm.
+            if (score > 0 && HasGeometry(Transform(candidate.Element(P + "spPr"))))
+                score++;
+
+            if (score > bestScore)
+            {
+                best = candidate;
+                bestScore = score;
+            }
+        }
+
+        return best;
+    }
+
+    private static int PlaceholderMatchScore(XElement shape, XElement candidate)
+    {
+        var placeholder = PlaceholderOf(shape);
+        var inherited = PlaceholderOf(candidate);
+        if (placeholder is null || inherited is null)
+            return 0;
+
+        var index = (string)placeholder.Attribute("idx");
+        var type = (string)placeholder.Attribute("type");
+        var inheritedIndex = (string)inherited.Attribute("idx");
+        var inheritedType = (string)inherited.Attribute("type");
+        var score = 0;
+
+        if (!string.IsNullOrEmpty(index) &&
+            string.Equals(index, inheritedIndex, StringComparison.Ordinal))
+            score += 4;
+
+        if (!string.IsNullOrEmpty(type) &&
+            string.Equals(type, inheritedType, StringComparison.Ordinal))
+            score += 4;
+
+        if (TitleFamily(type) && TitleFamily(inheritedType))
+            score++;
+
+        return score;
+    }
+
+    private static XElement FindInheritedLevelStyle(
+        XElement shape,
+        IReadOnlyList<XElement> candidates,
+        XElement masterRoot,
+        int level)
+    {
+        var levelName = $"lvl{level + 1}pPr";
+        var own = shape.Element(P + "txBody")
+            ?.Element(A + "lstStyle")?.Element(A + levelName);
+        if (own is not null)
+            return own;
+
+        XElement best = null;
+        var bestScore = 0;
+        foreach (var candidate in candidates ?? [])
+        {
+            var score = PlaceholderMatchScore(shape, candidate);
+            if (score <= bestScore)
+                continue;
+
+            var style = candidate.Element(P + "txBody")
+                ?.Element(A + "lstStyle")?.Element(A + levelName);
+            if (style is null)
+                continue;
+
+            best = style;
+            bestScore = score;
+        }
+
+        if (best is not null)
+            return best;
+
+        var type = (string)PlaceholderOf(shape)?.Attribute("type");
+        var styleRoot = masterRoot?.Element(P + "txStyles")?.Element(
+            TitleFamily(type) ? P + "titleStyle" : P + "bodyStyle");
+        return styleRoot?.Element(A + levelName);
+    }
+
+    private static bool TitleFamily(string type) =>
+        type is "title" or "ctrTitle" or "subTitle";
+
+    private static bool HasGeometry(Xform transform) =>
+        transform.ScaleX > 0 && transform.ScaleY > 0 &&
+        transform.Width > 0 && transform.Height > 0;
 
     private static string GraphicFrameToHtml(
         RenderContext context, XElement frame, Dictionary<string, string> rels, Xform transform)
@@ -331,10 +482,10 @@ internal static class PptxToHtml
             context.ImageCount >= MaxImages || !rels.TryGetValue(embed, out var entry))
             return null;
 
-        if (context.Cached(embed) is { } cached)
+        var mediaPath = Part(entry).TrimStart('/');
+        if (context.Cached(mediaPath) is { } cached)
             return cached;
 
-        var mediaPath = "ppt/" + Part(entry).TrimStart('/');
         var media = context.Archive.GetEntry(mediaPath);
         if (media is null)
             return null;
@@ -353,15 +504,18 @@ internal static class PptxToHtml
 
         context.ImageCount++;
         var url = $"https://{context.ImageHost}/{name}";
-        context.Cache(embed, url);
+        context.Cache(mediaPath, url);
         return url;
     }
 
-    private static string ParagraphToHtml(RenderContext context, XElement para)
+    private static string ParagraphToHtml(
+        RenderContext context, XElement para, XElement inheritedLevel = null)
     {
         var sb = new StringBuilder();
         var pPr = para.Element(A + "pPr");
-        var align = pPr?.Attribute("algn")?.Value switch
+        var inheritedDefault = inheritedLevel?.Element(A + "defRPr");
+        var paragraphDefault = pPr?.Element(A + "defRPr");
+        var align = (pPr?.Attribute("algn")?.Value ?? inheritedLevel?.Attribute("algn")?.Value) switch
         {
             "ctr" => "center",
             "r" => "right",
@@ -373,25 +527,26 @@ internal static class PptxToHtml
         {
             var rPr = el.Element(A + "rPr");
             var css = new List<string>();
-            if (rPr is not null)
-            {
-                if (rPr.Attribute("b")?.Value == "1")
-                    css.Add("font-weight:bold");
-                if (rPr.Attribute("i")?.Value == "1")
-                    css.Add("font-style:italic");
-                if (rPr.Attribute("u")?.Value is "1" or "sng")
-                    css.Add("text-decoration:underline");
-                var sz = rPr.Attribute("sz")?.Value;
-                if (double.TryParse(sz, NumberStyles.Float, CultureInfo.InvariantCulture, out var hundredths) &&
-                    hundredths > 0)
-                    css.Add($"font-size:{hundredths / 100d:0.#}pt");
-                var color = ColorOf(rPr.Element(A + "solidFill"), context);
-                if (color is not null)
-                    css.Add($"color:{color}");
-                var face = rPr.Element(A + "latin")?.Attribute("typeface")?.Value;
-                if (!string.IsNullOrEmpty(face) && !face.StartsWith('+'))
-                    css.Add($"font-family:'{WebUtility.HtmlEncode(face)}'");
-            }
+            if (FirstValue(rPr, "b", paragraphDefault, inheritedDefault) == "1")
+                css.Add("font-weight:bold");
+            if (FirstValue(rPr, "i", paragraphDefault, inheritedDefault) == "1")
+                css.Add("font-style:italic");
+            if (FirstValue(rPr, "u", paragraphDefault, inheritedDefault) is "1" or "sng")
+                css.Add("text-decoration:underline");
+            var sz = FirstValue(rPr, "sz", paragraphDefault, inheritedDefault);
+            if (double.TryParse(sz, NumberStyles.Float, CultureInfo.InvariantCulture, out var hundredths) &&
+                hundredths > 0)
+                css.Add($"font-size:{hundredths / 100d:0.#}pt");
+            var color = ColorOf(rPr?.Element(A + "solidFill"), context)
+                ?? ColorOf(paragraphDefault?.Element(A + "solidFill"), context)
+                ?? ColorOf(inheritedDefault?.Element(A + "solidFill"), context);
+            if (color is not null)
+                css.Add($"color:{color}");
+            var face = rPr?.Element(A + "latin")?.Attribute("typeface")?.Value
+                ?? paragraphDefault?.Element(A + "latin")?.Attribute("typeface")?.Value
+                ?? inheritedDefault?.Element(A + "latin")?.Attribute("typeface")?.Value;
+            if (!string.IsNullOrEmpty(face) && !face.StartsWith('+'))
+                css.Add($"font-family:'{WebUtility.HtmlEncode(face)}'");
 
             var text = new StringBuilder();
             foreach (var t in el.Elements(A + "t"))
@@ -410,6 +565,23 @@ internal static class PptxToHtml
             return string.Empty;
 
         return $"<p style=\"text-align:{align}\">{sb}</p>";
+    }
+
+    private static string FirstValue(
+        XElement first, XName attribute, params XElement[] fallbacks)
+    {
+        var value = (string)first?.Attribute(attribute);
+        if (!string.IsNullOrEmpty(value))
+            return value;
+
+        foreach (var fallback in fallbacks)
+        {
+            value = (string)fallback?.Attribute(attribute);
+            if (!string.IsNullOrEmpty(value))
+                return value;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -694,6 +866,7 @@ internal static class PptxToHtml
         if (entry is null)
             return map;
 
+        var sourcePath = SourcePathFor(entryName);
         using var stream = entry.Open();
         var rels = XDocument.Load(stream);
         foreach (var rel in rels.Root?.Elements(Rel + "Relationship") ?? [])
@@ -704,11 +877,60 @@ internal static class PptxToHtml
             if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(target))
                 continue;
 
+            target = ResolvePartPath(sourcePath, target);
+
             // The layout/master lookups key on the relationship *type*, so it travels with the target.
             map[id] = type is null ? target : $"{target}\u0000{type.Split('/')[^1]}";
         }
 
         return map;
+    }
+
+    /// <summary>
+    /// OPC relationships store targets relative to the part that owns the .rels
+    /// file. Resolve them once so every caller can address the package entry
+    /// directly, regardless of whether the target starts with "/", "../" or a
+    /// sibling folder.
+    /// </summary>
+    private static string ResolvePartPath(string sourcePath, string target)
+    {
+        if (string.IsNullOrEmpty(target) ||
+            target.StartsWith("http:", StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith("https:", StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            return target;
+
+        var combined = target.StartsWith('/')
+            ? target.TrimStart('/')
+            : $"{(Path.GetDirectoryName(sourcePath) ?? string.Empty).Replace('\\', '/')}/{target}";
+        var parts = new List<string>();
+        foreach (var segment in combined.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment == ".")
+                continue;
+            if (segment == "..")
+            {
+                if (parts.Count > 0)
+                    parts.RemoveAt(parts.Count - 1);
+                continue;
+            }
+
+            parts.Add(segment);
+        }
+
+        return string.Join("/", parts);
+    }
+
+    private static string SourcePathFor(string relsPath)
+    {
+        var marker = relsPath.LastIndexOf("/_rels/", StringComparison.Ordinal);
+        if (marker < 0)
+            return relsPath;
+
+        var file = Path.GetFileName(relsPath);
+        return file.EndsWith(".rels", StringComparison.OrdinalIgnoreCase)
+            ? $"{relsPath[..marker]}/{file[..^5]}"
+            : relsPath;
     }
 
     private static string ErrorHtml(string message) =>

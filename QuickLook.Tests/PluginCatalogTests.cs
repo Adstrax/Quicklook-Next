@@ -235,6 +235,34 @@ internal class PluginCatalogTests
         }
     }
 
+    public void TheFirstInstallCreatesTheMissingUserPluginFolder()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(), "QuickLook.Tests", Guid.NewGuid().ToString("N"));
+        var staging = Path.Combine(root, "PluginInstallStaging", "job", "extracted");
+        var target = Path.Combine(root, "QuickLook.Plugin", "QuickLook.Plugin.Example");
+
+        try
+        {
+            Directory.CreateDirectory(staging);
+            File.WriteAllText(
+                Path.Combine(staging, "QuickLook.Plugin.Example.dll"), "plugin");
+
+            PluginInstallService.ReplaceInstalledPlugin(staging, target);
+
+            Assert.True(Directory.Exists(target), "the plugin target exists after the move");
+            Assert.True(
+                File.Exists(Path.Combine(target, "QuickLook.Plugin.Example.dll")),
+                "the extracted plugin moved into the new user plugin folder");
+            Assert.False(Directory.Exists(staging), "the staging folder was moved");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     public void APackageWithoutMetadataIsRefused()
     {
         var file = WriteTemp("QuickLook.Plugin.Empty.qlplugin", null);

@@ -9,7 +9,7 @@
   <Identity
     Name="CE36AF3D-FF94-43EB-9908-7EC8FD1D29FB"
     Publisher="CN=CE36AF3D-FF94-43EB-9908-7EC8FD1D29FB"
-    Version="6.2.1.0" />
+    Version="6.3.0.0" />
 
   <Properties>
         <DisplayName>QuickLook-Next</DisplayName>

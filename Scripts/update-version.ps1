@@ -1,17 +1,30 @@
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $versionFile = Join-Path $repoRoot 'Version.txt'
-$tag = if (Test-Path $versionFile) {
-    (Get-Content $versionFile -Raw).Trim()
+$requestedVersion = $env:QL_BUILD_VERSION
+if ([string]::IsNullOrWhiteSpace($requestedVersion) -and (Test-Path $versionFile)) {
+    $requestedVersion = (Get-Content $versionFile -Raw).Trim()
+}
+
+$requestedMatch = [regex]::Match(
+    $requestedVersion,
+    '^(?<version>\d+\.\d+\.\d+)(?<suffix>-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$')
+$tag = $null
+$informational = $null
+if ($requestedMatch.Success) {
+    $tag = $requestedMatch.Groups['version'].Value
+    $informational = $requestedVersion
 } else {
-    $null
-}
+    if (Test-Path $versionFile) {
+        $tag = (Get-Content $versionFile -Raw).Trim()
+    }
 
-if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '^\d+\.\d+\.\d+$') {
-    $tag = & git -C $repoRoot describe --always --tags "--abbrev=0" --exclude latest 2>$null
-}
+    if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '^\d+\.\d+\.\d+$') {
+        $tag = & git -C $repoRoot describe --always --tags "--abbrev=0" --exclude latest 2>$null
+    }
 
-$revision = & git -C $repoRoot describe --always --tags --exclude latest 2>$null
-$informational = if ($tag -match '^\d+\.\d+\.\d+$') { $tag } else { $revision }
+    $revision = & git -C $repoRoot describe --always --tags --exclude latest 2>$null
+    $informational = if ($tag -match '^\d+\.\d+\.\d+$') { $tag } else { $revision }
+}
 
 # When the tree is not inside a git repository (for example a source snapshot
 # exported from an archive), fall back to a valid numeric version so the build
@@ -30,6 +43,7 @@ if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '^\d+\.\d+\.\d+') {
 
     $tag = '0.0.0'
     $revision = '0.0.0'
+    $informational = '0.0.0'
     Write-Warning "update-version: git describe failed; using fallback version $tag"
 }
 
