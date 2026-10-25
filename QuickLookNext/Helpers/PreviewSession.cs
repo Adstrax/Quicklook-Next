@@ -51,6 +51,14 @@ internal sealed class PreviewSession
 {
     private long _lastActivityMs;
 
+    /// <summary>
+    /// Raised whenever opening, closing or ending a session changes the instant
+    /// from which the idle wait is measured. The host uses this as the single
+    /// rearm point for its release timer, so closing a preview cannot leave an
+    /// already-fired timer stopped.
+    /// </summary>
+    internal event EventHandler ActivityChanged;
+
     /// <summary>True once the user has previewed something and has not gone idle since.</summary>
     internal bool IsActive { get; private set; }
 
@@ -59,13 +67,17 @@ internal sealed class PreviewSession
     {
         IsActive = true;
         _lastActivityMs = nowMs;
+        NotifyActivityChanged();
     }
 
     /// <summary>The preview window closed - the user closed it, or the plugin failed.</summary>
     internal void Closed(long nowMs)
     {
         if (IsActive)
+        {
             _lastActivityMs = nowMs;
+            NotifyActivityChanged();
+        }
     }
 
     /// <summary>Should a freshly created preview window be warmed off-screen?</summary>
@@ -89,5 +101,9 @@ internal sealed class PreviewSession
     {
         IsActive = false;
         _lastActivityMs = 0;
+        NotifyActivityChanged();
     }
+
+    private void NotifyActivityChanged() =>
+        ActivityChanged?.Invoke(this, EventArgs.Empty);
 }

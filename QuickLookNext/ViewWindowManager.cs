@@ -44,6 +44,11 @@ public class ViewWindowManager : IDisposable
 
     internal ViewWindowManager()
     {
+        // Opening and closing both move the idle deadline. Arming from the
+        // session event keeps those two paths in sync instead of relying on
+        // every caller to remember the timer after changing the session.
+        _session.ActivityChanged += (_, _) => ArmSessionTimer();
+
         // v3.40.0 used to build the window here, inside RunListener, so the first
         // preview of a session would never wait for it.
         // v6.1.1: measurement showed that construction is ~170 ms on its own and
@@ -438,7 +443,6 @@ public class ViewWindowManager : IDisposable
         // v5.6.2: from here on the low memory mode keeps a warm window around, so a
         // folder full of files previews at the same speed as the normal mode does.
         _session.Opened(Environment.TickCount64);
-        ArmSessionTimer();
 
         // v5.8.0: the family warm-up follows the session the same way the window warm-up
         // does. The normal mode has already prepared the families while nobody was

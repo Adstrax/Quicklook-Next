@@ -7,6 +7,24 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.3.2
+
+### Low memory mode now releases after a preview closes
+
+6.3.2 fixes a case where low memory mode could remain at the post-preview footprint
+after the preview had closed. The idle timer could fire and stop while the preview
+was still open, and closing it did not schedule a fresh release.
+
+- **Closing restarts the wait.** Opening, closing and ending a preview now notify the
+  host through one shared path. After the preview closes, the release timer starts
+  again from that moment instead of leaving the old timer stopped.
+- **The preview footprint is released reliably.** Even when the previous timer already
+  fired during an open preview, the process still restarts after the configured idle
+  period and returns to the low-memory baseline.
+- **Release quality.** 330 unit tests pass with a Release build of 0 warnings and
+  0 errors. New coverage reproduces an old timer firing while the preview is open,
+  then verifies that closing still starts a fresh idle wait.
+
 ## QuickLook-Next 6.3.1
 
 ### PowerPoint drawings are restored, with a native safety net

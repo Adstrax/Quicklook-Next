@@ -69,6 +69,33 @@ internal class PreviewSessionTests
             "at the timeout");
     }
 
+    public void EverySessionActivityRearmsTheIdleDeadline()
+    {
+        var session = new PreviewSession();
+        var changes = 0;
+        session.ActivityChanged += (_, _) => changes++;
+
+        session.Opened(0);
+        Assert.Equal(1, changes, "opening starts the countdown");
+
+        // The original timer can already have fired while the preview stayed
+        // open. Closing must notify the host so it schedules a fresh wait from
+        // the instant the preview went away.
+        session.Closed(TimeoutMs * 10);
+        Assert.Equal(2, changes, "closing restarts the countdown");
+        Assert.False(
+            session.ShouldRelease(
+                TimeoutMs * 11 - 1, lowMemoryMode: true, previewOpen: false, TimeoutMs),
+            "the fresh wait is measured from the close");
+        Assert.True(
+            session.ShouldRelease(
+                TimeoutMs * 11, lowMemoryMode: true, previewOpen: false, TimeoutMs),
+            "and releases when that fresh wait expires");
+
+        session.End();
+        Assert.Equal(3, changes, "ending the session retires its timer");
+    }
+
     public void AnOpenPreviewIsNeverReleased()
     {
         var session = new PreviewSession();
