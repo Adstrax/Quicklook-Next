@@ -43,6 +43,47 @@ internal class UpdateScriptTests
         WorkDir,
         WorkDir + @"\update.log");
 
+    private static string InstallerScript() => Updater.BuildInstallerUpdateScriptForTest(
+        AppDir,
+        WorkDir + @"\QuickLook-Next-Setup-6.5.0.exe",
+        WorkDir,
+        WorkDir + @"\update.log");
+
+    public void TheInstallerReleaseAssetIsRecognized()
+    {
+        Assert.True(Updater.IsInstallerAssetName("QuickLook-Next-Setup-6.5.0.exe"),
+            "the release's Setup.exe is an update package");
+        Assert.False(Updater.IsInstallerAssetName("QuickLook-Next-6.5.0.zip"),
+            "the portable archive is not the preferred installer");
+        Assert.True(Updater.IsPortableAssetName("QuickLook-Next-6.5.0.zip"),
+            "older releases remain a compatibility fallback");
+    }
+
+    public void TheSetupUpdateWaitsThenInstallsIntoTheCurrentDirectory()
+    {
+        var script = InstallerScript();
+
+        Assert.True(script.Contains("tasklist", StringComparison.OrdinalIgnoreCase),
+            "Setup must not replace files while the old process is running");
+        Assert.True(script.Contains("/VERYSILENT", StringComparison.Ordinal),
+            "the in-app update runs Setup without a wizard");
+        Assert.True(script.Contains("/DIR=\"%QL_APP%\"", StringComparison.Ordinal),
+            "Setup keeps the user's selected installation path");
+        Assert.True(script.Contains("update ok", StringComparison.Ordinal),
+            "a successful setup is recorded for the next-start result check");
+    }
+
+    public void TheSetupUpdateCleansUpBeforeDeletingItself()
+    {
+        var script = InstallerScript();
+        var cleanup = script.IndexOf("rd /S /Q \"%QL_WORK%\"", StringComparison.Ordinal);
+        var selfDelete = script.IndexOf("del \"%~f0\"", StringComparison.Ordinal);
+
+        Assert.True(cleanup >= 0, "the downloaded installer is removed");
+        Assert.True(selfDelete > cleanup,
+            "a batch file that deletes itself stops executing, so cleanup comes first");
+    }
+
     public void TheScriptDoesNotUseXcopyExclusions()
     {
         var script = Script();
@@ -79,6 +120,20 @@ internal class UpdateScriptTests
         Assert.True(clear >= 0, "old root files are removed");
         Assert.True(copy > clear,
             "the replacement copy must happen after obsolete files such as the old WinRT runtime are gone");
+    }
+
+    public void TheScriptKeepsTheInstallerUninstallerAfterAnUpdate()
+    {
+        var script = Script();
+
+        var copy = script.IndexOf(
+            "robocopy \"%QL_SRC%\"", StringComparison.Ordinal);
+        var restoreUninstaller = script.IndexOf(
+            "copy /Y \"%QL_BAK%\\unins*.*\"",
+            StringComparison.Ordinal);
+
+        Assert.True(restoreUninstaller > copy,
+            "the uninstaller is cleared with the old files and must be restored after the new build is copied");
     }
 
     public void TheScriptWaitsForTheAppToExitBeforeReplacingFiles()

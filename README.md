@@ -8,7 +8,8 @@
 >
 > 一句话：Windows 上的空格键文件预览工具，QuickLook 的衍生版，免费开源。
 > 25 个内置插件覆盖图片 / 视频 / PDF / Office / 压缩包 / 字体 / 数据库 / 3D 等；
-> 毛玻璃 + Win11 原生圆角；解压双击即用，需先装 .NET 10 桌面运行时。
+> 毛玻璃 + Win11 原生圆角；下载 `QuickLook-Next-Setup.exe` 安装后即可使用，
+> 需先装 .NET 10 桌面运行时。
 
 > A **UI-polished and feature-complete** edition of [QuickLook](https://github.com/QL-Win/QuickLook)
 > (ported to .NET 10, based on the 4.5.0 codebase).
@@ -47,7 +48,7 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | | Upstream QuickLook | QuickLook-Next |
 |---|---|---|
 | Runtime | .NET Framework 4.6.2 | .NET 10 |
-| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the same, plus a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 1 h / never), the plugin market and the data & cache panel — "find plugins" moved into the plugin market's Browse view, which is the view the panel opens on |
+| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the same, plus a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 30 min / 1 h / never), the plugin market and the data & cache panel — "find plugins" moved into the plugin market's Browse view, which is the view the panel opens on |
 | Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
 | Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin market, which lists name, version and origin and has a search box |
 | Installing a plugin | download a `.qlplugin` from the wiki in a browser, then preview the file to install it | browse the list inside the panel and install in one click, with the size and SHA-256 verified before anything is written |
@@ -59,7 +60,7 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | Middle mouse button | - (keyboard only) | previews the file - or the desktop icon - under the cursor, and hands every press that is not a file back to Explorer |
 | Mixed-DPI screens | open upstream request [#827](https://github.com/QL-Win/QuickLook/issues/827) | fixed, with a per-screen diagnostic to check on real hardware |
 | Unplayable video | open upstream request [#1768](https://github.com/QL-Win/QuickLook/issues/1768) | a message instead of taking the process down |
-| Distribution | Microsoft Store, installer, Scoop, nightly builds | portable zip |
+| Distribution | Microsoft Store, installer, Scoop, nightly builds | `QuickLook-Next-Setup.exe` with an always-visible installation-path page, plus a portable ZIP |
 
 Upstream is ahead on distribution and on the size of its third-party plugin ecosystem, and it is
 still actively developed — this fork tracks it rather than replacing it. Where a feature is listed as
@@ -180,17 +181,12 @@ fixes or implements is noted where there is one.
 - **Data & cache panel** — the tray menu shows what the app actually occupies (WebView2 caches,
   leftover update files, settings, logs, the WebView2 profile) and clears only the rebuildable
   parts: sign-in data, settings, statistics and logs survive. (upstream #1933)
-- **Low memory mode** — the two startup warm-ups become a switch. Measured idle memory on a single
-  200% screen: 64 MB with both off and 112–118 MB with the window only; the warm-ups in exchange buy
-  roughly 200 ms per preview. The preview-family warm-up is fixed to the three most-used families,
-  which keeps their first preview fast without the footprint of preparing every family. Since 5.6.2
-  the mode does not slow previewing down: the window warm-up follows the preview session, so
-  consecutive previews stay at ~120 ms. The family warm-up follows it too — nothing is prepared while
-  the app is idle, the first preview of a session starts the preparation, and the family that preview
-  is showing is skipped. Since 5.6.3 the
-  memory also really comes back — the tray process restarts itself once you have stopped previewing,
-  after a wait you choose in the *Low memory mode* group (90 seconds by default, "never"); measured
-  67 MB idle before a preview and 69 MB after the release.
+- **Low memory mode** — every normal launch warms the preview window and the three
+  most-used preview families immediately, so the first file usually opened after startup
+  gets the fast path. The released idle-memory setting now controls when that warm
+  footprint is handed back: five minutes by default, with 90 seconds, 15 minutes,
+  30 minutes, 1 hour, off and never also available. After release the app restarts cold
+  and stays there until the next real preview, so it cannot restart in a loop.
 - **Huge-image protection** — a 40 MP decode cap, plus zoom and memory accounting in the coordinate
   space the image was actually decoded in: a 64 MP image dropped from a 1705 MB peak to 1156 MB
   without changing how it looks. (upstream #1054)
@@ -265,8 +261,9 @@ fixes or implements is noted where there is one.
 
 ## Install & usage
 
-1. Download the latest release from [Releases](https://github.com/Adstrax/QuickLook-Next/releases),
-   extract it and run `QuickLook-Next.exe`.
+1. Download `QuickLook-Next-Setup.exe` (recommended) or the portable ZIP from
+   [Releases](https://github.com/Adstrax/QuickLook-Next/releases) and run the installer;
+   the wizard lets you choose a different installation directory.
 2. Select a file and press **Space** to preview, **Esc** to close; the preview
    supports always-on-top and drag-and-drop between previews.
 3. Right-click the tray icon to switch theme / backdrop / language, manage
@@ -286,7 +283,7 @@ dotnet build QuickLookNext.slnx -c Release
 
 Run the smoke test before committing: `.\test.ps1` (must pass).
 
-Build a user-friendly release package (the root keeps only `QuickLook-Next.exe`
+Build a portable release package (the root keeps `QuickLook-Next.exe`
 and a few config files; runtimes live in `lib\`, plugins in `QuickLook.Plugin`,
 with portable mode and a first-run readme):
 
@@ -294,7 +291,7 @@ with portable mode and a first-run readme):
 .\Scripts\pack-release.ps1 -MakeZip
 ```
 
-Output: `Build\QuickLook-Next-<version>.zip`:
+Output: `Build\Release\QuickLook-Next-<version>.zip`:
 
 ```
 QuickLook-Next.exe
@@ -305,6 +302,23 @@ lib\                 # third-party runtimes
 runtimes\            # native runtimes
 QuickLook.Plugin\    # built-in plugins
 ```
+
+Build the graphical `QuickLook-Next-Setup.exe` installer:
+
+```powershell
+.\Scripts\pack-installer.ps1
+```
+
+The installer defaults to `%LOCALAPPDATA%\Programs\QuickLook-Next`, allows the user
+to choose another directory, and creates Start Menu, optional desktop and standard
+uninstall entries. Local test builds should use a unique prerelease version:
+
+```powershell
+.\Scripts\pack-installer.ps1 -Version 6.5.0-test.1
+```
+
+The test build produces both `Build\Release\QuickLook-Next-Setup-<version>.exe` and
+`Build\Release\QuickLook-Next-<version>.zip`.
 
 ## Supported formats
 

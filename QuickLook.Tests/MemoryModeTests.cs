@@ -22,37 +22,57 @@ using System;
 namespace QuickLook.Tests;
 
 /// <summary>
-/// v5.2.0: the low memory mode is the one switch that decides whether the two startup warm-ups
-/// (the off-screen preview window and the per-family preparation) run. Both ask the same helper,
-/// so they cannot drift apart - and an idle tray process drops from ~169 MB to ~61 MB private.
+/// v6.5.0: low-memory timing and startup preparation are separate decisions. Every normal launch
+/// warms the preview stack; only the deliberate post-release cold-idle process skips it.
 /// </summary>
 internal class MemoryModeTests : SettingsFixture
 {
-    public void BothWarmUpsRunByDefault()
+    public override void Setup()
     {
-        Assert.False(StartupWarmUp.IsLowMemoryMode, "the mode is off out of the box");
-        Assert.True(StartupWarmUp.IsEnabled, "so the warm-ups run");
+        base.Setup();
+        StartupWarmUp.SetColdIdle(false);
     }
 
-    public void TheModeTurnsTheWarmUpsOffAndBackOn()
+    public override void Teardown()
+    {
+        StartupWarmUp.SetColdIdle(false);
+        base.Teardown();
+    }
+
+    public void BothWarmUpsRunByDefault()
+    {
+        Assert.True(StartupWarmUp.IsLowMemoryMode, "timed idle release is on out of the box");
+        Assert.True(StartupWarmUp.IsEnabled, "and the startup warm-ups run");
+    }
+
+    public void TheModeDoesNotChangeStartupWarmUp()
     {
         StartupWarmUp.Toggle();
 
-        Assert.True(StartupWarmUp.IsLowMemoryMode, "the mode is on");
-        Assert.False(StartupWarmUp.IsEnabled, "which means no warm-up at start");
+        Assert.False(StartupWarmUp.IsLowMemoryMode, "the release policy is off");
+        Assert.True(StartupWarmUp.IsEnabled, "but startup still warms");
 
         StartupWarmUp.Toggle();
 
-        Assert.False(StartupWarmUp.IsLowMemoryMode, "the mode is off again");
-        Assert.True(StartupWarmUp.IsEnabled, "and the warm-ups are back");
+        Assert.True(StartupWarmUp.IsLowMemoryMode, "the timed release is on again");
+        Assert.True(StartupWarmUp.IsEnabled, "and startup still warms");
     }
 
     public void TheChoiceIsPersistedInTheSettingsStore()
     {
-        StartupWarmUp.Toggle();
+        StartupWarmUp.Set(true);
 
         Assert.True(SettingHelper.Get("LowMemoryMode", false, "QuickLookNext"),
             "stored in the app's own settings domain, so it survives a restart");
+    }
+
+    public void OnlyThePostReleaseProcessIsCold()
+    {
+        StartupWarmUp.SetColdIdle(true);
+        Assert.False(StartupWarmUp.IsEnabled, "the release restart has no warm-up and no timer to repeat it");
+
+        StartupWarmUp.SetColdIdle(false);
+        Assert.True(StartupWarmUp.IsEnabled, "the next real preview returns to a warm session");
     }
 
     /// <summary>

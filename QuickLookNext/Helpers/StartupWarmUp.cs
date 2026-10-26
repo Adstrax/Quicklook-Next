@@ -20,7 +20,8 @@ using QuickLook.Common.Helpers;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v5.2.0: the "low memory mode" switch (<c>LowMemoryMode</c>, off by default).
+/// v6.5.0: the low-memory policy controls when warm memory is handed back, not
+/// whether the application gets a head start.
 ///
 /// <para>
 /// Both startup warm-ups exist to make the first preview fast, and both pay for it with
@@ -34,27 +35,16 @@ namespace QuickLookNext.Helpers;
 /// </list>
 /// <para>
 /// The window warm-up buys ~200 ms, the family warm-up 100-200 ms per family (text
-/// 289-&gt;96 ms, image 170-&gt;100 ms). Users who would rather have the memory back than
-/// those milliseconds turn this on and the app idles at the 61 MB baseline.
+/// 289-&gt;96 ms, image 170-&gt;100 ms). The app now warms on every normal launch,
+/// because the first file is commonly opened immediately after startup. Once the
+/// configured idle wait expires it restarts into a deliberate cold-idle process, which
+/// skips both warm-ups until the next real preview.
 /// </para>
 ///
 /// <para>
-/// v5.6.2: the older wording here said "the price is paid once, on the first preview of
-/// each kind", and that was wrong about the window half. The preview window is rebuilt
-/// on every close, so skipping its warm-up made <em>every</em> preview pay the
-/// first-Show cost - measured 325 ms per preview instead of 120 ms, on every preview
-/// after the first. The window warm-up now follows the preview session (see
-/// <see cref="PreviewSession"/>): nothing is warmed before the user previews something,
-/// everything is warmed while they keep previewing, and the parked window is released
-/// after 90 s of no previews.
-/// </para>
-///
-/// <para>
-/// v5.8.0: the family warm-up follows the session too. It is still a per-session cost -
-/// a user who is not previewing anything should not be paying for preview panels - so it
-/// does not run before the first preview; it now runs <em>at</em> the first preview
-/// instead of being skipped for the whole session, which is what left the second format
-/// of a session as slow as the first one ever was.
+/// The release restart passes the internal <c>/lowmem-idle</c> switch. That process
+/// enters <see cref="IsColdIdle"/> and does no warm-up, so the release timer cannot
+/// restart it forever. A real preview clears the state and starts a fresh warm session.
 /// </para>
 /// </summary>
 internal static class StartupWarmUp
@@ -62,13 +52,25 @@ internal static class StartupWarmUp
     private const string Setting = "LowMemoryMode";
 
     /// <summary>Whether the low memory mode is on (read fresh - the tray menu flips it).</summary>
-    internal static bool IsLowMemoryMode => SettingHelper.Get(Setting, false, "QuickLookNext");
+    internal static bool IsLowMemoryMode => SettingHelper.Get(Setting, true, "QuickLookNext");
 
     /// <summary>
-    /// Whether the startup warm-ups may run. Both of them ask this, so the two can never
-    /// disagree about what the mode means.
+    /// True only in the process started after an idle release. It deliberately has no
+    /// timer or warm-up of its own; the next preview leaves this state.
     /// </summary>
-    internal static bool IsEnabled => !IsLowMemoryMode;
+    internal static bool IsColdIdle { get; private set; }
+
+    /// <summary>
+    /// Whether the startup warm-ups may run. Both of them ask this, so they cannot
+    /// disagree about whether this launch should be cold.
+    /// </summary>
+    internal static bool IsEnabled => !IsColdIdle;
+
+    /// <summary>
+    /// Marks the process restarted by the idle-memory release. Called once while the
+    /// command line is parsed, before the preview manager and warm-ups are created.
+    /// </summary>
+    internal static void SetColdIdle(bool coldIdle) => IsColdIdle = coldIdle;
 
     internal static void Toggle()
     {

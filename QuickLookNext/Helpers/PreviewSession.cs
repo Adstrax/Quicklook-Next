@@ -20,7 +20,7 @@ using System;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v5.6.2: when the preview window should be warmed off-screen, and when that warm
+/// v6.5.0: when the preview window should be warmed off-screen, and when that warm
 /// window should be handed back.
 ///
 /// <para>
@@ -35,11 +35,11 @@ namespace QuickLookNext.Helpers;
 /// </para>
 ///
 /// <para>
-/// The warm-up follows the session now. Nothing is warmed until the user has
-/// actually previewed something (the idle footprint of the low memory mode is
-/// unchanged), every window rebuilt while they keep previewing is warmed as usual,
-/// and once they have stopped the parked window is released - after the wait the user
-/// picked in <see cref="LowMemoryMode"/>, which is what that setting controls.
+/// A normal launch starts the session immediately, including the startup warm-up.
+/// The user's wait starts at that moment and is restarted whenever a preview opens or
+/// closes. When it expires the process restarts cold; the next real preview starts a new
+/// warm session. A session can therefore be released even if the user never previewed a
+/// file after launch.
 /// </para>
 ///
 /// <para>
@@ -59,8 +59,16 @@ internal sealed class PreviewSession
     /// </summary>
     internal event EventHandler ActivityChanged;
 
-    /// <summary>True once the user has previewed something and has not gone idle since.</summary>
+    /// <summary>True while this process owns a warm preview session.</summary>
     internal bool IsActive { get; private set; }
+
+    /// <summary>Starts a warm session at launch, without waiting for the first preview.</summary>
+    internal void Started(long nowMs)
+    {
+        IsActive = true;
+        _lastActivityMs = nowMs;
+        NotifyActivityChanged();
+    }
 
     /// <summary>A preview is about to be shown.</summary>
     internal void Opened(long nowMs)
@@ -86,7 +94,8 @@ internal sealed class PreviewSession
     /// <summary>
     /// Is the warm window no longer worth its memory? Only ever true in the low
     /// memory mode, only inside a session, never while a preview is open (closing the
-    /// window would close that preview), and only after the idle timeout.
+    /// window would close that preview), and only after the idle timeout. A startup
+    /// session counts even when no preview has been opened.
     /// </summary>
     internal bool ShouldRelease(long nowMs, bool lowMemoryMode, bool previewOpen, long timeoutMs)
     {

@@ -45,7 +45,7 @@ QuickLook-Next 保留完整的文件预览能力，并把预览背景、窗口�
 | 鼠标中键 | 无（只能键盘操作） | 预览光标指向的文件或桌面图标；不是文件的按键原样还给资源管理器 |
 | 混合 DPI 多显示器 | 上游仍未完成的 [#827](https://github.com/QL-Win/QuickLook/issues/827) | 已修，并提供逐屏诊断开关供真机复核 |
 | 打不开的视频 | 上游仍未完成的 [#1768](https://github.com/QL-Win/QuickLook/issues/1768) | 给出提示而不是让进程退出 |
-| 分发方式 | 微软商店、安装包、Scoop、每夜版 | 便携 zip |
+| 分发方式 | 微软商店、安装包、Scoop、每夜版 | `QuickLook-Next-Setup.exe`（始终显示安装位置页）和便携 ZIP |
 
 上游在分发渠道和第三方插件生态的规模上更成熟，项目本身也一直在更新——本项目是跟随它，而不是取代它。
 上面标注为「新增」的条目都写明了对应的上游 issue，可以逐条核对。
@@ -150,13 +150,10 @@ WebView2 自研渲染；固定浅色纸面、阅读舒适，圆角与主题和�
 
 - **数据与缓存面板**——托盘菜单里能看到程序到底占了多少（WebView2 缓存、更新残留、设置、日志、
   WebView2 配置文件），并且只清理可重建的部分：登录状态、设置、统计和日志都会保留。（上游 #1933）
-- **省内存模式**——把启动时的两项预热做成开关。本机单屏 200% 实测空闲内存：全关 64 MB、
-  只留窗口预热 112–118 MB；预热换来的收益是每次预览快约 200 ms。预览格式预热固定为
-  最常用的三类，不再提供数量或开关设置。
-  （5.6.2 起该模式不会再拖慢预览：窗口预热改为跟随预览会话，连续预览保持约 120 ms；
-  5.6.3 起内存也真的会还回去——停手后按「省内存模式」里选定的时长自动重启一次托盘进程，
-  默认 90 秒，也可选 5 分钟 / 15 分钟 / 1 小时 / 从不。实测预览前空闲 67 MB、
-  释放后 69 MB。）
+- **省内存模式**——每次普通启动都会立即预热预览窗口，并按本地使用历史预热最常用的
+  三类格式，因此安装后通常马上打开的第一次预览也能走快速路径。省内存设置控制预热后
+  的内存何时归还：默认 5 分钟，也可选 90 秒、15 分钟、30 分钟、1 小时、从不或关闭。
+  释放后进程进入冷闲置，不再预热也不会循环重启，直到用户下一次真正预览。
 - **图片放大镜（5.6.6）**——滚轮上限从「解码尺寸的 3 倍」提到 **8 倍**，并且一格一格朝
   刻度（100%、「恰好合适」）靠近，而不是直接吸过去，所以小图和大图手感一致。放大超过
   已加载的细节时，会在滚轮停下 250 ms 后按当前查看尺寸重新解码原图；重解码不超过文件
@@ -219,8 +216,9 @@ WebView2 自研渲染；固定浅色纸面、阅读舒适，圆角与主题和�
 
 ## 安装与使用
 
-1. 从 [Releases](https://github.com/Adstrax/QuickLook-Next/releases) 下载最新版，解压后运行
-   `QuickLook-Next.exe`
+1. 推荐从 [Releases](https://github.com/Adstrax/QuickLook-Next/releases) 下载
+   `QuickLook-Next-Setup.exe` 安装；也可以下载便携 ZIP。安装向导会始终显示安装位置页，
+   允许修改安装目录
 2. 选中文件按 **空格** 预览，**Esc** 关闭；预览窗口支持置顶、跨预览拖拽内容
 3. 托盘图标右键可切换主题 / 背景 / 语言、管理插件、检查更新等
 
@@ -238,7 +236,7 @@ dotnet build QuickLookNext.slnx -c Release
 
 提交前运行冒烟测试：`.\test.ps1`（要求全部通过）。
 
-生成用户友好的发布包（根目录只保留 `QuickLook-Next.exe` 和少量配置文件，
+生成便携发布包（根目录保留 `QuickLook-Next.exe` 和少量配置文件，
 其余运行库收进 `lib\` 子目录，插件在 `QuickLook.Plugin` 子目录，自带便携模式与
 首次使用说明）：
 
@@ -246,7 +244,7 @@ dotnet build QuickLookNext.slnx -c Release
 .\Scripts\pack-release.ps1 -MakeZip
 ```
 
-产物：`Build\QuickLook-Next-<版本号>.zip`，解压后结构如下，用户只需双击根目录的
+产物：`Build\Release\QuickLook-Next-<版本号>.zip`，解压后结构如下，用户只需双击根目录的
 `QuickLook-Next.exe`：
 
 ```
@@ -258,6 +256,23 @@ lib\               # 第三方运行库
 runtimes\          # 原生运行库
 QuickLook.Plugin\  # 内置插件
 ```
+
+生成带图形安装向导的 `QuickLook-Next-Setup.exe`：
+
+```powershell
+.\Scripts\pack-installer.ps1
+```
+
+安装器默认装到 `%LOCALAPPDATA%\Programs\QuickLook-Next`，允许用户选择其他目录，
+并创建开始菜单、可选桌面快捷方式和标准卸载入口。本地测试构建应显式传入唯一的
+预发布版本，例如：
+
+```powershell
+.\Scripts\pack-installer.ps1 -Version 6.5.0-test.1
+```
+
+测试构建会同时在 `Build\Release` 生成
+`QuickLook-Next-Setup-<版本号>.exe` 和 `QuickLook-Next-<版本号>.zip`。
 
 ## 支持的文件格式
 

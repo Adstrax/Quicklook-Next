@@ -210,47 +210,33 @@ These keys are also stored in `QuickLookNext.config`.
   - `<WebView2IdleTimeoutSeconds>120</WebView2IdleTimeoutSeconds>`
 
 ### `<LowMemoryMode>`
-- Default: `False`
+- Default: `True`
 - Type: `Boolean`
-- Description: Turns the startup warm-ups off, so an app that has not previewed
-  anything sits at its ~66 MB baseline instead of ~169 MB.
-- v5.6.2: the warm-ups no longer cost a slow preview each time. The window is rebuilt
-  on every close and its first `Show()` is what the window warm-up hides, so skipping
-  it made *every* preview pay ~200 ms. The warm-up now follows the preview session:
-  nothing is warmed before the first preview, every window rebuilt while you keep
-  previewing is warmed off-screen, and the parked window is released 90 s after the
-  last preview (measured: 325 ms per preview before, 117 ms after).
-- v5.6.3: and the memory really comes back now - see `<LowMemoryReleaseSeconds>`.
-- v5.6.4: this key and `<LowMemoryReleaseSeconds>` are one menu control now. The tray
-  menu's "省内存模式 / Low memory mode" group carries the complete state in its header
-  ("Low memory mode: Release after 90 seconds") and offers the alternatives in its
-  flyout: **off**, release after 90 seconds / 5 minutes / 15 minutes / 1 hour, or
-  **never**. "Never" is not the off state: the startup warm-up stays off, but because
-  the parked preview window is kept, previews are warm from the first one onwards, so
-  from the second preview on the mode behaves like the normal mode (and keeps the
-  memory the normal mode keeps).
+- Description: controls whether the warmed process is released after an idle wait. It no
+  longer controls whether startup warms the preview stack.
+- Every normal launch prepares the off-screen preview window and the three most-used
+  preview families immediately. This gives the first preview after installation the fast
+  path instead of waiting for the user to preview once.
+- The tray menu presents this together with `<LowMemoryReleaseSeconds>`: **off**,
+  release after 90 seconds / 5 minutes / 15 minutes / 30 minutes / 1 hour, or **never**.
+- **off** and **never** both keep the warmed process until it exits or is restarted.
 
 ### `<LowMemoryReleaseSeconds>`
-- Default: `90`
+- Default: `300`
 - Type: `Integer`
-- Description: How long the low memory mode waits after the last preview before it
-  hands its memory back: `90` (90 seconds), `300` (5 minutes), `900` (15 minutes),
-  `3600` (1 hour) or `0` (never). The menu writes this together with
-  `<LowMemoryMode>`, which is why the two are one entry in the tray menu.
+- Description: How long the low memory mode waits after the last launch or preview
+  activity before it hands warmed memory back: `90` (90 seconds), `300` (5 minutes,
+  default), `900` (15 minutes), `1800` (30 minutes), `3600` (1 hour) or `0` (never).
+  The menu writes this together with `<LowMemoryMode>`.
 - The release is a restart of the tray process, because the memory cannot be given back
   in-process: after a preview the managed heap is ~9 MB while the private bytes are
   ~135 MB above the baseline, and the preview's native modules (ImageMagick ~23 MB, the
   GPU driver's shader compiler ~74 MB) cannot be unloaded while the process lives. The
-  restart is silent (`/autorun`, so no "started" notification) and cannot interrupt you:
-  it is skipped whenever a panel, a dialog or an update prompt is on screen.
-- Measured with the default 90 s: 67 MB before a preview, 202 MB while previewing, 69 MB
-  after the release.
-- **The release happens once per preview session, and nothing is scanned while the app is
-  idle.** The countdown exists only while a session is open, and every preview restarts it,
-  so it measures "time since the last preview", not a periodic timer. After the restart the
-  new process does nothing at all until you preview again; if the restart had to be skipped
-  (something was on screen) it is not retried in a loop either - the next preview starts a
-  new session. Reproduce with `Scripts/verify-lowmem-once.ps1`.
+  restart is silent (`/autorun /lowmem-idle`) and cannot interrupt you: it is skipped
+  whenever a panel, a dialog or an update prompt is on screen.
+- **The release happens once per warm session.** The replacement process starts cold,
+  does no warm-up and starts no release timer, so it cannot restart in a loop. The next
+  real preview leaves the cold state, warms the session and starts the wait again.
 
   The two warm-ups exist to make the first preview fast, and both keep memory resident
   for the life of the tray process. Measured on one machine (single 200% display,
@@ -266,7 +252,8 @@ These keys are also stored in `QuickLookNext.config`.
   on the first preview of each family (text 289 -> 96 ms, image 170 -> 100 ms). The
   current policy prepares three families, not the whole list.
 - Example:
-  - `<LowMemoryMode>True</LowMemoryMode>` to idle at the 61 MB baseline.
+  - `<LowMemoryMode>True</LowMemoryMode>` plus
+    `<LowMemoryReleaseSeconds>300</LowMemoryReleaseSeconds>` for the default policy.
 
 ## QuickLook.Plugin.ImageViewer.config options
 

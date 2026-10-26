@@ -25,7 +25,7 @@ namespace QuickLook.Tests;
 /// v6.0.0: a preview that has been replaced cannot push late content or size requests into the
 /// window that now shows another file.
 /// </summary>
-internal class PreviewContextLeaseTests
+internal class PreviewContextLeaseTests : SettingsFixture
 {
     public void AnOldPreviewCannotWriteIntoTheNewOne()
     {

@@ -166,6 +166,9 @@ public partial class App : Application
         IsUpdatePromptTestEnabled = e.Args.Contains("/test-update-prompt");
         IsUpdateProgressTestEnabled = e.Args.Contains("/test-update-progress");
         IsWarmUpDiagEnabled = e.Args.Contains("/test-warmup");
+        // The idle-memory release restarts silently. Keep that replacement process cold,
+        // otherwise it would warm up again and release itself forever.
+        StartupWarmUp.SetColdIdle(e.Args.Contains("/lowmem-idle"));
         if (IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Start();
         if (IsPreviewDiagEnabled)

@@ -7,6 +7,40 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.5.0
+
+### A directly installable Setup.exe
+
+6.5.0 adds a graphical installer for users who should not have to extract a ZIP and
+find the executable among its supporting files.
+
+- **One installer file.** Run `QuickLook-Next-Setup.exe` and follow the setup wizard.
+- **Selectable installation directory.** The default is a per-user program folder,
+  and the wizard accepts another location.
+- **Shortcuts and uninstall.** The installer creates Start Menu and optional desktop
+  shortcuts and registers a standard uninstall entry.
+- **Automatic-update compatible.** An in-app update preserves the uninstaller
+  bookkeeping, so an installed copy remains uninstallable after updating.
+- **Installer and portable releases.** Releases now ship both
+  `QuickLook-Next-Setup-<version>.exe` and `QuickLook-Next-<version>.zip`. The wizard
+  always shows the destination page, and in-app updates download and run Setup silently
+  while keeping the installation directory the user selected.
+
+### Warm at launch, released after five minutes by default
+
+6.5.0 separates startup preparation from idle-memory release, so the first preview
+after installation gets the head start without keeping the warm footprint forever.
+
+- **Startup is warm.** A normal launch prepares the preview window immediately and
+  prepares the three most-used preview families from the local usage history. It no
+  longer waits for the first preview.
+- **Five minutes by default.** Five minutes after the last launch or preview activity,
+  the app restarts silently and returns the preview footprint. The menu also gains a
+  30-minute choice while retaining 90 seconds, 15 minutes, 1 hour, off and never.
+- **No restart loop.** The replacement process starts in an internal cold-idle state
+  with no warm-up or timer. The next real preview returns to a warm session and starts
+  the wait again.
+
 ## QuickLook-Next 6.3.4
 
 ### Application and folder previews share one clear acrylic information card

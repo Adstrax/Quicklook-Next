@@ -1,4 +1,4 @@
-# Builds a user-friendly release package: Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
+# Builds a user-friendly release package: Build\Release -> Build\Package -> Build\Release\QuickLook-Next-<version>.zip
 #
 # Layout (since v3.2.0):
 #   root:          QuickLook-Next.exe (what the user double-clicks), QuickLook-Next.dll,
@@ -31,7 +31,9 @@ if (-not (Test-Path $release)) {
 & (Join-Path $PSScriptRoot 'verify-runtime-footprint.ps1') -ReleasePath $release
 
 $versionFile = Join-Path $root 'Version.txt'
-$version = if (Test-Path $versionFile) {
+$version = if (-not [string]::IsNullOrWhiteSpace($env:QL_BUILD_VERSION)) {
+    $env:QL_BUILD_VERSION.Trim()
+} elseif (Test-Path $versionFile) {
     (Get-Content $versionFile -Raw).Trim()
 } else {
     & git -C $root describe --always --tags --exclude latest 2>$null
@@ -245,7 +247,7 @@ QuickLook-Next 使用说明
   - 忽略更新：这个版本不再打扰，下次手动检查时仍会再问一次。
 * 更新只替换程序文件，UserData（设置、插件、缓存）不会被改动。
 * 更新失败：程序下次启动会弹通知说明原因，详情见
-  %TEMP%\QuickLookNext-update.log；也可以直接到发布页手动下载 zip 覆盖安装。
+  %TEMP%\QuickLookNext-update.log；也可以直接到发布页手动下载 Setup 或便携 zip。
 
 数据与日志
 ----------------------------------------
@@ -302,7 +304,7 @@ if (-not $MakeZip) {
     exit 0
 }
 
-$zip = Join-Path $root "Build\QuickLook-Next-$version.zip"
+$zip = Join-Path $release "QuickLook-Next-$version.zip"
 Remove-Item -LiteralPath $zip -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression

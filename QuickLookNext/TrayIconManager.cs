@@ -457,18 +457,19 @@ internal partial class TrayIconManager : IDisposable
     {
         var wasOn = Helpers.StartupWarmUp.IsLowMemoryMode;
         Helpers.LowMemoryMode.Apply(choice);
+        ViewWindowManager.GetInstance().RefreshSessionTimer();
 
         if (wasOn == choice.Enabled)
             return;
 
         var (key, failsafe) = !choice.Enabled
             ? ("Icon_LowMemoryModeOff",
-                "Low memory mode is off - the startup warm-up is back from the next start.")
+                "Low memory mode is off - startup stays warm and the warmed process is kept.")
             : choice.Seconds > 0
                 ? ("Icon_LowMemoryModeOn",
-                    "Low memory mode is on - the memory comes back after the wait you set.")
+                    "Low memory mode is on - startup stays warm, then idle memory is released after the wait you set.")
                 : ("Icon_LowMemoryModeOnNever",
-                    "Low memory mode is on - the parked window is kept, so previews stay warm (normal mode from the second preview on).");
+                    "Low memory mode is on - startup stays warm and the warmed process is kept.");
 
         ShowNotification(string.Empty, TranslationHelper.Get(key, failsafe: failsafe));
     }

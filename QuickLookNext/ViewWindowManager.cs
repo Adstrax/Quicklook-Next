@@ -49,6 +49,11 @@ public class ViewWindowManager : IDisposable
         // every caller to remember the timer after changing the session.
         _session.ActivityChanged += (_, _) => ArmSessionTimer();
 
+        // v6.5.0: an ordinary launch is already a warm session. This makes the user's
+        // idle wait start immediately, even if they do not preview a file first.
+        if (Helpers.StartupWarmUp.IsEnabled)
+            _session.Started(Environment.TickCount64);
+
         // v3.40.0 used to build the window here, inside RunListener, so the first
         // preview of a session would never wait for it.
         // v6.1.1: measurement showed that construction is ~170 ms on its own and
@@ -440,6 +445,10 @@ public class ViewWindowManager : IDisposable
         if (App.IsMemoryDiagnosticsEnabled)
             Helpers.MemoryDiagnostics.Snapshot("preview-open");
 
+        // A preview in the cold-idle process is the signal to leave that state. This lets
+        // the family warm-up run now and the next rebuilt window be warmed normally.
+        Helpers.StartupWarmUp.SetColdIdle(false);
+
         // v5.6.2: from here on the low memory mode keeps a warm window around, so a
         // folder full of files previews at the same speed as the normal mode does.
         _session.Opened(Environment.TickCount64);
@@ -534,13 +543,9 @@ private void InitNewViewerWindow()
 
     // v1.2.36: warm up the first Show during startup idle, off-screen, so the
     // first preview appears instantly instead of waiting ~200 ms.
-    // v5.2.0: skipped in the low memory mode - the window (and the rendering stack it
-    // pulls in) is then created on the first preview instead, ~+51 MB idle either way.
-    // v5.6.2: creation used to happen on every close, so skipping this outright made
-    // every preview pay the first-Show cost. It now follows the session: nothing is
-    // warmed before the user previews anything, everything is warmed while they keep
-    // previewing, and the parked window is released after PreviewSession.IdleTimeout
-    // of no previews.
+    // v6.5.0: every ordinary launch is a warm session, so the window is prepared before
+    // the first preview. The only cold process is the one deliberately started after an
+    // idle release; its next preview starts a fresh session.
     if (_session.ShouldWarm(Helpers.StartupWarmUp.IsLowMemoryMode))
         _viewerWindow.WarmUp();
     App.RecordStartupPhase("after-viewer-window-warmup");
@@ -554,10 +559,12 @@ private void InitNewViewerWindow()
     /// </summary>
     private void ArmSessionTimer()
     {
-        // The normal mode keeps its window warm for the whole session - there is
-        // nothing to hand back, so no timer.
+        // Off and "never" keep their warm process until it exits or is restarted.
         if (!Helpers.StartupWarmUp.IsLowMemoryMode || !_session.IsActive)
+        {
+            _sessionTimer?.Stop();
             return;
+        }
 
         // v5.6.3: the wait is the user's choice (tray menu -> Low memory mode); 0 means
         // they never want the release.
@@ -599,7 +606,7 @@ private void InitNewViewerWindow()
         {
             ProcessHelper.WriteLog(
                 "Low memory mode: restarting to release the preview footprint");
-            TrayIconManager.GetInstance().Restart(args: "/autorun", forced: true);
+            TrayIconManager.GetInstance().Restart(args: "/autorun /lowmem-idle", forced: true);
             return;
         }
 
@@ -639,6 +646,9 @@ private void InitNewViewerWindow()
 
         return true;
     }
+
+    /// <summary>Re-arms the current session after the user changes the idle wait.</summary>
+    internal void RefreshSessionTimer() => ArmSessionTimer();
 
     public static ViewWindowManager GetInstance()
     {

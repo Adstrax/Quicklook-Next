@@ -20,20 +20,28 @@ using QuickLookNext.Helpers;
 namespace QuickLook.Tests;
 
 /// <summary>
-/// v5.6.2: the low memory mode keeps its idle footprint, but must not make every
-/// preview pay the window's first-Show cost - measured at 325 ms per preview instead
-/// of 120 ms, because the window is rebuilt on every close. These are the rules that
-/// decide when the parked window is warmed and when it is handed back.
+/// v6.5.0: a normal launch owns a warm session immediately, and the configured idle
+/// wait can release it even before the first preview. The deliberate cold-idle process
+/// warms again only after a real preview.
 /// </summary>
 internal class PreviewSessionTests
 {
-    private const long TimeoutMs = 90000;
+    private const long TimeoutMs = 300000;
 
-    public void NothingIsWarmedUntilTheUserPreviewsSomething()
+    public void TheColdIdleProcessHasNothingToWarm()
     {
         var session = new PreviewSession();
 
-        Assert.False(session.ShouldWarm(lowMemoryMode: true), "low memory mode, nothing previewed yet");
+        Assert.False(session.ShouldWarm(lowMemoryMode: true), "the release restart stays cold");
+    }
+
+    public void ANormalLaunchStartsAWarmSessionImmediately()
+    {
+        var session = new PreviewSession();
+        session.Started(0);
+
+        Assert.True(session.IsActive, "the launch owns a session");
+        Assert.True(session.ShouldWarm(lowMemoryMode: true), "and prepares the parked window");
     }
 
     public void TheNormalModeKeepsItsWindowWarmAllAlong()
@@ -116,12 +124,15 @@ internal class PreviewSessionTests
             "normal mode");
     }
 
-    public void ASessionThatNeverPreviewedHasNothingToRelease()
+    public void AStartupSessionCanBeReleasedWithoutAPreview()
     {
         var session = new PreviewSession();
+        session.Started(0);
 
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: false, TimeoutMs),
-            "nothing was warmed");
+        Assert.False(session.ShouldRelease(TimeoutMs - 1, true, previewOpen: false, TimeoutMs),
+            "the startup warm-up still has time");
+        Assert.True(session.ShouldRelease(TimeoutMs, true, previewOpen: false, TimeoutMs),
+            "the timeout releases a launch that never previewed");
     }
 
     public void AnEndedSessionGoesBackToCold()
@@ -159,11 +170,11 @@ internal class PreviewSessionTests
         session.Opened(0);
         session.Closed(0);
 
-        const long fiveMinutes = 5 * 60 * 1000;
+        const long thirtyMinutes = 30 * 60 * 1000;
 
-        Assert.False(session.ShouldRelease(TimeoutMs + 1, true, false, fiveMinutes),
+        Assert.False(session.ShouldRelease(TimeoutMs + 1, true, false, thirtyMinutes),
             "past the default but not past the chosen wait");
-        Assert.True(session.ShouldRelease(fiveMinutes + 1, true, false, fiveMinutes),
+        Assert.True(session.ShouldRelease(thirtyMinutes + 1, true, false, thirtyMinutes),
             "past the chosen wait");
     }
 }

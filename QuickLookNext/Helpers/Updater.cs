@@ -292,19 +292,25 @@ internal class Updater
             var tag = (string)release["tag_name"];
 
             string downloadUrl = null;
+            string packageName = null;
             long expectedSize = 0;
             string expectedSha256 = null;
             foreach (var asset in release["assets"] ?? new JArray())
             {
                 var name = (string)asset["name"];
-                if (string.IsNullOrEmpty(name) ||
-                    !name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
-                    !name.StartsWith("QuickLook-Next-", StringComparison.OrdinalIgnoreCase))
-                {
+                var installer = IsInstallerAssetName(name);
+                if (!installer && !IsPortableAssetName(name))
                     continue;
-                }
+
+                // Releases now publish the installer only. Keep accepting the previous
+                // portable archive as a compatibility fallback, but prefer Setup when a
+                // transition release happens to contain both.
+                if (!string.IsNullOrEmpty(downloadUrl) && (!installer ||
+                        packageName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+                    continue;
 
                 downloadUrl = (string)asset["browser_download_url"];
+                packageName = name;
                 expectedSize = asset["size"]?.Value<long>() ?? 0;
                 if (!TryParseSha256Digest((string)asset["digest"], out expectedSha256))
                 {
@@ -312,14 +318,16 @@ internal class Updater
                         $"Auto update refused: release asset {name} has no valid SHA-256 digest");
                     return UpdateOutcome.Unavailable;
                 }
-                break;
+                if (installer)
+                    break;
             }
 
             if (string.IsNullOrEmpty(downloadUrl))
             {
                 // v3.43.0: these give up quietly, which made "the update does
                 // nothing" impossible to diagnose from the log.
-                ProcessHelper.WriteLog($"Auto update unavailable: release {tag} has no QuickLook-Next-*.zip asset");
+                ProcessHelper.WriteLog(
+                    $"Auto update unavailable: release {tag} has no QuickLook-Next-Setup-*.exe asset");
                 return UpdateOutcome.Unavailable;
             }
 
@@ -354,7 +362,9 @@ internal class Updater
 
             Directory.CreateDirectory(workDir);
 
-            var zipPath = Path.Combine(workDir, $"QuickLook-Next-{tag}.zip");
+            var installerPackage = packageName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+            var packagePath = Path.Combine(
+                workDir, installerPackage ? $"QuickLook-Next-Setup-{tag}.exe" : $"QuickLook-Next-{tag}.zip");
             var extractDir = Path.Combine(workDir, "new");
             var logPath = Path.Combine(workDir, "update.log");
 
@@ -362,21 +372,38 @@ internal class Updater
                 Directory.Delete(extractDir, recursive: true);
 
             var sha256 = DownloadPackage(
-                downloadUrl, zipPath, expectedSize, expectedSha256,
+                downloadUrl, packagePath, expectedSize, expectedSha256,
                 progress, cancellation);
 
-            ZipFile.ExtractToDirectory(zipPath, extractDir);
-
-            // Sanity check: the package must contain the app entry points before
-            // anything in the installed folder is touched. The release package
-            // produced by Scripts/pack-release.ps1 keeps QuickLook.Common.dll in
-            // lib\, a plain build output keeps it next to the exe - accept both.
-            if (!File.Exists(Path.Combine(extractDir, "QuickLook-Next.exe")) ||
-                (!File.Exists(Path.Combine(extractDir, "QuickLook.Common.dll")) &&
-                 !File.Exists(Path.Combine(extractDir, "lib", "QuickLook.Common.dll"))))
+            string updateScript;
+            if (installerPackage)
             {
-                ProcessHelper.WriteLog("Auto update refused: package does not look like a QuickLook-Next build");
-                return UpdateOutcome.Failed;
+                using var stream = File.OpenRead(packagePath);
+                if (stream.ReadByte() != 'M' || stream.ReadByte() != 'Z')
+                {
+                    ProcessHelper.WriteLog("Auto update refused: installer does not have an executable header");
+                    return UpdateOutcome.Failed;
+                }
+
+                updateScript = BuildInstallerUpdateScript(appDir, packagePath, workDir, logPath);
+            }
+            else
+            {
+                ZipFile.ExtractToDirectory(packagePath, extractDir);
+
+                // Sanity check: the package must contain the app entry points before
+                // anything in the installed folder is touched. The release package
+                // produced by Scripts/pack-release.ps1 keeps QuickLook.Common.dll in
+                // lib\, a plain build output keeps it next to the exe - accept both.
+                if (!File.Exists(Path.Combine(extractDir, "QuickLook-Next.exe")) ||
+                    (!File.Exists(Path.Combine(extractDir, "QuickLook.Common.dll")) &&
+                     !File.Exists(Path.Combine(extractDir, "lib", "QuickLook.Common.dll"))))
+                {
+                    ProcessHelper.WriteLog("Auto update refused: package does not look like a QuickLook-Next build");
+                    return UpdateOutcome.Failed;
+                }
+
+                updateScript = BuildUpdateScript(appDir, extractDir, workDir, logPath);
             }
 
             File.WriteAllText(logPath,
@@ -387,7 +414,7 @@ internal class Updater
             // v3.40.1: the script lives next to the work directory, not inside it,
             // so it can delete the whole work directory before removing itself.
             var batPath = Path.Combine(Path.GetTempPath(), "QuickLookNext-update.cmd");
-            File.WriteAllText(batPath, BuildUpdateScript(appDir, extractDir, workDir, logPath));
+            File.WriteAllText(batPath, updateScript);
 
             Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{batPath}\"")
             {
@@ -535,6 +562,58 @@ internal class Updater
         return false;
     }
 
+    /// <summary>The installer asset published by every 6.5.0 and later release.</summary>
+    internal static bool IsInstallerAssetName(string name)
+        => !string.IsNullOrEmpty(name) &&
+           name.StartsWith("QuickLook-Next-Setup-", StringComparison.OrdinalIgnoreCase) &&
+           name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Compatibility for releases that predate the installer-only distribution.
+    /// </summary>
+    internal static bool IsPortableAssetName(string name)
+        => !string.IsNullOrEmpty(name) &&
+           name.StartsWith("QuickLook-Next-", StringComparison.OrdinalIgnoreCase) &&
+           !IsInstallerAssetName(name) &&
+           name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Runs the downloaded Setup after the current process has exited. Setup installs
+    /// over the current directory, preserving it as the user's selected installation
+    /// path, and the script relaunches the application when it finishes.
+    /// </summary>
+    private static string BuildInstallerUpdateScript(string appDir, string setupPath,
+        string workDir, string logPath)
+    {
+        return $"""
+            @echo off
+            setlocal enableextensions
+            set "QL_APP={appDir}"
+            set "QL_SETUP={setupPath}"
+            set "QL_WORK={workDir}"
+            set "QL_LOG={logPath}"
+            echo [%DATE% %TIME%] installer update start>> "%QL_LOG%"
+            :wait
+            tasklist /FI "IMAGENAME eq QuickLook-Next.exe" 2>nul | find /I "QuickLook-Next.exe" >nul
+            if not errorlevel 1 (
+                timeout /t 1 /nobreak >nul
+                goto wait
+            )
+            start /wait "" "%QL_SETUP%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /DIR="%QL_APP%"
+            if errorlevel 1 goto failed
+            if not exist "%QL_APP%\QuickLook-Next.exe" goto failed
+            echo [%DATE% %TIME%] update ok>> "%QL_LOG%"
+            goto restart
+            :failed
+            echo [%DATE% %TIME%] installer update failed>> "%QL_LOG%"
+            :restart
+            copy /Y "%QL_LOG%" "%TEMP%\QuickLookNext-update.log" >nul 2>&1
+            start "" "%QL_APP%\QuickLook-Next.exe"
+            rd /S /Q "%QL_WORK%" >nul 2>&1
+            del "%~f0" >nul 2>&1
+            """;
+    }
+
     /// <summary>
     /// v3.40.0: the script that swaps the installed files once the app has exited.
     /// <para>
@@ -575,6 +654,9 @@ internal class Updater
             if exist "%QL_BAK%\portable.lock" copy /Y "%QL_BAK%\portable.lock" "%QL_APP%\portable.lock" >nul 2>&1
             robocopy "%QL_SRC%" "%QL_APP%" /E /R:2 /W:1 /NFL /NDL /NJH /NJS >> "%QL_LOG%" 2>&1
             if errorlevel 8 goto rollback
+            rem Keep the installer's uninstaller bookkeeping when the update replaces
+            rem a Setup.exe installation rather than a portable copy.
+            if exist "%QL_BAK%\unins*.*" copy /Y "%QL_BAK%\unins*.*" "%QL_APP%\" >nul 2>&1
             if not exist "%QL_APP%\QuickLook-Next.exe" goto rollback
             if exist "%QL_APP%\QuickLook.Common.dll" goto installed
             if exist "%QL_APP%\lib\QuickLook.Common.dll" goto installed
@@ -700,6 +782,10 @@ internal class Updater
     internal static string BuildUpdateScriptForTest(string appDir, string extractDir,
         string workDir, string logPath)
         => BuildUpdateScript(appDir, extractDir, workDir, logPath);
+
+    internal static string BuildInstallerUpdateScriptForTest(string appDir, string setupPath,
+        string workDir, string logPath)
+        => BuildInstallerUpdateScript(appDir, setupPath, workDir, logPath);
 
     /// <summary>
     /// v3.35.0 test hook: shows the update prompt for a (possibly fake) release and

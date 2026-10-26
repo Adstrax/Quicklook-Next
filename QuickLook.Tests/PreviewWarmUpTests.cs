@@ -29,6 +29,20 @@ namespace QuickLook.Tests;
 /// </summary>
 internal class PreviewWarmUpTests : SettingsFixture
 {
+    public override void Setup()
+    {
+        base.Setup();
+        StartupWarmUp.SetColdIdle(false);
+        PreviewWarmUp.ResetForTests();
+    }
+
+    public override void Teardown()
+    {
+        StartupWarmUp.SetColdIdle(false);
+        PreviewWarmUp.ResetForTests();
+        base.Teardown();
+    }
+
     /// <summary>
     /// Every family the warm-up knows, in the order a user with no history gets them. The
     /// list is spelled out here rather than read from the class: it is the promise the
@@ -96,23 +110,28 @@ internal class PreviewWarmUpTests : SettingsFixture
     }
 
     /// <summary>
-    /// The low memory mode is the user saying "I would rather have the memory back than the
-    /// head start", so nothing may be prepared while the app is idle. Once they have
-    /// previewed something the session is the budget it was missing.
+    /// A normal launch gets the head start regardless of the release policy. Only the
+    /// cold-idle replacement process waits for a real preview.
     /// </summary>
-    public void TheLowMemoryModePreparesNothingBeforeTheFirstPreview()
+    public void EveryNormalLaunchPreparesAtStartupAndColdIdleDoesNot()
     {
         StartupWarmUp.Set(true);
-        Assert.False(PreviewWarmUp.ShouldStart(afterFirstPreview: false),
-            "low memory mode, nothing previewed yet");
+        Assert.True(PreviewWarmUp.ShouldStart(afterFirstPreview: false),
+            "the default timed policy still prepares at startup");
         Assert.True(PreviewWarmUp.ShouldStart(afterFirstPreview: true),
-            "the first preview of the session is what starts it");
+            "the preview path remains valid");
 
         StartupWarmUp.Set(false);
         Assert.True(PreviewWarmUp.ShouldStart(afterFirstPreview: false),
-            "the normal mode prepares the families at startup");
+            "off also prepares the families at startup");
+
+        StartupWarmUp.SetColdIdle(true);
+        Assert.False(PreviewWarmUp.ShouldStart(afterFirstPreview: false),
+            "the release restart stays cold");
+
+        StartupWarmUp.SetColdIdle(false);
         Assert.True(PreviewWarmUp.ShouldStart(afterFirstPreview: true),
-            "and the preview path is then a no-op rather than a second start");
+            "a real preview leaves cold idle and starts the session");
     }
 
     /// <summary>
@@ -122,13 +141,10 @@ internal class PreviewWarmUpTests : SettingsFixture
     {
         StartupWarmUp.Set(true);
 
-        PreviewWarmUp.Start(afterFirstPreview: false);      // refused: nothing previewed yet
-        Assert.False(PreviewWarmUp.HasStarted, "a refused start does not count as one");
+        PreviewWarmUp.Start(afterFirstPreview: false);      // startup
+        Assert.True(PreviewWarmUp.HasStarted, "startup starts it");
 
-        PreviewWarmUp.Start(afterFirstPreview: true);       // the session start
-        Assert.True(PreviewWarmUp.HasStarted, "the session starts it");
-
-        PreviewWarmUp.Start(afterFirstPreview: true);       // the next preview of the session
-        Assert.True(PreviewWarmUp.HasStarted, "and a later preview is still the same warm-up");
+        PreviewWarmUp.Start(afterFirstPreview: true);       // the first preview
+        Assert.True(PreviewWarmUp.HasStarted, "and a later call is still the same warm-up");
     }
 }

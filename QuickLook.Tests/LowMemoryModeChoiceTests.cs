@@ -32,13 +32,13 @@ internal class LowMemoryModeChoiceTests
         Assert.False(LowMemoryMode.Choices[0].Enabled, "the menu starts with the off state");
     }
 
-    public void TheDefaultWaitIsNinetySeconds()
+    public void TheDefaultWaitIsFiveMinutes()
     {
-        Assert.Equal(90, LowMemoryMode.DefaultSeconds, "default wait");
+        Assert.Equal(300, LowMemoryMode.DefaultSeconds, "default wait");
 
         var defaultWait = LowMemoryMode.ChoiceFor(enabled: true, LowMemoryMode.DefaultSeconds);
         Assert.True(defaultWait.Enabled, "the default is an enabled state");
-        Assert.Equal(90, defaultWait.Seconds, "and it waits 90 seconds");
+        Assert.Equal(300, defaultWait.Seconds, "and it waits five minutes");
     }
 
     public void NeverIsOfferedAndComesLast()
@@ -69,7 +69,7 @@ internal class LowMemoryModeChoiceTests
         Assert.Equal(waits.Length, waits.Distinct().Count(), "no duplicate waits");
         Assert.Equal(0, waits[^1], "'never' is the last of them");
 
-        // 90 s, 5 min, 15 min, 1 h - the order the menu shows them in.
+        // 90 s, 5 min, 15 min, 30 min, 1 h - the order the menu shows them in.
         for (var i = 1; i < waits.Length - 1; i++)
             Assert.True(waits[i] > waits[i - 1], $"wait {i} is longer than the one before it");
     }

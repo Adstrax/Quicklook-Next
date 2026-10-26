@@ -22,22 +22,22 @@ using System.Linq;
 namespace QuickLookNext.Helpers;
 
 /// <summary>
-/// v5.6.4: the whole low memory mode as one choice.
+/// The whole low memory policy as one choice.
 ///
 /// <para>
 /// The mode used to be two menu items that depended on each other - a "low memory mode"
 /// checkbox in Options and a separate "release memory" group with the wait - which meant
 /// the second one was meaningless while the first was off. The menu now offers complete
-/// states instead: off, release after 90 seconds / 5 minutes / 15 minutes / 1 hour, or
-/// never. The setting behind it is unchanged (<c>LowMemoryMode</c> plus
+/// states instead: off, release after 90 seconds / 5 minutes / 15 minutes / 30 minutes /
+/// 1 hour, or never. The setting behind it is unchanged (<c>LowMemoryMode</c> plus
 /// <c>LowMemoryReleaseSeconds</c>), so nothing has to be migrated.
 /// </para>
 ///
 /// <para>
-/// "Never" is a real state rather than an off switch: the startup warm-up stays off, and
-/// because the parked preview window is never released, previews are warm from the first
-/// one onwards - from the second preview on the mode behaves like the normal mode, with
-/// the memory the normal mode keeps.
+/// v6.5.0: every normal launch warms the window and the three most-used preview families
+/// immediately. A timed choice starts its countdown at launch and re-arms it on every
+/// preview open or close; after the wait the process restarts into a cold-idle state.
+/// "Off" and "Never" keep the warmed process until it exits or restarts.
 /// </para>
 ///
 /// <para>
@@ -80,13 +80,15 @@ internal static class LowMemoryMode
             "Icon_Release_5m_Short", "5 min"),
         new(true, 900, "Icon_Release_15m", "Release after 15 minutes",
             "Icon_Release_15m_Short", "15 min"),
+        new(true, 1800, "Icon_Release_30m", "Release after 30 minutes",
+            "Icon_Release_30m_Short", "30 min"),
         new(true, 3600, "Icon_Release_1h", "Release after 1 hour",
             "Icon_Release_1h_Short", "1 h"),
         new(true, 0, "Icon_Release_Never", "Never (like normal mode)",
             "Icon_Release_Never_Short", "Never"),
     ];
 
-    internal static int DefaultSeconds => 90;
+    internal const int DefaultSeconds = 5 * 60;
 
     /// <summary>
     /// The configured wait, in seconds; <c>0</c> means "never release". A stored value
@@ -123,7 +125,8 @@ internal static class LowMemoryMode
         if (!enabled)
             return Choices[0];
 
-        return Choices.FirstOrDefault(choice => choice.Enabled && choice.Seconds == seconds, Choices[1]);
+        var fallback = Choices.First(choice => choice.Enabled && choice.Seconds == DefaultSeconds);
+        return Choices.FirstOrDefault(choice => choice.Enabled && choice.Seconds == seconds, fallback);
     }
 
     /// <summary>Applies a choice: turns the mode on or off and stores the wait.</summary>

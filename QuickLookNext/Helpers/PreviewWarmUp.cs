@@ -36,8 +36,9 @@ namespace QuickLookNext.Helpers;
 /// mp4 595 -> 413. The difference is one-time work - the plugin's panel XAML and
 /// JIT, its native libraries, the WebView2 environment - that every user pays on
 /// the first preview of that kind. This class pays it while the user is still
-/// doing something else (the app starts at login) or, in the low memory mode, while
-/// they are reading the preview that started the session.
+/// doing something else (the app starts at login). Since v6.5.0 this also applies to the
+/// default timed low-memory policy: the first preview is commonly opened right after
+/// startup, so the head start is prepared before the user asks for it.
 /// </para>
 /// <para>
 /// v6.0.0: the warm-up is fixed at three families. The usage history decides the
@@ -142,17 +143,23 @@ internal static class PreviewWarmUp
         => Volatile.Write(ref _lastPreviewRequestMs, Environment.TickCount64);
 
     /// <summary>
-    /// v5.8.0: whether a call to <see cref="Start"/> from this point may begin. The normal
-    /// mode prepares the families while the user is doing something else, so it starts at
-    /// startup; the low memory mode has no such budget and waits for the first preview of
-    /// the session (<c>afterFirstPreview</c>) - which is why it can no longer skip the
-    /// families for the rest of the session, as it did before this version.
+    /// Whether a call to <see cref="Start"/> from this point may begin. An ordinary launch
+    /// prepares the families immediately. The process restarted after an idle release is
+    /// cold and waits for the next real preview, which clears that state first.
     /// </summary>
     internal static bool ShouldStart(bool afterFirstPreview)
         => afterFirstPreview || StartupWarmUp.IsEnabled;
 
     /// <summary>Whether this session has started preparing the families (test hook).</summary>
     internal static bool HasStarted => _started;
+
+    /// <summary>Keeps unit tests isolated from the static one-start guard.</summary>
+    internal static void ResetForTests()
+    {
+        _started = false;
+        _warmedCount = 0;
+        Array.Clear(_warmed);
+    }
 
     internal static void Start(bool afterFirstPreview = false)
     {
