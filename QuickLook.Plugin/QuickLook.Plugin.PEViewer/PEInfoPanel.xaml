@@ -8,16 +8,15 @@
              FontSize="14"
              UseLayoutRounding="True"
              mc:Ignorable="d">
-    <!-- v5.6.17: the window is split into two panes that fill it - a square on the left that holds the
-    icon in its middle, and the rest of the window for the details. The details keep their own inset and
-    are centred vertically in their pane. -->
-    <Grid>
+    <!-- v6.3.3: the icon gets a true square pane instead of a 176 x 192 rectangle, and the
+    icon-and-details block is centred in the window rather than anchored to the left. -->
+    <Grid HorizontalAlignment="Center">
         <Grid.RowDefinitions>
             <RowDefinition Height="0" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="176" />
+            <ColumnDefinition Width="192" />
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Image x:Name="image"

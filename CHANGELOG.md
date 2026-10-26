@@ -7,6 +7,21 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.3.3
+
+### Application preview layout is centred and proportioned correctly
+
+6.3.3 fixes the geometry of the application preview's icon area and the alignment of
+the complete information block.
+
+- **The icon pane is square.** The left pane is now 192 x 192 instead of a
+  176 x 192 rectangle, so the icon has equal clearance above and below and on both
+  sides at every display scale.
+- **The content is centred.** The icon and details are treated as one block and are
+  centred in the preview window instead of being anchored to the left edge.
+- **No extra decoration.** The correction changes layout only; it does not add a
+  visible border, card, or background behind the icon.
+
 ## QuickLook-Next 6.3.2
 
 ### Low memory mode now releases after a preview closes
