@@ -105,6 +105,10 @@ internal sealed class PreviewSession
         return nowMs - _lastActivityMs >= timeoutMs;
     }
 
+    /// <summary>Time since the last session activity, for low-memory diagnostics.</summary>
+    internal long IdleFor(long nowMs) =>
+        IsActive ? Math.Max(0, nowMs - _lastActivityMs) : 0;
+
     /// <summary>Ends the session, so the next window is built cold.</summary>
     internal void End()
     {

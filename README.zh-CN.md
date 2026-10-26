@@ -268,7 +268,7 @@ QuickLook.Plugin\  # 内置插件
 预发布版本，例如：
 
 ```powershell
-.\Scripts\pack-installer.ps1 -Version 6.5.0-test.1
+.\Scripts\pack-installer.ps1 -Version 6.5.1-test.1
 ```
 
 测试构建会同时在 `Build\Release` 生成

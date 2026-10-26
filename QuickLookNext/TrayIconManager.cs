@@ -541,7 +541,7 @@ internal partial class TrayIconManager : IDisposable
         _icon.IsVisible = false;
     }
 
-    public void Restart(string fileName = null, string dir = null, string args = null, int? exitCode = null, bool forced = false)
+    public bool Restart(string fileName = null, string dir = null, string args = null, int? exitCode = null, bool forced = false)
     {
         try
         {
@@ -559,17 +559,24 @@ internal partial class TrayIconManager : IDisposable
                     UseShellExecute = true,
                 },
             };
-            process.Start();
+            if (!process.Start())
+            {
+                QuickLook.Common.Helpers.ProcessHelper.WriteLog(
+                    "Restart failed: Process.Start returned false");
+                return false;
+            }
         }
-        catch (Win32Exception)
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            return;
+            QuickLook.Common.Helpers.ProcessHelper.WriteLog($"Restart failed: {ex.Message}");
+            return false;
         }
         if (forced)
         {
             Process.GetCurrentProcess().Kill();
         }
         Environment.Exit(exitCode ?? 'r' + 'e' + 's' + 't' + 'a' + 'r' + 't');
+        return true;
     }
 
     private nint GetTrayIconByDPI()

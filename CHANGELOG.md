@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.5.1
+
+### Low-memory release is reliable after idle
+
+6.5.1 fixes an idle-release regression that could leave the process at its
+post-preview memory footprint after the configured wait.
+
+- **The deadline no longer depends on the UI queue.** The low-memory countdown
+  now uses an independent background timer and marshals only the final release
+  decision to the UI thread. The previous low-priority WPF timer could remain
+  queued indefinitely in a tray-only process.
+- **An open preview is still protected.** The app will never restart while a
+  preview is being viewed. Closing it starts a fresh wait.
+- **Failed releases recover.** If the replacement process cannot be started, the
+  session remains active and the timer is armed again instead of leaving the app
+  permanently above its idle footprint.
+- **The release path is diagnosable.** The log now records a reached deadline, an
+  open-preview deferral, a new warm session after cold idle, and restart failures.
+- **Release quality.** 337 unit tests pass with a Release build of 0 warnings and
+  0 errors.
+
 ## QuickLook-Next 6.5.0
 
 ### A directly installable Setup.exe

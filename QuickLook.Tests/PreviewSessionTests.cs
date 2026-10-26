@@ -124,6 +124,23 @@ internal class PreviewSessionTests
             "normal mode");
     }
 
+    public void IdleDurationTracksTheLastActivity()
+    {
+        var session = new PreviewSession();
+        session.Started(1_000);
+
+        Assert.Equal(4_000, session.IdleFor(5_000), "time since launch");
+
+        session.Opened(8_000);
+        Assert.Equal(2_000, session.IdleFor(10_000), "opening resets the idle span");
+
+        session.Closed(12_000);
+        Assert.Equal(3_000, session.IdleFor(15_000), "closing resets the idle span");
+
+        session.End();
+        Assert.Equal(0, session.IdleFor(99_000), "an ended session has no idle span");
+    }
+
     public void AStartupSessionCanBeReleasedWithoutAPreview()
     {
         var session = new PreviewSession();

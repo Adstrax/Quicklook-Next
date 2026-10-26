@@ -314,7 +314,7 @@ to choose another directory, and creates Start Menu, optional desktop and standa
 uninstall entries. Local test builds should use a unique prerelease version:
 
 ```powershell
-.\Scripts\pack-installer.ps1 -Version 6.5.0-test.1
+.\Scripts\pack-installer.ps1 -Version 6.5.1-test.1
 ```
 
 The test build produces both `Build\Release\QuickLook-Next-Setup-<version>.exe` and
