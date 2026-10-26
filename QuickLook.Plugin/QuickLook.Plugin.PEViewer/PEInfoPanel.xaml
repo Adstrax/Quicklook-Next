@@ -4,78 +4,107 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:QuickLook.Plugin.PEViewer"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             Height="192"
+             Height="216"
              FontSize="14"
              UseLayoutRounding="True"
              mc:Ignorable="d">
-    <!-- v6.3.3: the icon gets a true square pane instead of a 176 x 192 rectangle, and the
-    icon-and-details block is centred in the window rather than anchored to the left. -->
-    <Grid HorizontalAlignment="Center">
+    <!-- v6.3.4: A's two-column reading order over the host's original acrylic. This variant
+    keeps the host backdrop, theme-adaptive text and divider so application previews match
+    the folder-preview card. -->
+    <Grid ClipToBounds="True">
+        <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="0" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="192" />
-            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Image x:Name="image"
-               Grid.Row="1"
-               Grid.Column="0"
-               Width="128"
-               Height="128"
-               VerticalAlignment="Center"
-               Opacity="0"
-               Stretch="Fill">
-            <Image.Style>
-                <Style TargetType="{x:Type Image}">
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding Source, ElementName=image}" Value="{x:Null}">
-                            <DataTrigger.ExitActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation BeginTime="0:0:0"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         From="0"
-                                                         To="1"
-                                                         Duration="0:0:0.05" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </DataTrigger.ExitActions>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Image.Style>
-        </Image>
-        <Grid Grid.Row="1" Grid.Column="1" MaxWidth="260" VerticalAlignment="Center">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="8" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="20" />
-            </Grid.ColumnDefinitions>
+        <Border Grid.Row="1"
+                Grid.Column="0"
+                Width="148"
+                Height="148"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#0FFFFFFF"
+                BorderBrush="{DynamicResource CaptionSeparatorBrush}"
+                BorderThickness="1"
+                CornerRadius="28">
+            <Image x:Name="image"
+                   Width="112"
+                   Height="112"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Opacity="0"
+                   RenderOptions.BitmapScalingMode="HighQuality"
+                   SnapsToDevicePixels="True"
+                   Stretch="Uniform">
+                <Image.Style>
+                    <Style TargetType="{x:Type Image}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Source, ElementName=image}" Value="{x:Null}">
+                                <DataTrigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation BeginTime="0:0:0"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             From="0"
+                                                             To="1"
+                                                             Duration="0:0:0.05" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Image.Style>
+            </Image>
+        </Border>
+        <Rectangle Grid.Row="1"
+                   Grid.Column="0"
+                   Width="1"
+                   Height="132"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Center"
+                   Fill="{DynamicResource WindowTextForeground}"
+                   Opacity="0.24">
+            <Rectangle.OpacityMask>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Offset="0" Color="#00000000" />
+                    <GradientStop Offset="0.22" Color="#FF000000" />
+                    <GradientStop Offset="0.78" Color="#FF000000" />
+                    <GradientStop Offset="1" Color="#00000000" />
+                </LinearGradientBrush>
+            </Rectangle.OpacityMask>
+        </Rectangle>
+        <Grid Grid.Row="1"
+              Grid.Column="1"
+              MaxWidth="220"
+              Margin="22,0,8,0"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Center">
             <Grid.RowDefinitions>
                 <RowDefinition Height="0" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="10" />
+                <RowDefinition Height="15" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid Grid.Row="1"
-                  Grid.Column="1"
-                  Grid.ColumnSpan="2">
+                  Grid.Column="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0"
                            MaxHeight="60"
-                           MaxWidth="320"
-                           Padding="3"
-                           FontSize="19"
+                           MaxWidth="220"
+                           FontSize="22"
                            FontWeight="SemiBold"
-                           LineHeight="25"
+                           LineHeight="27"
+                           Foreground="{DynamicResource WindowTextForeground}"
                            TextTrimming="CharacterEllipsis"
                            TextWrapping="Wrap">
                     <TextBlock.Inlines>
@@ -86,11 +115,11 @@
                                                 CornerRadius="5"
                                                 Visibility="Collapsed">
                                 <TextBlock x:Name="architecture"
-                                           Height="20"
+                                           Height="22"
                                            Padding="6,0,6,0"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
-                                           FontSize="15"
+                                           FontSize="13.5"
                                            Foreground="White" />
                             </local:FluentBorder>
                         </InlineUIContainer>
@@ -98,53 +127,30 @@
                 </TextBlock>
             </Grid>
             <!--  Total Size  -->
-            <TextBlock x:Name="totalSizeTitle"
-                       Grid.Row="3"
-                       Grid.Column="1"
-                       Padding="3"
-                       Foreground="{DynamicResource WindowTextForegroundAlternative}"
-                       Text="Total Size" />
-            <TextBlock x:Name="totalSize"
-                       Grid.Row="3"
-                       Grid.Column="2"
-                       TextWrapping="NoWrap"
-                       TextTrimming="CharacterEllipsis"
-                       Margin="8,0,0,0"
-                       Padding="3"
-                       Foreground="{DynamicResource WindowTextForegroundAlternative}"
-                       Text="Calculating size..." />
+            <TextBlock Grid.Row="3"
+                       Margin="0,3,0,4"
+                       FontSize="14.5"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource WindowTextForeground}"
+                       TextWrapping="Wrap"><Run x:Name="totalSizeTitle" Text="Total Size" /><Run Text=": " /><Run x:Name="totalSize" Text="Calculating size..." />
+            </TextBlock>
             <!--  File Version  -->
-            <TextBlock x:Name="fileVersionTitle"
-                       Grid.Row="4"
-                       Grid.Column="1"
-                       Padding="3"
-                       Foreground="{DynamicResource WindowTextForegroundAlternative}"
-                       Text="File Version" />
-            <TextBlock x:Name="fileVersion"
-                       Grid.Row="4"
-                       Grid.Column="2"
-                       TextWrapping="NoWrap"
-                       Margin="8,0,0,0"
-                       Padding="3"
-                       Foreground="{DynamicResource WindowTextForegroundAlternative}"
-                       Text="Searching..."
-                       TextTrimming="CharacterEllipsis" />
+            <TextBlock Grid.Row="4"
+                       Margin="0,3,0,4"
+                       FontSize="14.5"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource WindowTextForeground}"
+                       TextWrapping="Wrap"><Run x:Name="fileVersionTitle" Text="File Version" /><Run Text=": " /><Run x:Name="fileVersion" Text="Searching..." />
+            </TextBlock>
             <!--  Product Version  -->
-            <TextBlock x:Name="productVersionTitle"
-                       Grid.Row="5"
-                       Grid.Column="1"
-                       Padding="3"
-                       Foreground="{DynamicResource WindowTextForegroundAlternative}"
-                       Text="Product Version" />
-            <TextBlock x:Name="productVersion"
-                       Grid.Row="5"
-                       Grid.Column="2"
-                       Margin="8,0,0,0"
-                       Padding="3"
-                       Foreground="{DynamicResource WindowTextForegroundAlternative}"
-                       Text="Searching..."
-                       TextTrimming="CharacterEllipsis"
-                       TextWrapping="Wrap" />
+            <TextBlock Grid.Row="5"
+                       Margin="0,3,0,4"
+                       FontSize="14.5"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource WindowTextForeground}"
+                       TextWrapping="Wrap"><Run x:Name="productVersionTitle" Text="Product Version" /><Run Text=": " /><Run x:Name="productVersion" Text="Searching..." />
+            </TextBlock>
+        </Grid>
         </Grid>
     </Grid>
 </UserControl>

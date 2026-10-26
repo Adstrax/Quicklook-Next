@@ -32,6 +32,10 @@ public partial class InfoPanel : UserControl
     public InfoPanel()
     {
         InitializeComponent();
+
+        dateModifiedTitle.Text = TranslationHelper.Get("InfoPanel_DateModifiedLabel");
+        sizeTitle.Text = TranslationHelper.Get("InfoPanel_SizeLabel");
+        numberTitle.Text = TranslationHelper.Get("InfoPanel_NumberLabel");
     }
 
     public bool Stop
@@ -61,9 +65,11 @@ public partial class InfoPanel : UserControl
         var name = Path.GetFileName(path);
         filename.Text = string.IsNullOrEmpty(name) ? path : name;
 
-        var last = File.GetLastWriteTime(path);
-        modDate.Text = string.Format(TranslationHelper.Get("InfoPanel_LastModified"),
-            last.ToString(CultureInfo.CurrentCulture));
+        var lastModified = File.GetLastWriteTime(path);
+        var dateTimeFormat = CultureInfo.CurrentCulture.DateTimeFormat;
+        modDate.Text = string.Join(" ",
+            lastModified.ToString(dateTimeFormat.ShortDatePattern, CultureInfo.CurrentCulture),
+            lastModified.ToString(dateTimeFormat.ShortTimePattern, CultureInfo.CurrentCulture));
 
         Stop = false;
 
@@ -73,7 +79,12 @@ public partial class InfoPanel : UserControl
             {
                 var size = new FileInfo(path).Length;
 
-                Dispatcher.Invoke(() => { totalSize.Text = size.ToPrettySize(2); });
+                Dispatcher.Invoke(() =>
+                {
+                    totalSize.Text = size.ToPrettySize(2);
+                    itemCount.Text = string.Format(
+                        TranslationHelper.Get("InfoPanel_File"), 1);
+                });
             }
             else if (Path.GetPathRoot(path) == path) // is this a drive?
             {
@@ -81,10 +92,11 @@ public partial class InfoPanel : UserControl
 
                 Dispatcher.Invoke(() =>
                 {
-                    totalSize.Text =
-                        string.Format(TranslationHelper.Get("InfoPanel_DriveSize"),
-                            totalSpace.ToPrettySize(2),
-                            totalFreeSpace.ToPrettySize(2));
+                    totalSize.Text = string.Format(
+                        TranslationHelper.Get("InfoPanel_DriveSize"),
+                        totalSpace.ToPrettySize(2),
+                        totalFreeSpace.ToPrettySize(2));
+                    numberLine.Visibility = System.Windows.Visibility.Collapsed;
                 });
             }
             else if (Directory.Exists(path))
@@ -106,15 +118,14 @@ public partial class InfoPanel : UserControl
                                 totalFilesL == 1 ? "InfoPanel_File" : "InfoPanel_Files"), totalFilesL);
 
                         if (!string.IsNullOrEmpty(folders) && !string.IsNullOrEmpty(files))
-                            t = string.Format(
-                                TranslationHelper.Get("InfoPanel_FolderAndFile"), folders, files);
+                            t = $"{folders} · {files}";
                         else if (string.IsNullOrEmpty(folders) && string.IsNullOrEmpty(files))
                             t = string.Empty;
                         else
-                            t = $"({folders}{files})";
+                            t = folders + files;
 
-                        totalSize.Text =
-                            $"{totalSizeL.ToPrettySize(2)} {t}";
+                        totalSize.Text = totalSizeL.ToPrettySize(2);
+                        itemCount.Text = t;
                     });
             }
         });

@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.3.4
+
+### Application and folder previews share one clear acrylic information card
+
+6.3.4 unifies the information-card previews around the acrylic layout selected during
+testing, while keeping the same proportions when moving between applications and
+folders.
+
+- **Application previews use the acrylic layout.** A fixed left panel centres a
+  rounded icon card, a fading divider separates it from the details, and all text
+  follows the active light or dark theme.
+- **Folder previews match the same design.** Folder and application previews now
+  use the same window size, icon proportions, divider and typography, so switching
+  between them no longer changes the visual style.
+- **Metadata is easier to read.** Folder metadata is split into modified date, size
+  and item count. Every information line now uses the same `Label: value` format,
+  font size and weight; dates use a compact short date and time, and long item counts
+  can wrap without truncation.
+- **Release quality.** 330 unit tests pass with a Release build of 0 warnings and
+  0 errors.
+
 ## QuickLook-Next 6.3.3
 
 ### Application preview layout is centred and proportioned correctly
