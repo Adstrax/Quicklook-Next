@@ -34,11 +34,15 @@ jobs:
           & $exe
           exit $LASTEXITCODE
       - name: Upload build output
+        # Full build output is large and is not needed for ordinary CI runs.
+        # Keep it available only when a maintainer manually starts the workflow.
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: QuickLookNext-Release
           path: Build/Release
           if-no-files-found: error
+          retention-days: 3
 
   # v3.10.0: the full GUI smoke test runs on every push/PR. QL_SMOKE_CI lets
   # test.ps1 relax the DWM-dependent Acrylic assertion on headless runners.
