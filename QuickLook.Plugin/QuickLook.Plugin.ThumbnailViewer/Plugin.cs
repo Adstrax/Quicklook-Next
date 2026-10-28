@@ -38,7 +38,6 @@ public sealed class Plugin : IViewer
         ".pip", ".pix", // Pixso
         ".sketch", // Sketch
         ".xd", // AdobeXD
-        ".xmind", // XMind
     ]);
 
     private ImagePanel _ip;

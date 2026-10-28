@@ -73,6 +73,7 @@ public sealed class PluginManager
         "QuickLook.Plugin.PluginInstaller",
         "QuickLook.Plugin.PrefetchViewer",
         "QuickLook.Plugin.ThumbnailViewer",
+        "QuickLook.Plugin.XMindViewer",
     };
 
     // v3.10.0: extension -> lazy built-in plugins that declare it, ordered by
@@ -134,7 +135,7 @@ public sealed class PluginManager
         [".pix"] = ["QuickLook.Plugin.ThumbnailViewer"],
         [".sketch"] = ["QuickLook.Plugin.ThumbnailViewer"],
         [".xd"] = ["QuickLook.Plugin.ThumbnailViewer"],
-        [".xmind"] = ["QuickLook.Plugin.ThumbnailViewer"],
+        [".xmind"] = ["QuickLook.Plugin.XMindViewer"],
         [".ttf"] = ["QuickLook.Plugin.FontViewer"],
         [".otf"] = ["QuickLook.Plugin.FontViewer"],
         [".woff"] = ["QuickLook.Plugin.FontViewer"],

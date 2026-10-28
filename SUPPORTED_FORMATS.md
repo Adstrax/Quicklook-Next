@@ -290,6 +290,9 @@ Update not completed yet...
 - `.eml` (Email message)
 - `.msg` (Outlook message)
 
+### Mind maps
+- `.xmind` (XMind mind map with native tree preview, sheet switching, pan and zoom)
+
 ### Thumbnail/Design files
 - `.cdr` (CorelDRAW project file)
 - `.fig` (Figma project file)
@@ -298,7 +301,6 @@ Update not completed yet...
 - `.pip`, `.pix` (Pixso project file)
 - `.sketch` (Sketch project file)
 - `.xd` (Adobe XD project file)
-- `.xmind` (XMind mind map file)
 
 ### ELF/Mach-O/UImage files
 - `.axf` (ARM Executable)

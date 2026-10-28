@@ -35,6 +35,7 @@
         -->
         <ProjectReference Include="..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj" />
         <ProjectReference Include="..\QuickLook.Plugin\QuickLook.Plugin.OfficeViewer\QuickLook.Plugin.OfficeViewer.csproj" />
+        <ProjectReference Include="..\QuickLook.Plugin\QuickLook.Plugin.XMindViewer\QuickLook.Plugin.XMindViewer.csproj" />
     </ItemGroup>
 
     <!--

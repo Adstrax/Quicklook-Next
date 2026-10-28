@@ -34,7 +34,6 @@ internal static class Handler
             ".pip" or ".pix" => new PixProvidor(),
             ".sketch" => new SketchProvidor(),
             ".xd" => new XdProvidor(),
-            ".xmind" => new XmindProvidor(),
             _ => (AbstractProvidor)null,
         })?.Prepare(path, context);
     }
@@ -50,7 +49,6 @@ internal static class Handler
             ".pip" or ".pix" => new PixProvidor(),
             ".sketch" => new SketchProvidor(),
             ".xd" => new XdProvidor(),
-            ".xmind" => new XmindProvidor(),
             _ => (AbstractProvidor)null,
         })?.ViewImage(path);
     }

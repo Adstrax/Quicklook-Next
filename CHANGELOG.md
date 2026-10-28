@@ -7,6 +7,29 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.6.0
+
+### Native XMind preview and visible automatic-update controls
+
+6.6.0 adds a real mind-map preview for XMind files instead of relying on the
+system thumbnail, and exposes the existing background update check as a setting.
+
+- **Native XMind preview.** The viewer reads the topic hierarchy directly and
+  draws the root topic, nested branches and connecting lines instead of showing
+  a low-resolution Windows thumbnail.
+- **Both file generations supported.** It reads newer `content.json` first and
+  falls back to legacy `content.xml`, covering common XMind 2020+ and XMind 8
+  documents.
+- **Multiple sheets and view controls.** Multi-sheet documents can switch
+  canvases, and the preview supports zoom buttons, `Ctrl + wheel` zoom, drag
+  panning and fit-to-window.
+- **Controllable automatic update checks.** The tray Options menu now includes
+  an automatically check for updates toggle, enabled by default. Re-enabling it
+  performs an immediate quiet check; the existing manual check remains available.
+- **Release quality.** 343 unit tests pass, including parsing and UI-layout
+  coverage with a real XMind sample. The Release build has 0 warnings and
+  0 errors.
+
 ## QuickLook-Next 6.5.1
 
 ### Low-memory release is reliable after idle

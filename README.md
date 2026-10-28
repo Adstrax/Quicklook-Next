@@ -7,7 +7,7 @@
 > **中文用户看这里 → [简体中文 README](README.zh-CN.md)**（GitHub 不会按浏览器语言自动切换。）
 >
 > 一句话：Windows 上的空格键文件预览工具，QuickLook 的衍生版，免费开源。
-> 25 个内置插件覆盖图片 / 视频 / PDF / Office / 压缩包 / 字体 / 数据库 / 3D 等；
+> 26 个内置插件覆盖图片 / 视频 / PDF / Office / 压缩包 / 字体 / 数据库 / 3D 等；
 > 毛玻璃 + Win11 原生圆角；下载 `QuickLook-Next-Setup.exe` 安装后即可使用，
 > 需先装 .NET 10 桌面运行时。
 
@@ -30,7 +30,7 @@ the official build and is not affiliated with it.
 - **Licence**: GPL-3.0, the same licence as upstream; the licence text and the upstream copyright
   notices are kept.
 - **Plugins**: the plugin contract is unchanged (`QuickLook.Common` / `QuickLook.Plugin.*`), so
-  plugins written for the original load without recompiling. The 25 built-in plugins come from that
+  plugins written for the original load without recompiling. The 26 built-in plugins come from that
   ecosystem.
 - **Side by side**: named pipes and the mutex use the `QuickLookNext.App.*` prefix, so this build and
   the official one can be installed at the same time without interfering.
@@ -178,6 +178,12 @@ existing plugins load without recompiling.
 The 5.x releases are where most of the feature work landed. The upstream issue this
 fixes or implements is noted where there is one.
 
+- **Native XMind preview** — newer `content.json` and legacy `content.xml` files
+  are read directly and drawn as an interactive topic tree with multiple-sheet
+  switching, zoom, drag panning and fit-to-window instead of a blurry system thumbnail.
+- **Controllable automatic update checks** — the tray Options menu can enable or
+  disable the daily background check. It is enabled by default, and re-enabling it
+  performs an immediate quiet check.
 - **Data & cache panel** — the tray menu shows what the app actually occupies (WebView2 caches,
   leftover update files, settings, logs, the WebView2 profile) and clears only the rebuildable
   parts: sign-in data, settings, statistics and logs survive. (upstream #1933)
@@ -203,7 +209,7 @@ fixes or implements is noted where there is one.
   download panel, data & cache) use a 45% panel tint over a content plate rather than the 30%
   menu glass, and fall back to a solid surface when Windows transparency effects are switched off.
 - **Plugin market search** — the panel opens with the caret already in the search box, filters name
-  and description as you type, and reports "3 of 25 shown"; Esc clears the filter first and closes
+  and description as you type, and reports "3 of 26 shown"; Esc clears the filter first and closes
   the panel second.
 - **Image magnifier (5.6.6)** — the wheel goes to **8x** instead of stopping at 3x of the *decoded*
   size, and a notch now heads for a landmark (100%, "exactly fit") instead of snapping onto it, so the
@@ -322,7 +328,7 @@ The test build produces both `Build\Release\QuickLook-Next-Setup-<version>.exe` 
 
 ## Supported formats
 
-Folder preview is provided by the built-in InfoPanel. 25 built-in plugins cover
+Folder preview is provided by the built-in InfoPanel. 26 built-in plugins cover
 everyday and professional formats:
 
 | Plugin | Purpose |

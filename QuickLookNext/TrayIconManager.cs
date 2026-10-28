@@ -220,6 +220,15 @@ internal partial class TrayIconManager : IDisposable
                         Command = ToggleHideTopBarByDefault,
                         IsChecked = SettingHelper.Get("HideTopBarByDefault", true, "QuickLookNext"),
                     },
+                    new TrayMenuEntry
+                    {
+                        Header = TranslationHelper.Get(
+                            "Icon_AutoUpdateCheck",
+                            failsafe: "Automatically check for updates"),
+                        Icon = FontSymbols.Sync,
+                        Command = ToggleAutomaticUpdateCheck,
+                        IsChecked = !SettingHelper.Get("DisableAutoUpdateCheck", false),
+                    },
                 ],
             },
             // v5.6.4: the mode and its release wait are one control. Same shape as the
@@ -421,6 +430,32 @@ internal partial class TrayIconManager : IDisposable
         var manager = ViewWindowManager.GetInstance();
         if (manager.CurrentViewerWindow is { IsVisible: true } w)
             w.ApplyTopBarMode();
+    }
+
+    /// <summary>
+    /// Makes the already-existing background updater visible and controllable
+    /// from the tray menu. Enabling it clears the daily throttle and performs a
+    /// quiet check immediately, so the user does not have to wait for a restart.
+    /// </summary>
+    private static void ToggleAutomaticUpdateCheck()
+    {
+        var wasEnabled = !SettingHelper.Get("DisableAutoUpdateCheck", false);
+        var enabled = !wasEnabled;
+        SettingHelper.Set("DisableAutoUpdateCheck", !enabled);
+
+        if (enabled)
+        {
+            SettingHelper.Set("LastUpdateTicks", 0L);
+            Updater.CheckForUpdates(silent: true);
+        }
+
+        ShowNotification(
+            string.Empty,
+            TranslationHelper.Get(
+                enabled ? "Update_AutoCheckOn" : "Update_AutoCheckOff",
+                failsafe: enabled
+                    ? "Automatic update checks are on."
+                    : "Automatic update checks are off."));
     }
 
     /// <summary>
