@@ -16,6 +16,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -196,7 +197,7 @@ internal static class DocxToHtml
             AppendCss(sb, geometry);
             sb.Append("</style></head><body><div class=\"doc\">")
               .Append(html)
-              .Append("</div>").Append(DocumentScript(geometry)).Append("</body></html>");
+              .Append("</div>").Append(DocumentScript(geometry, outline)).Append("</body></html>");
 
             return new OfficePanelContent
             {
@@ -400,7 +401,12 @@ internal static class DocxToHtml
             if (text.Length > 0)
                 outline.Add(new OfficeNavEntry(text, id, Math.Min(headingLevel - 1, 3)));
 
-            return new ParagraphResult($"<h{h}{idAttr}{styleAttr}>{sb}</h{h}>", false);
+            // A heading can be the outline's target even when Word has no bookmark on it. The generated id must
+            // be emitted too, otherwise selecting that row - or reporting the current row while scrolling -
+            // points at an element that does not exist.
+            return new ParagraphResult(
+                $"<h{h} id=\"{WebUtility.HtmlEncode(id)}\"{styleAttr}>{sb}</h{h}>",
+                false);
         }
 
         return new ParagraphResult($"<p{idAttr}{styleAttr}>{sb}</p>", false);
@@ -658,13 +664,10 @@ internal static class DocxToHtml
         if (embed is null || !rels.TryGetValue(embed, out var target))
             return null;
 
-        var mediaPath = target.Replace('/', '\\');
-        if (!mediaPath.StartsWith("word\\", StringComparison.OrdinalIgnoreCase) &&
-            !mediaPath.StartsWith("/word/", StringComparison.OrdinalIgnoreCase))
-        {
-            mediaPath = "word\\" + mediaPath.TrimStart('/');
-        }
-
+        // Relationship targets are OPC part names, not Windows paths. ZIP
+        // entries are always separated with '/', so resolving them relative to
+        // word/document.xml must keep OPC's separator and dot-segment rules.
+        var mediaPath = ResolvePackagePath("word/document.xml", target);
         var entry = archive.GetEntry(mediaPath);
         if (entry is null)
             return null;
@@ -691,6 +694,58 @@ internal static class DocxToHtml
             return null;
 
         return $"<img src=\"https://{imageHost}/{name}\" alt=\"\">";
+    }
+
+    /// <summary>
+    /// Resolves an OPC relationship target relative to the part that owns the
+    /// relationship. The result is the exact key used by ZipArchive: forward
+    /// slashes, no leading slash, and dot segments folded away.
+    /// </summary>
+    private static string ResolvePackagePath(string sourcePart, string target)
+    {
+        target = target.Replace('\\', '/').Trim();
+
+        // A fragment belongs to the relationship reference, not the package part.
+        var fragment = target.IndexOf('#');
+        if (fragment >= 0)
+            target = target[..fragment];
+
+        try
+        {
+            target = Uri.UnescapeDataString(target);
+        }
+        catch
+        {
+            // A malformed escape is still worth trying as a literal part name.
+        }
+
+        var segments = new List<string>();
+        if (!target.StartsWith('/'))
+        {
+            var ownerSlash = sourcePart.LastIndexOf('/');
+            if (ownerSlash > 0)
+            {
+                segments.AddRange(
+                    sourcePart[..ownerSlash].Split('/', StringSplitOptions.RemoveEmptyEntries));
+            }
+        }
+
+        foreach (var segment in target.TrimStart('/').Split('/'))
+        {
+            if (segment.Length == 0 || segment == ".")
+                continue;
+
+            if (segment == "..")
+            {
+                if (segments.Count > 0)
+                    segments.RemoveAt(segments.Count - 1);
+                continue;
+            }
+
+            segments.Add(segment);
+        }
+
+        return string.Join('/', segments);
     }
 
     /// <summary>
@@ -873,9 +928,10 @@ internal static class DocxToHtml
     /// scroll, so the rail and its own table of contents are a set of anchors: a click is a scroll to the
     /// paragraph they name.
     /// </summary>
-    private static string DocumentScript(PageGeometry geometry) =>
+    private static string DocumentScript(PageGeometry geometry, IReadOnlyList<OfficeNavEntry> outline) =>
         "<script>" +
         $"var paper={{w:{Number(geometry.Width)}}};" +
+        $"var officeNavTargets={JsonSerializer.Serialize(outline.Select(entry => entry.Target).ToArray())};" +
         "function fitPage(){var doc=document.querySelector('.doc');if(!doc)return;" +
         "var scale=(document.documentElement.clientWidth-8)/paper.w;" +
         "doc.style.zoom=Math.min(1,scale);}" +
@@ -884,8 +940,20 @@ internal static class DocxToHtml
         "document.addEventListener('click',function(e){" +
         "var a=e.target&&e.target.closest?e.target.closest('a[href^=\"#\"]'):null;if(!a)return;" +
         "e.preventDefault();goTo(decodeURIComponent(a.getAttribute('href').slice(1)));});" +
+        "var officeNavHeadings=officeNavTargets.map((id,index)=>({index:index,element:document.getElementById(id)}))" +
+        ".filter(item=>item.element);var officeNavCurrent=-1;var officeNavTicking=false;" +
+        "function updateOfficeNavigation(){officeNavTicking=false;if(!officeNavHeadings.length)return;" +
+        "var mark=Math.max(80,Math.min(180,innerHeight*.22));var active=officeNavHeadings[0].index;" +
+        "for(var i=0;i<officeNavHeadings.length;i++){if(officeNavHeadings[i].element.getBoundingClientRect().top>mark)break;" +
+        "active=officeNavHeadings[i].index;}" +
+        "if(innerHeight+scrollY>=document.documentElement.scrollHeight-2)active=officeNavHeadings[officeNavHeadings.length-1].index;" +
+        "if(active===officeNavCurrent)return;officeNavCurrent=active;" +
+        "try{chrome.webview.postMessage(JSON.stringify({type:'office-position',index:active}))}catch(e){}}" +
+        "window.addEventListener('scroll',function(){if(officeNavTicking)return;officeNavTicking=true;" +
+        "requestAnimationFrame(updateOfficeNavigation);},{passive:true});" +
         "window.addEventListener('resize',fitPage);fitPage();setTimeout(fitPage,0);" +
-        "window.addEventListener('load',fitPage);</script>";
+        "window.addEventListener('load',function(){fitPage();updateOfficeNavigation();});" +
+        "setTimeout(updateOfficeNavigation,0);</script>";
 
     /// <summary>v5.7.0: the white sheet a page is drawn as, in CSS pixels.</summary>
     internal sealed record PageGeometry(double Width, double Height, double Top, double Right, double Bottom, double Left);

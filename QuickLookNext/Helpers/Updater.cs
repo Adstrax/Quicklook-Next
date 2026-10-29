@@ -199,7 +199,7 @@ internal class Updater
     /// </summary>
     private static void AskAndUpdate(JObject release, string version)
     {
-        if (UpdateDialog.Ask(version, (string)release["html_url"]))
+        if (UpdateDialog.Ask(UpdateReleaseInfo.FromRelease(release, version)))
         {
             _ = Task.Run(() => RunUpdate(release, version));
             return;

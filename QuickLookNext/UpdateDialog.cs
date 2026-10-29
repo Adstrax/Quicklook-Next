@@ -23,6 +23,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -37,26 +38,30 @@ namespace QuickLookNext;
 /// v3.40.0: the prompt is no longer a stock window. It is a borderless panel that
 /// reuses the tray menu's material - the same WCA acrylic, tint, border, corner
 /// radius and palette - so the update asks the same way the rest of the app looks.
-/// The layout is a header row (icon, title, close), the two versions, one line of
-/// explanation and a footer with the release notes link plus the two answers.
+/// The layout is a header row (icon, title, close), the version summary, the
+/// release notes in a scrollable card, and a footer with the GitHub link plus
+/// the two answers.
 /// </para>
 /// </summary>
 internal sealed class UpdateDialog : Window
 {
     private readonly bool _isDark;
+    private readonly UpdateReleaseInfo _release;
     private bool _accentApplied;
     private bool _updateNow;
 
-    private UpdateDialog(string version, string releaseNotesUrl)
+    private UpdateDialog(UpdateReleaseInfo release)
     {
+        _release = release;
         _isDark = TrayIconManager.IsDarkTheme();
 
         Title = TranslationHelper.Get("Update_Title", failsafe: "Software Update");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
         ResizeMode = ResizeMode.NoResize;
-        SizeToContent = SizeToContent.Height;
-        Width = 420;
+        SizeToContent = SizeToContent.Manual;
+        Width = Math.Max(360, Math.Min(680, SystemParameters.WorkArea.Width - 48));
+        Height = Math.Max(400, Math.Min(620, SystemParameters.WorkArea.Height - 48));
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
         Topmost = true;
@@ -67,7 +72,7 @@ internal sealed class UpdateDialog : Window
         // v5.3.0: a dialog is read, not scanned - it uses the firmer panel surface (see MenuSurface).
         Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel);
 
-        Content = BuildContent(version, releaseNotesUrl);
+        Content = BuildContent(release);
 
         // Borderless window: the panel itself is the title bar.
         MouseLeftButtonDown += (_, e) =>
@@ -115,9 +120,9 @@ internal sealed class UpdateDialog : Window
     }
 
     /// <summary>Must be called on the UI thread. Returns true to update now.</summary>
-    internal static bool Ask(string version, string releaseNotesUrl = null)
+    internal static bool Ask(UpdateReleaseInfo release)
     {
-        var dialog = new UpdateDialog(version, releaseNotesUrl);
+        var dialog = new UpdateDialog(release);
         dialog.RunSmokeTestHook();
         dialog.ShowDialog();
         return dialog._updateNow;
@@ -153,6 +158,7 @@ internal sealed class UpdateDialog : Window
                 System.IO.File.WriteAllText(System.IO.Path.Combine(smokeDir, "update-dialog.txt"),
                     $"title={Title}\nbackdrop={DiagnoseBackdrop()}\n" +
                     $"size={ActualWidth:0}x{ActualHeight:0}\nbuttons={DiagnoseButtons()}\n" +
+                    $"notes={_release.Notes.Length}\n" +
                     // v5.0.1: the smoke test asserts the dialog follows the UI language
                     // (it used to fall back to the Chinese failsafe on an English UI).
                     $"language={CultureInfo.CurrentUICulture.Name}\n");
@@ -174,7 +180,7 @@ internal sealed class UpdateDialog : Window
 
     internal string DiagnoseButtons() => _buttonLabels;
 
-    private FrameworkElement BuildContent(string version, string releaseNotesUrl)
+    private FrameworkElement BuildContent(UpdateReleaseInfo release)
     {
         var accent = ThemePalette.Accent(_isDark);
 
@@ -211,30 +217,39 @@ internal sealed class UpdateDialog : Window
         var headline = new TextBlock
         {
             Text = string.Format(
-                TranslationHelper.Get("Update_FoundInline", failsafe: "Version {0} is available"), version),
+                TranslationHelper.Get("Update_FoundInline", failsafe: "Version {0} is available"), release.Version),
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         };
 
+        var currentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?";
+        var currentText = string.Format(
+            TranslationHelper.Get("Update_CurrentVersion", failsafe: "Current version {0}"),
+            currentVersion);
+        if (release.PublishedAt is { } published)
+        {
+            currentText += "  ·  " + string.Format(
+                TranslationHelper.Get("Update_Released", failsafe: "Released {0}"),
+                published.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.CurrentCulture));
+        }
+
         var current = new TextBlock
         {
-            Text = string.Format(
-                TranslationHelper.Get("Update_CurrentVersion", failsafe: "Current version {0}"),
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?"),
+            Text = currentText,
             Foreground = ThemePalette.SecondaryText(_isDark),
             FontSize = 12,
-            Margin = new Thickness(0, 3, 0, 12),
+            Margin = new Thickness(0, 3, 0, 2),
         };
 
         var body = new TextBlock
         {
-            Text = TranslationHelper.Get("Update_Ask",
-                failsafe: "Update now, or skip this version? You will be asked again on the next manual check."),
+            Text = TranslationHelper.Get("Update_Review",
+                failsafe: "Review the changes below, then update now or skip this version."),
             TextWrapping = TextWrapping.Wrap,
             Foreground = ThemePalette.SecondaryText(_isDark),
             LineHeight = 19,
-            Margin = new Thickness(0, 0, 0, 18),
+            Margin = new Thickness(0, 8, 0, 10),
         };
 
         var update = CreateButton(TranslationHelper.Get("Update_Now", failsafe: "Update now"), primary: true, subtle: false);
@@ -260,26 +275,76 @@ internal sealed class UpdateDialog : Window
         actions.Children.Add(ignore);
         actions.Children.Add(update);
 
+        var notesTitle = new TextBlock
+        {
+            Text = TranslationHelper.Get("Update_ReleaseNotes", failsafe: "Release notes"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var notesViewer = new FlowDocumentScrollViewer
+        {
+            Document = ReleaseNotesFormatter.BuildDocument(release.Notes, _isDark, OpenUrl),
+            IsToolBarVisible = false,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(12, 10, 10, 10),
+            IsSelectionEnabled = true,
+        };
+
+        var notesCard = new Border
+        {
+            Background = ThemePalette.ButtonBg(_isDark),
+            BorderBrush = ThemePalette.Border(_isDark),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Child = notesViewer,
+            Margin = new Thickness(0, 7, 0, 14),
+        };
+
         var footer = new Grid();
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         footer.ColumnDefinitions.Add(new ColumnDefinition());
 
-        if (!string.IsNullOrEmpty(releaseNotesUrl))
+        if (!string.IsNullOrEmpty(release.ReleaseNotesUrl))
         {
-            var notes = CreateLink(TranslationHelper.Get("Update_Notes", failsafe: "What's new"));
-            notes.Click += (_, _) => OpenUrl(releaseNotesUrl);
-            Grid.SetColumn(notes, 0);
-            footer.Children.Add(notes);
+            var github = CreateLink(
+                TranslationHelper.Get("Update_ViewOnGitHub", failsafe: "View on GitHub"));
+            github.Click += (_, _) => OpenUrl(release.ReleaseNotesUrl);
+            Grid.SetColumn(github, 0);
+            footer.Children.Add(github);
         }
 
         Grid.SetColumn(actions, 1);
         footer.Children.Add(actions);
 
-        var content = new StackPanel();
+        var info = new StackPanel();
+        info.Children.Add(headline);
+        info.Children.Add(current);
+        info.Children.Add(body);
+
+        var notesHeader = new Grid();
+        notesHeader.ColumnDefinitions.Add(new ColumnDefinition());
+        notesHeader.Children.Add(notesTitle);
+
+        var content = new Grid();
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(header, 0);
+        Grid.SetRow(info, 1);
+        Grid.SetRow(notesHeader, 2);
+        Grid.SetRow(notesCard, 3);
+        Grid.SetRow(footer, 4);
         content.Children.Add(header);
-        content.Children.Add(headline);
-        content.Children.Add(current);
-        content.Children.Add(body);
+        content.Children.Add(info);
+        content.Children.Add(notesHeader);
+        content.Children.Add(notesCard);
         content.Children.Add(footer);
 
         var panel = new Border

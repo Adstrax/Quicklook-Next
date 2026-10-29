@@ -33,11 +33,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 
 namespace QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 
 public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropertyChanged
 {
+    private const string SplitRatioSetting = "ArchiveFileListRatio";
+    private const string SettingsDomain = "QuickLook.Plugin.ArchiveViewer";
+
     private readonly Dictionary<string, ArchiveFileEntry> _fileEntries = [];
     private readonly string _archivePath;
     private readonly string _translationsPath;
@@ -64,6 +68,7 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
         fileListView.FileSelected += FileListView_FileSelected;
         SetPreviewMessage(Translate("ArchivePreview_SelectFile", "Select a file in the archive to preview it."));
+        Loaded += ArchiveInfoPanel_Loaded;
 
         BeginLoadArchive(path);
     }
@@ -85,6 +90,7 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
         _disposed = true;
 
+        Loaded -= ArchiveInfoPanel_Loaded;
         fileListView.FileSelected -= FileListView_FileSelected;
         StopCurrentPreview();
         fileListView.Dispose();
@@ -109,6 +115,30 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         }
 
         await PreviewEntryAsync(entry);
+    }
+
+    private void ArchiveInfoPanel_Loaded(object sender, RoutedEventArgs e)
+    {
+        ApplySplitRatio(SettingHelper.Get(
+            SplitRatioSetting,
+            ArchiveSplitLayout.DefaultRatio,
+            SettingsDomain));
+    }
+
+    private void ArchiveSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        var ratio = ArchiveSplitLayout.RatioFromWidths(
+            fileListColumn.ActualWidth,
+            previewColumn.ActualWidth);
+        ApplySplitRatio(ratio);
+        SettingHelper.Set(SplitRatioSetting, ratio, SettingsDomain);
+    }
+
+    private void ApplySplitRatio(double ratio)
+    {
+        var normalized = ArchiveSplitLayout.Normalize(ratio);
+        fileListColumn.Width = new GridLength(normalized, GridUnitType.Star);
+        previewColumn.Width = new GridLength(1 - normalized, GridUnitType.Star);
     }
 
     private async Task PreviewEntryAsync(ArchiveFileEntry entry)

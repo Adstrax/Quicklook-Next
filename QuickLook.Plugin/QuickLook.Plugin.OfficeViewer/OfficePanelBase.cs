@@ -28,20 +28,12 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// The content always sits on a plain white paper-like surface (never
 /// theme-adapted) so real documents stay readable in dark mode too.
 /// <para>
-/// v5.7.0: the surface is two columns now - a rail on the left for the structure of the file (Word's
-/// outline, PowerPoint's slides, Excel's worksheets) and the page on the right, which is how the PDF panel
-/// has always looked. Selecting a rail row either scrolls the page to an anchor or asks the panel to render
-/// something else (a worksheet, a window of rows).
+/// v6.7.1: the structure of the file (Word's outline, PowerPoint's slides, Excel's worksheets) floats over
+/// the page inside the WebView. It can be hidden or resized without changing the width of the document.
 /// </para>
 /// </summary>
 public abstract class OfficePanelBase : UserControl, IDisposable
 {
-    /// <summary>
-    /// v5.7.0: how wide the rail is. A preview whose page is portrait (Word) sizes its window around this,
-    /// because the rail does not scale with the window while the page beside it does.
-    /// </summary>
-    internal const double RailWidth = 208;
-
     /// <summary>
     /// The host name the preview's own pictures are served under (see OfficeImageStore); the converters put
     /// it in front of every image they reference.
@@ -49,14 +41,11 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     protected const string ImageHost = "office-preview.local";
 
     private readonly Border _paper;
-    private readonly Border _railHost;
-    private readonly ListBox _rail;
     private readonly WebView2 _webView;
     private readonly System.Drawing.Color _pageColour;
     private readonly string _pageHex;
     private EventHandler<CoreWebView2WebMessageReceivedEventArgs> _messageHandler;
     private string _imageFolder;
-    private bool _suppressRail;
     private bool _quiesced;
     private bool _disposed;
     private bool _reportedRenderFailure;
@@ -98,22 +87,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             Child = _webView,
         };
 
-        _rail = BuildRail();
-        _railHost = BuildRailHost(_rail);
-
-        // v5.7.0: the rail runs the full height of the window on purpose. The caption bar fades in over its
-        // top, so the rail's first row can be read but not clicked while the bar is showing - reserving the
-        // caption's own row above the rail (a 32 DIP margin, as the pages of this preview used to) fixes the
-        // click and breaks the look, because the rail then starts below the sheet beside it. Measured both
-        // ways on 2024论文-V2.docx; the trade the preview ships with is the look.
-        var layout = new Grid();
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(_railHost, 0);
-        Grid.SetColumn(_paper, 1);
-        layout.Children.Add(_railHost);
-        layout.Children.Add(_paper);
-        Content = layout;
+        Content = _paper;
 
         // v3.29.0: track the control so the idle recycler can shut the
         // Chromium process group down after the last Office preview closes.
@@ -208,59 +182,6 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     protected IReadOnlyList<OfficeNavEntry> Navigation { get; private set; } = [];
 
     /// <summary>
-    /// v5.7.0: the left rail. Rows are indented by their level so a Word outline reads as a hierarchy; the
-    /// rail itself is transparent and its rows keep the app's own colours (see BuildRailHost).
-    /// </summary>
-    private ListBox BuildRail()
-    {
-        var rail = new ListBox
-        {
-            // The background lives on the host border, so the rail is one surface rather than two.
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(0, 6, 0, 6),
-            Focusable = false,
-        };
-
-        ScrollViewer.SetHorizontalScrollBarVisibility(rail, ScrollBarVisibility.Disabled);
-        rail.ItemContainerStyle = RailItemStyle();
-
-        rail.SelectionChanged += (_, _) =>
-        {
-            if (!_suppressRail && rail.SelectedIndex >= 0)
-                OnNavigationSelected(rail.SelectedIndex);
-        };
-
-        return rail;
-    }
-
-    private static Border BuildRailHost(ListBox rail) => new()
-    {
-        Width = RailWidth,
-        // v5.7.0: transparent, so the window's own backdrop shows through the rail the way it does behind the
-        // PDF panel's thumbnails, and the rail and the colours of its rows follow the app's theme. The page
-        // area beside it is an opaque grey (a transparent WebView2 page composites to black), which is what
-        // makes the rail read as a surface of its own instead of another grey band.
-        Background = Brushes.Transparent,
-        BorderThickness = new Thickness(0),
-        Child = rail,
-    };
-
-    /// <summary>
-    /// v5.7.0: a plain row - padding for a comfortable target, and a size that fits the rail. It deliberately
-    /// keeps the stock item visuals: a custom template here turned out to be the one thing between the outline
-    /// and the reader.
-    /// </summary>
-    private static Style RailItemStyle()
-    {
-        var style = new Style(typeof(ListBoxItem));
-        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 5, 10, 5)));
-        style.Setters.Add(new Setter(Control.FontSizeProperty, 12.5d));
-        return style;
-    }
-
-    /// <summary>
     /// v5.7.0: a rail row was picked. The default scrolls the page to the row's anchor, which is what Word's
     /// outline and PowerPoint's slide list want; the spreadsheet panel overrides it to switch worksheets.
     /// </summary>
@@ -285,19 +206,10 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     /// </summary>
     protected void SelectNavigation(int index)
     {
-        if (index < 0 || index >= _rail.Items.Count || _rail.SelectedIndex == index)
+        if (index < 0 || index >= Navigation.Count)
             return;
 
-        _suppressRail = true;
-        try
-        {
-            _rail.SelectedIndex = index;
-            _rail.ScrollIntoView(_rail.Items[index]);
-        }
-        finally
-        {
-            _suppressRail = false;
-        }
+        RunScript($"window.quickLookOfficeNavigation?.select({index})");
     }
 
     /// <summary>v5.7.0: runs JavaScript in the page, ignoring failures (the surface is decoration).</summary>
@@ -433,7 +345,13 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                     {
                         try
                         {
-                            OnWebMessage(e.TryGetWebMessageAsString());
+                            var message = e.TryGetWebMessageAsString();
+                            if (OfficePanelNavigation.TryReadSelection(message, out var navigationIndex))
+                                OnNavigationSelected(navigationIndex);
+                            else if (OfficePanelNavigation.TryReadPosition(message, out var positionIndex))
+                                SelectNavigation(positionIndex);
+                            else
+                                OnWebMessage(message);
                         }
                         catch (Exception ex)
                         {
@@ -515,8 +433,8 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     }
 
     /// <summary>
-    /// v5.7.0: puts the rail and the page in place. The picture folder from the previous page is dropped
-    /// here - each preview owns its folder for as long as it is on screen.
+    /// v6.7.1: puts the document and its floating navigation in place. The picture folder from the previous
+    /// page is dropped here - each preview owns its folder for as long as it is on screen.
     /// </summary>
     private void ApplyContent(OfficePanelContent content)
     {
@@ -527,30 +445,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
         Navigation = content.Navigation ?? [];
 
-        _suppressRail = true;
-        try
-        {
-            _rail.Items.Clear();
-            foreach (var entry in Navigation)
-            {
-                _rail.Items.Add(new TextBlock
-                {
-                    Text = entry.Label,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    Margin = new Thickness(entry.Level * 12, 0, 0, 0),
-                });
-            }
-
-            _railHost.Visibility = Navigation.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            var selected = Math.Clamp(content.SelectedIndex, 0, Math.Max(0, Navigation.Count - 1));
-            _rail.SelectedIndex = Navigation.Count > 0 ? selected : -1;
-        }
-        finally
-        {
-            _suppressRail = false;
-        }
-
-        NavigatePage(content.Html);
+        NavigatePage(OfficePanelNavigation.Inject(content.Html, Navigation, content.SelectedIndex));
     }
 
     private void ReportRenderFailure(Exception error, bool initializationFailure = false)

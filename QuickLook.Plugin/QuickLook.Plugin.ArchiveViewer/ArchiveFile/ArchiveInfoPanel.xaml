@@ -39,17 +39,34 @@
             </Grid.RowDefinitions>
             <Grid Grid.Row="0" Margin="0,0,0,2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="52*" MinWidth="380" />
-                    <ColumnDefinition Width="1" />
-                    <ColumnDefinition Width="48*" MinWidth="320" />
+                    <ColumnDefinition x:Name="fileListColumn" Width="52*" MinWidth="260" />
+                    <ColumnDefinition Width="7" />
+                    <ColumnDefinition x:Name="previewColumn" Width="48*" MinWidth="260" />
                 </Grid.ColumnDefinitions>
                 <local:ArchiveFileListView x:Name="fileListView"
                                            Grid.Column="0"
                                            Focusable="False"
                                            Foreground="{DynamicResource WindowTextForeground}" />
-                <Border Grid.Column="1"
-                        Background="{DynamicResource WindowTextForegroundAlternative}"
-                        Opacity="0.25" />
+                <GridSplitter Grid.Column="1"
+                              Width="7"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              Background="Transparent"
+                              ResizeBehavior="PreviousAndNext"
+                              ResizeDirection="Columns"
+                              ShowsPreview="False"
+                              DragCompleted="ArchiveSplitter_DragCompleted">
+                    <GridSplitter.Template>
+                        <ControlTemplate TargetType="{x:Type GridSplitter}">
+                            <Grid Background="Transparent">
+                                <Border Width="1"
+                                        HorizontalAlignment="Center"
+                                        Background="{DynamicResource WindowTextForegroundAlternative}"
+                                        Opacity="0.25" />
+                            </Grid>
+                        </ControlTemplate>
+                    </GridSplitter.Template>
+                </GridSplitter>
                 <Border Grid.Column="2"
                         Padding="12,6,0,6"
                         Background="Transparent">

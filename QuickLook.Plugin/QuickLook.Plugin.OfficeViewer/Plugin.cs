@@ -138,12 +138,9 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
         if (context.IsLowMemoryMode)
             OfficePanelCache.Clear();
 
-        // v5.7.0: a Word document is drawn as one sheet of its own paper, and the sheet spans the page area
-        // (see DocxToHtml), so the window is asked for exactly that sheet beside the rail rather than for the
-        // landscape window the slide and spreadsheet previews want - what a reader gets is the page, edge to
-        // edge, the way the PDF panel shows one. The rail takes a fixed slice of the width and does not scale
-        // with the window, so the request is made twice: the first call reports the ratio the host will scale
-        // by, and the second takes the rail's share out of the scaled page area.
+        // v6.7.1: a Word document is drawn as one sheet of its own paper, and the sheet spans the page area
+        // (see DocxToHtml), so the window is asked for exactly that sheet. The outline now floats inside the
+        // page, which gives the paper the full width the old fixed rail used to consume.
         var extension = Path.GetExtension(path);
         if (extension.Equals(".docx", StringComparison.OrdinalIgnoreCase) ||
             extension.Equals(".docm", StringComparison.OrdinalIgnoreCase))
@@ -151,23 +148,12 @@ public sealed class Plugin : IViewer, IPreviewQuiesce
             var paper = DocxToHtml.ReadPaperSize(path);
             if (paper is not null)
             {
-                var ratio = context.SetPreferredSizeFit(
-                    new Size { Width = paper.Width, Height = paper.Height }, 0.9d);
-                if (ratio > 0)
-                {
-                    context.SetPreferredSizeFit(new Size
-                    {
-                        Width = paper.Width + OfficePanelBase.RailWidth / ratio,
-                        Height = paper.Height,
-                    }, 0.9d);
-                }
-
+                context.SetPreferredSizeFit(new Size { Width = paper.Width, Height = paper.Height }, 0.9d);
                 return;
             }
         }
 
-        // v5.7.0: the self-rendered panels carry a rail on the left (Word's outline, the slide list, the
-        // worksheets), so the page keeps its 1200 px and the window grows by the rail's width.
+        // v5.7.0: the self-rendered slide and spreadsheet previews use a landscape window.
         context.SetPreferredSizeFit(new Size { Width = 1410, Height = 800 }, 0.8d);
     }
 

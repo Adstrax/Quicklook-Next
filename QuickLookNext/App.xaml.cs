@@ -384,6 +384,48 @@ public partial class App : Application
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
+        // Local acceptance hook for the update window itself. A test build's
+        // version is newer than the latest GitHub release, so a normal update
+        // check correctly finds nothing to show. This opens the same real dialog
+        // with representative release notes without creating files or updating.
+        if (e.Args.Contains("/preview-update-dialog"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    UpdateDialog.Ask(UpdateReleaseInfo.Create(
+                        "6.8.0",
+                        "QuickLook-Next 6.8.0",
+                        """
+                        ## QuickLook-Next 6.8.0
+
+                        本次更新继续改善日常预览体验和稳定性。
+
+                        ### 新增与改进
+
+                        - 更新窗口直接显示完整发布说明，无需跳转 GitHub
+                        - 压缩包预览会记住文件列表与内容区的分栏比例
+                        - Word 目录会跟随当前阅读位置自动高亮
+                        - 改善 Office 文档图片和复杂元素的显示
+
+                        ### 修复
+
+                        - 修正部分标题没有书签时无法定位的问题
+                        - 修正更新说明中的链接无法在新窗口直接访问的问题
+
+                        [查看完整发布页面](https://github.com/Adstrax/Quicklook-Next/releases)
+                        """,
+                        "https://github.com/Adstrax/Quicklook-Next/releases",
+                        DateTimeOffset.Now.ToString("O")));
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/preview-update-dialog failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         // Hidden test hook (/test-update-now): runs the real "update now" path for
         // the fake release - progress panel, download, install, restart - so the
         // download UI can be verified against an actual package.

@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.1
+
+### Better document navigation and clearer in-app updates
+
+- **Office navigation stays out of the way.** Word documents now show their
+  table of contents in a collapsible overlay, and its divider can be dragged to
+  resize the navigation area without narrowing the document itself.
+- **Word reading follows the current section.** The navigation highlights the
+  active heading as the document scrolls, including headings that have no
+  bookmark in the original file.
+- **Archive layouts are adjustable.** The divider between the archive file tree
+  and its preview can be dragged, and the selected split ratio is remembered.
+- **Images work in archived Word documents.** DOCX media referenced by an
+  extracted document now resolves correctly while previewing it from a ZIP or
+  another supported archive.
+- **The update dialog explains each release.** It now shows version and release
+  date, renders Markdown notes, and links to GitHub without requiring users to
+  leave the app just to read the changelog.
+- **Release quality.** 359 unit tests pass. The Release build has 0 warnings and
+  0 errors.
+
 ## QuickLook-Next 6.7.0
 
 ### Preview files inside archives
