@@ -105,6 +105,14 @@ internal sealed class PreviewSession
         return nowMs - _lastActivityMs >= timeoutMs;
     }
 
+    /// <summary>
+    /// A due release can be blocked by a panel or dialog. Keep the session alive
+    /// and retry later; only a disabled mode, an ended session, or a newly opened
+    /// preview invalidates that pending work.
+    /// </summary>
+    internal bool ShouldRetryBlockedRelease(bool lowMemoryMode, bool previewOpen)
+        => lowMemoryMode && IsActive && !previewOpen;
+
     /// <summary>Time since the last session activity, for low-memory diagnostics.</summary>
     internal long IdleFor(long nowMs) =>
         IsActive ? Math.Max(0, nowMs - _lastActivityMs) : 0;

@@ -52,6 +52,12 @@ public class ViewWindowManager : IDisposable
     // thread.
     private Timer _sessionTimer;
     private long _sessionTimerGeneration;
+    private string _releaseBlockerSummary;
+
+    // A non-preview window may be open when the idle deadline arrives. Keep the
+    // warm session alive and retry instead of ending it permanently; otherwise
+    // closing that window later can never return the native preview footprint.
+    private static readonly TimeSpan ReleaseRetryDelay = TimeSpan.FromSeconds(5);
 
     internal ViewWindowManager()
     {
@@ -586,7 +592,7 @@ private void InitNewViewerWindow()
     /// v5.6.2: restarts the idle countdown. Called on every preview open and close, so
     /// it always measures "time since the user last previewed something".
     /// </summary>
-    private void ArmSessionTimer()
+    private void ArmSessionTimer(TimeSpan? dueTime = null)
     {
         Timer previous;
         System.Threading.Timer next = null;
@@ -618,7 +624,7 @@ private void InitNewViewerWindow()
             next = new System.Threading.Timer(
                 _ => QueueSessionIdle(generation),
                 null,
-                TimeSpan.FromSeconds(seconds),
+                dueTime ?? TimeSpan.FromSeconds(seconds),
                 Timeout.InfiniteTimeSpan);
             _sessionTimer = next;
         }
@@ -693,8 +699,9 @@ private void InitNewViewerWindow()
         // because the preview loaded native modules that cannot be unloaded while the
         // process lives (ImageMagick ~23 MB, the GPU driver's shader compiler ~74 MB).
         // Starting over is what actually returns the memory, so that is the release.
-        if (CanReleaseByRestarting())
+        if (CanReleaseByRestarting(out var blockerSummary))
         {
+            _releaseBlockerSummary = null;
             _session.End();
             ProcessHelper.WriteLog(
                 "Low memory mode: restarting to release the preview footprint");
@@ -709,20 +716,21 @@ private void InitNewViewerWindow()
             return;
         }
 
-        // Something is on screen (a panel, a dialog) - hand the parked window back and
-        // let the next preview open a new session.
-        try
+        // A panel or dialog is on screen. Do not end the session: the process still owns
+        // warm/native memory, and ending the session here used to cancel every future
+        // release attempt. Retry until the other windows close, then restart and return
+        // the full footprint.
+        if (_session.ShouldRetryBlockedRelease(lowMemoryMode, previewOpen))
         {
-            _session.End();
-            ProcessHelper.WriteLog(
-                $"Low memory mode: restart deferred by an open window; " +
-                $"released the preview window in-process");
-            _viewerWindow?.Close();
-            ProcessHelper.PerformAggressiveGC();
-        }
-        catch (Exception ex)
-        {
-            ProcessHelper.WriteLog($"Releasing the warm preview window failed: {ex}");
+            if (!string.Equals(_releaseBlockerSummary, blockerSummary, StringComparison.Ordinal))
+            {
+                ProcessHelper.WriteLog(
+                    $"Low memory mode: release waiting for open window(s): {blockerSummary}; " +
+                    $"retrying every {ReleaseRetryDelay.TotalSeconds:0}s");
+                _releaseBlockerSummary = blockerSummary;
+            }
+
+            ArmSessionTimer(ReleaseRetryDelay);
         }
     }
 
@@ -744,22 +752,22 @@ private void InitNewViewerWindow()
     /// else on screen (tray menu, plugin manager, a dialog, the update progress panel)
     /// means "not now".
     /// </summary>
-    private static bool CanReleaseByRestarting()
+    private static bool CanReleaseByRestarting(out string blockerSummary)
     {
         var application = System.Windows.Application.Current;
         if (application is null)
-            return false;
-
-        foreach (System.Windows.Window window in application.Windows)
         {
-            if (window is ViewerWindow)
-                continue;
-
-            if (window.IsVisible)
-                return false;
+            blockerSummary = "application unavailable";
+            return false;
         }
 
-        return true;
+        blockerSummary = string.Join(", ", application.Windows
+            .Cast<System.Windows.Window>()
+            .Where(window => window is not ViewerWindow && window.IsVisible)
+            .Select(window =>
+                $"{window.GetType().Name}(title='{window.Title}', state={window.WindowState})"));
+
+        return string.IsNullOrEmpty(blockerSummary);
     }
 
     /// <summary>Re-arms the current session after the user changes the idle wait.</summary>

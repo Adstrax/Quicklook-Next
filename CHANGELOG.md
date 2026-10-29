@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.4
+
+### Reliable low-memory release when another window is open
+
+6.7.4 fixes a case where low-memory mode reached its idle deadline but could
+not release memory for the rest of the process lifetime.
+
+- **A blocked release is retried automatically.** When a dialog, panel or other
+  app window prevents a restart, the warm session remains active and checks
+  again every five seconds instead of being ended permanently.
+- **Closing the blocking window completes the release.** The process now
+  restarts as soon as the other window is no longer visible, returning the
+  native preview footprint that an in-process cleanup cannot release.
+- **The blocker is visible in diagnostics.** The log records the window class,
+  title and state that delayed the restart.
+- **Normal previews remain protected.** An open preview still prevents the
+  restart, and opening a new preview or disabling low-memory mode cancels the
+  pending release.
+- **Release quality.** 371 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.3
 
 ### A consistent acrylic update-history window

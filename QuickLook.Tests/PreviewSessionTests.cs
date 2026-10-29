@@ -114,6 +114,27 @@ internal class PreviewSessionTests
             "a preview is open");
     }
 
+    public void ABlockedReleaseStaysPendingWhileTheSessionIsActive()
+    {
+        var session = new PreviewSession();
+        session.Started(0);
+
+        Assert.True(
+            session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: false),
+            "another window may close and allow the release later");
+        Assert.False(
+            session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: true),
+            "a newly opened preview owns the next activity deadline");
+        Assert.False(
+            session.ShouldRetryBlockedRelease(lowMemoryMode: false, previewOpen: false),
+            "turning low memory mode off cancels the pending release");
+
+        session.End();
+        Assert.False(
+            session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: false),
+            "an ended session has nothing left to release");
+    }
+
     public void TheNormalModeNeverReleasesItsWindow()
     {
         var session = new PreviewSession();
