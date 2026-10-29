@@ -440,6 +440,23 @@ public partial class App : Application
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
+        // Local acceptance hook for the history window. This keeps the real
+        // acrylic surface under inspection without requiring a published update.
+        if (e.Args.Contains("/preview-update-history"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    ChangelogWindow.ShowWindow();
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/preview-update-history failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         // Hidden test hook (/test-update-now): runs the real "update now" path for
         // the fake release - progress panel, download, install, restart - so the
         // download UI can be verified against an actual package.

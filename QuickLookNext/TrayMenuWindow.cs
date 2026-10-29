@@ -296,7 +296,7 @@ internal sealed class TrayMenuWindow : Window
             // (e.g. "&Quit", or "重启 (&R)" in the Chinese translation), which this hand drawn WPF menu
             // renders literally -
             // they showed up as a stray "&" in front of the shortcut letter.
-            Text = entry.Header?.Replace("&", string.Empty),
+            Text = FormatMenuText(entry.Header),
             Foreground = entry.IsEnabled ? _textBrush : _disabledTextBrush,
             FontWeight = entry.IsBold ? FontWeights.SemiBold : FontWeights.Normal,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -375,6 +375,27 @@ internal sealed class TrayMenuWindow : Window
         }
 
         return item;
+    }
+
+    /// <summary>
+    /// The custom menu measures itself, so action labels do not need the trailing
+    /// ellipsis inherited from WinForms menus. Removing it here also fixes labels
+    /// such as "Data &amp;&amp; cache..." leaving a double space after access-key removal.
+    /// </summary>
+    internal static string FormatMenuText(string header)
+    {
+        if (string.IsNullOrWhiteSpace(header))
+            return string.Empty;
+
+        var text = header.Replace("&", string.Empty).Trim();
+        if (text.EndsWith("...", StringComparison.Ordinal))
+            text = text[..^3].TrimEnd();
+        else if (text.EndsWith('…'))
+            text = text[..^1].TrimEnd();
+
+        return string.Join(' ', text.Split(
+            [' ', '\t', '\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries));
     }
 
     /// <summary>

@@ -23,7 +23,6 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Shell;
 
 namespace QuickLookNext;
 
@@ -51,6 +50,7 @@ internal sealed class ChangelogWindow : Window
     private IReadOnlyList<UpdateReleaseInfo> _releases = Array.Empty<UpdateReleaseInfo>();
     private Button _selectedItem;
     private UpdateReleaseInfo _selectedRelease;
+    private bool _accentApplied;
     private bool _closed;
 
     private ChangelogWindow(string preferredVersion)
@@ -61,7 +61,7 @@ internal sealed class ChangelogWindow : Window
         Title = TranslationHelper.Get("Update_HistoryTitle", failsafe: "Update History");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
-        ResizeMode = ResizeMode.CanResize;
+        ResizeMode = ResizeMode.NoResize;
         Width = Math.Max(560, Math.Min(800, SystemParameters.WorkArea.Width - 64));
         Height = Math.Max(440, Math.Min(680, SystemParameters.WorkArea.Height - 64));
         MinWidth = 540;
@@ -73,16 +73,7 @@ internal sealed class ChangelogWindow : Window
         FontFamily = new FontFamily(TranslationHelper.Get("UI_FontFamily", failsafe: "Segoe UI"));
         FontSize = 13;
         Foreground = ThemePalette.Text(_isDark);
-        Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel);
-
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight = 0,
-            ResizeBorderThickness = new Thickness(6),
-            GlassFrameThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(0),
-            UseAeroCaptionButtons = false,
-        });
+        Background = Brushes.Transparent;
 
         _notesViewer = new FlowDocumentScrollViewer
         {
@@ -309,23 +300,28 @@ internal sealed class ChangelogWindow : Window
         body.Children.Add(details);
 
         var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 14, 0, 0) };
-        DockPanel.SetDock(_retryButton, Dock.Right);
-        DockPanel.SetDock(_refreshButton, Dock.Right);
         var closeButton = CreateButton(
             TranslationHelper.Get("Update_HistoryClose", failsafe: "Close"),
             primary: false,
             subtle: false);
         closeButton.IsCancel = true;
         closeButton.Click += (_, _) => Close();
-        DockPanel.SetDock(closeButton, Dock.Right);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        _retryButton.Margin = new Thickness(0, 0, 8, 0);
+        _refreshButton.Margin = new Thickness(0, 0, 8, 0);
+        actions.Children.Add(_retryButton);
+        actions.Children.Add(_refreshButton);
+        actions.Children.Add(closeButton);
+
         DockPanel.SetDock(_githubButton, Dock.Left);
-        _retryButton.Margin = new Thickness(8, 0, 0, 0);
-        _refreshButton.Margin = new Thickness(8, 0, 0, 0);
-        closeButton.Margin = new Thickness(8, 0, 0, 0);
+        DockPanel.SetDock(actions, Dock.Right);
         footer.Children.Add(_githubButton);
-        footer.Children.Add(_retryButton);
-        footer.Children.Add(_refreshButton);
-        footer.Children.Add(closeButton);
+        footer.Children.Add(actions);
 
         var content = new Grid();
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -346,7 +342,7 @@ internal sealed class ChangelogWindow : Window
 
         var panel = new Border
         {
-            Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Panel),
+            Background = MenuSurface.SurfaceBrush(_isDark, MenuSurface.SurfaceProminence.Menu),
             BorderBrush = ThemePalette.Border(_isDark),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -556,9 +552,15 @@ internal sealed class ChangelogWindow : Window
 
     private void ApplyBackdrop()
     {
+        if (_closed)
+            return;
+
         WindowHelper.DisableDwmBlur(this);
-        MenuSurface.Apply(this, _isDark, MenuSurface.SurfaceProminence.Panel);
+        _accentApplied = MenuSurface.Apply(this, _isDark, MenuSurface.SurfaceProminence.Menu);
     }
+
+    internal string DiagnoseBackdrop()
+        => $"accent-applied={_accentApplied} {MenuSurface.Diagnose()}";
 
     private Button CreateButton(string label, bool primary, bool subtle)
     {

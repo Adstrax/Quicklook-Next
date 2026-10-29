@@ -7,6 +7,28 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.3
+
+### A consistent acrylic update-history window
+
+6.7.3 makes Update History use the same WCA acrylic surface as the tray menu
+and removes the separate window treatment that caused black edges and a
+double-window appearance.
+
+- **The tray menu material is reused directly.** Update History now uses the
+  same tint, border, corner treatment and WCA acrylic implementation as the
+  tray menu, including the same result after the window loses focus.
+- **The extra window frame is gone.** The native resizable frame that covered
+  the acrylic surface has been removed. The outer window now keeps a stable
+  size while the divider inside the content can still be dragged.
+- **Window actions follow the usual order.** Update History now places
+  `Refresh` before `Close`, with `Close` at the far right.
+- **Tray actions are shorter and cleaner.** Custom menu labels no longer keep
+  dialog ellipses or access-key characters, and `Data cache...` is now shown as
+  `Clean cache`.
+- **Release quality.** 370 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.2
 
 ### Browsable release history and more compatible release notes
