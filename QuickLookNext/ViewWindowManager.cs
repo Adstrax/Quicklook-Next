@@ -421,6 +421,19 @@ public class ViewWindowManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Creates a session that renders a normal plugin inside another panel.
+    /// ArchiveViewer uses this to preview extracted entries without opening a
+    /// second preview window.
+    /// </summary>
+    public IEmbeddedPreviewSession CreateEmbeddedPreview(string path, object source = null)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return null;
+
+        return new EmbeddedPreviewSession(path, source);
+    }
+
     public void ReloadPreview()
     {
         var window = EnsureViewerWindow();

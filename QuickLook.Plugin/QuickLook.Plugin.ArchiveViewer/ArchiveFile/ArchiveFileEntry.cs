@@ -27,10 +27,15 @@ public class ArchiveFileEntry : IComparable<ArchiveFileEntry>
     private int _cachedDepth = -1;
     private int _cachedLevel = -1;
 
-    public ArchiveFileEntry(string name, bool isFolder, ArchiveFileEntry parent = null)
+    public ArchiveFileEntry(
+        string name,
+        bool isFolder,
+        ArchiveFileEntry parent = null,
+        string archivePath = null)
     {
         Name = name;
         IsFolder = isFolder;
+        ArchivePath = archivePath ?? string.Empty;
 
         _parent = parent;
         _parent?.Children.Add(this, false);
@@ -39,6 +44,7 @@ public class ArchiveFileEntry : IComparable<ArchiveFileEntry>
     public SortedList<ArchiveFileEntry, bool> Children { get; set; } = [];
 
     public string Name { get; set; }
+    public string ArchivePath { get; set; }
     public bool Encrypted { get; set; }
     public bool IsFolder { get; set; }
     public ulong Size { get; set; }

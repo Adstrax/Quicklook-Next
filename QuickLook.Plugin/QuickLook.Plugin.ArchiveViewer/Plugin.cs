@@ -127,7 +127,7 @@ public sealed partial class Plugin : IViewer, IMoreMenu
     public void Prepare(string path, ContextObject context)
     {
         _path = path;
-        context.PreferredSize = new Size { Width = 800, Height = 400 };
+        context.SetPreferredSizeFit(new Size(1100, 650), 0.9);
     }
 
     public void View(string path, ContextObject context)

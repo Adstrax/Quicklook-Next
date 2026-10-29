@@ -19,6 +19,7 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using QuickLook.Common.Plugin;
 
 namespace QuickLook.Common.Helpers;
 
@@ -42,6 +43,24 @@ public static class PluginHelper
     public static void InvokePluginPreview(string plugin, string path = null)
     {
         GetInstance()?.InvokePluginPreview(plugin, path);
+    }
+
+    /// <summary>
+    /// Starts a host-owned preview that can be placed inside another WPF panel.
+    /// The caller must dispose the returned session when it is no longer shown.
+    /// </summary>
+    public static IEmbeddedPreviewSession CreateEmbeddedPreview(string path, object source = null)
+    {
+        try
+        {
+            dynamic instance = GetInstance();
+            return instance?.CreateEmbeddedPreview(path, source) as IEmbeddedPreviewSession;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            return null;
+        }
     }
 
     private static dynamic GetInstance()

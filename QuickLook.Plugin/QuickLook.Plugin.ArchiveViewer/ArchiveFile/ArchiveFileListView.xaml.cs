@@ -17,15 +17,19 @@
 
 using QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 using System;
+using System.Windows;
 using System.Windows.Controls;
 
 namespace QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 
 public partial class ArchiveFileListView : UserControl, IDisposable
 {
+    public event EventHandler<ArchiveFileSelectedEventArgs> FileSelected;
+
     public ArchiveFileListView()
     {
         InitializeComponent();
+        treeView.SelectedItemChanged += TreeView_SelectedItemChanged;
     }
 
     public void Dispose()
@@ -56,4 +60,14 @@ public partial class ArchiveFileListView : UserControl, IDisposable
             root.IsExpanded = true;
         };
     }
+
+    private void TreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        FileSelected?.Invoke(this, new ArchiveFileSelectedEventArgs(e.NewValue as ArchiveFileEntry));
+    }
+}
+
+public sealed class ArchiveFileSelectedEventArgs(ArchiveFileEntry entry) : EventArgs
+{
+    public ArchiveFileEntry Entry { get; } = entry;
 }

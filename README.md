@@ -340,7 +340,7 @@ everyday and professional formats:
 | OfficeViewer | Office (docx/xlsx/pptx self-rendered; doc/xls/ppt/odt/ods/odp/vsd/vsdx via system fallback) |
 | HtmlViewer | HTML/MHT/URL (WebView2; dependency of the Markdown plugin) |
 | PdfViewer | PDF |
-| ArchiveViewer | Archives & installers (zip/rar/7z/tar/gz/bz2/xz/cbz/cbr/jar/apk/msi etc.) |
+| ArchiveViewer | Archives & installers with directory and inline file preview (zip/rar/7z/tar/gz/bz2/xz/cbz/cbr/jar/apk/msi etc.) |
 | CsvViewer | CSV/TSV/PSV tabular view |
 | FontViewer | Fonts (ttf/otf/woff/woff2/ttc/eot) |
 | MediaInfoViewer | Media info via the context menu |

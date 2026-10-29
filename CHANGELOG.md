@@ -7,6 +7,26 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.0
+
+### Preview files inside archives
+
+The archive viewer now has a directory tree on the left and a content preview on
+the right.
+
+- **Browse without leaving the preview.** Select a file in ZIP, RAR, 7-Zip, TAR,
+  compressed TAR and the other supported archive formats to view its contents.
+- **Reuse the normal viewers.** Images, text, Markdown, PDF, Office documents
+  and other supported files use QuickLook-Next's existing preview experience.
+- **Extract only what is selected.** The chosen entry is copied to a private
+  temporary folder instead of unpacking the whole archive. Temporary copies are
+  removed after switching files or closing the preview, with retry for native
+  viewers that release file handles late.
+- **Safe limits.** Entries larger than 512 MB and encrypted entries show a clear
+  message instead of filling the disk or failing silently.
+- **Release quality.** 347 unit tests pass. The Release build has 0 warnings and
+  0 errors.
+
 ## QuickLook-Next 6.6.0
 
 ### Native XMind preview and visible automatic-update controls

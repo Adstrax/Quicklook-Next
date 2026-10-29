@@ -37,10 +37,42 @@
                 <RowDefinition />
                 <RowDefinition Height="30" />
             </Grid.RowDefinitions>
-            <local:ArchiveFileListView x:Name="fileListView"
-                                       Grid.Row="0"
-                                       Focusable="False"
-                                       Foreground="{DynamicResource WindowTextForeground}" />
+            <Grid Grid.Row="0" Margin="0,0,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52*" MinWidth="380" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="48*" MinWidth="320" />
+                </Grid.ColumnDefinitions>
+                <local:ArchiveFileListView x:Name="fileListView"
+                                           Grid.Column="0"
+                                           Focusable="False"
+                                           Foreground="{DynamicResource WindowTextForeground}" />
+                <Border Grid.Column="1"
+                        Background="{DynamicResource WindowTextForegroundAlternative}"
+                        Opacity="0.25" />
+                <Border Grid.Column="2"
+                        Padding="12,6,0,6"
+                        Background="Transparent">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="30" />
+                            <RowDefinition />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="previewTitle"
+                                   Grid.Row="0"
+                                   VerticalAlignment="Center"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource WindowTextForeground}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Text="Select a file to preview" />
+                        <ContentControl x:Name="previewContent"
+                                        Grid.Row="1"
+                                        HorizontalContentAlignment="Stretch"
+                                        VerticalContentAlignment="Stretch" />
+                    </Grid>
+                </Border>
+            </Grid>
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="40*" />

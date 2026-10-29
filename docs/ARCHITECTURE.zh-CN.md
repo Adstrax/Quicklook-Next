@@ -311,7 +311,7 @@ public interface IViewer
 | Markdown / HTML / CHM / 邮件 | `MarkdownViewer`、`HtmlViewer`、`ChmViewer`、`MailViewer` | 共享 `WebpagePanel` 和 WebView2 环境，支持 mermaid、MathJax、导航门控和页面静默。Markdown 连续切换时会尽量复用同一个面板和 WebView2。 |
 | 字体 | `FontViewer` | TrueType/OpenType 常规预览优先使用 FreeType + WPF；需要网页排版或 WOFF 时使用 WebView2。 |
 | 文本 / CSV | `TextViewer`、`CsvViewer` | AvalonEdit 负责大文本和语法高亮；CsvHelper 负责 CSV 解析，分页展示。 |
-| 压缩包 / 应用包 | `ArchiveViewer`、`AppViewer` | SharpCompress 读取压缩包；APK、MSI、NuGet、Deb/RPM 等使用各自读取器提取元数据和目录。 |
+| 压缩包 / 应用包 | `ArchiveViewer`、`AppViewer` | SharpCompress 读取压缩包；选中条目按需临时提取后交给对应预览器。APK、MSI、NuGet、Deb/RPM 等使用各自读取器提取元数据和目录。 |
 | 数据库 | `DbViewer` | SQLite/SQLCipher、LiteDB 读取表和记录；MiniExcel 负责导出。 |
 | PE / ELF / Dump / 证书 / Prefetch | `PEViewer`、`ELFViewer`、`DumpViewer`、`CertViewer`、`PrefetchViewer` | 原生结构解析和格式化表格，不依赖 Office 或浏览器。 |
 | 3D 模型 | `HelixViewer` | HelixToolkit + Assimp，支持常见 3D 格式的网格和材质预览。 |

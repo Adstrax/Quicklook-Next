@@ -292,7 +292,7 @@ QuickLook.Plugin\  # 内置插件
 | OfficeViewer | Office（docx/xlsx/pptx 自研渲染；doc/xls/ppt/odt/ods/odp/vsd/vsdx 系统兜底） |
 | HtmlViewer | HTML/MHT/URL（WebView2 渲染，也是 MD 插件的依赖） |
 | PdfViewer | PDF |
-| ArchiveViewer | 压缩包与安装包（zip/rar/7z/tar/gz/bz2/xz/cbz/cbr/jar/apk/msi 等） |
+| ArchiveViewer | 压缩包与安装包，支持目录浏览和文件内容预览（zip/rar/7z/tar/gz/bz2/xz/cbz/cbr/jar/apk/msi 等） |
 | CsvViewer | CSV/TSV/PSV 表格化视图 |
 | FontViewer | 字体（ttf/otf/woff/woff2/ttc/eot） |
 | MediaInfoViewer | 右键菜单查看媒体信息 |
