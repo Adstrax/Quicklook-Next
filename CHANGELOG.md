@@ -7,6 +7,26 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.2
+
+### Browsable release history and more compatible release notes
+
+- **Update history is now available from the tray menu.** Users can browse
+  recent stable releases, select any version, and read its notes after
+  updating without opening GitHub.
+- **The history is loaded only on demand.** Nothing is written to a local
+  changelog cache, and the list is capped at 20 stable releases with bounded
+  note sizes. Closing the window releases the parsed release data.
+- **Release notes handle more GitHub formats.** Task and nested lists, tables,
+  GitHub alerts, reference and relative links, images, strikethrough, HTML
+  wrappers, line breaks, details blocks and fenced code are converted into
+  readable desktop content.
+- **Release metadata is more tolerant.** Conventional `v`-prefixed tags are
+  displayed cleanly, `created_at` is used when `published_at` is absent, and
+  non-HTTP release links are rejected.
+- **Release quality.** 367 unit tests pass. The Release build has 0 warnings and
+  0 errors.
+
 ## QuickLook-Next 6.7.1
 
 ### Better document navigation and clearer in-app updates

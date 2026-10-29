@@ -283,9 +283,16 @@ internal sealed class UpdateDialog : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
 
+        var notesBaseUri = Uri.TryCreate(release.ReleaseNotesUrl, UriKind.Absolute, out var releaseUri)
+            ? releaseUri
+            : null;
         var notesViewer = new FlowDocumentScrollViewer
         {
-            Document = ReleaseNotesFormatter.BuildDocument(release.Notes, _isDark, OpenUrl),
+            Document = ReleaseNotesFormatter.BuildDocument(
+                release.Notes,
+                _isDark,
+                OpenUrl,
+                notesBaseUri),
             IsToolBarVisible = false,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,

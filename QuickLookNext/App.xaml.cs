@@ -400,21 +400,35 @@ public partial class App : Application
                         """
                         ## QuickLook-Next 6.8.0
 
-                        本次更新继续改善日常预览体验和稳定性。
+                        本次更新增强更新说明对不同 GitHub Markdown 写法的兼容性。
 
                         ### 新增与改进
 
-                        - 更新窗口直接显示完整发布说明，无需跳转 GitHub
-                        - 压缩包预览会记住文件列表与内容区的分栏比例
-                        - Word 目录会跟随当前阅读位置自动高亮
-                        - 改善 Office 文档图片和复杂元素的显示
+                        - [x] 支持任务列表和嵌套列表
+                        - [x] 支持表格、引用块和相对链接
+                        - [ ] 你可以在设置中检查剩余的格式选项
+                          - 嵌套列表会保持缩进
+                          - 链接会使用系统默认浏览器打开
 
-                        ### 修复
+                        > [!TIP]
+                        > GitHub 的提示块会转换成醒目的说明文字。
 
-                        - 修正部分标题没有书签时无法定位的问题
-                        - 修正更新说明中的链接无法在新窗口直接访问的问题
+                        | 格式 | 状态 |
+                        | --- | --- |
+                        | HTML 与 Markdown 混合 | **已支持** |
+                        | 图片替代文本 | **已支持** |
 
-                        [查看完整发布页面](https://github.com/Adstrax/Quicklook-Next/releases)
+                        <details>
+                        <summary>更多兼容性说明</summary>
+                        HTML 段落和换行现在也能正常显示。<br>
+                        即使发布说明被 HTML 包裹，也不会露出原始标签。
+                        </details>
+
+                        ![更新窗口示例](https://example.com/update-dialog.png)
+
+                        [查看完整发布页面][release]
+
+                        [release]: /Adstrax/Quicklook-Next/releases
                         """,
                         "https://github.com/Adstrax/Quicklook-Next/releases",
                         DateTimeOffset.Now.ToString("O")));

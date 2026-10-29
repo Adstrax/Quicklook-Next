@@ -249,6 +249,12 @@ internal partial class TrayIconManager : IDisposable
             },
             new TrayMenuEntry
             {
+                Header = TranslationHelper.Get("Update_History", failsafe: "Update History..."),
+                Icon = FontSymbols.History,
+                Command = () => ChangelogWindow.ShowWindow(),
+            },
+            new TrayMenuEntry
+            {
                 // v1.3.11: plugin management panel (uninstall user plugins).
                 // v5.6.18: it is the plugin market now - it opens on the catalogue.
                 Header = TranslationHelper.Get("Icon_PluginManager", failsafe: "&Plugin Market..."),

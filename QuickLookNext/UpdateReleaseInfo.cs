@@ -29,12 +29,16 @@ internal sealed record UpdateReleaseInfo(
 
     internal static UpdateReleaseInfo FromRelease(JObject release, string fallbackVersion = null)
     {
+        var published = (string)release?["published_at"];
+        if (string.IsNullOrWhiteSpace(published))
+            published = (string)release?["created_at"];
+
         return Create(
             (string)release?["tag_name"],
             (string)release?["name"],
             (string)release?["body"],
             (string)release?["html_url"],
-            (string)release?["published_at"],
+            published,
             fallbackVersion);
     }
 
@@ -46,11 +50,20 @@ internal sealed record UpdateReleaseInfo(
         string publishedText,
         string fallbackVersion = null)
     {
-        version = string.IsNullOrWhiteSpace(version) ? fallbackVersion ?? "?" : version;
+        version = string.IsNullOrWhiteSpace(version) ? fallbackVersion ?? "?" : version.Trim();
+        if (version.Length > 1 &&
+            version[0] is 'v' or 'V' &&
+            System.Version.TryParse(version[1..], out _))
+        {
+            version = version[1..];
+        }
+
         title = string.IsNullOrWhiteSpace(title) ? $"QuickLook-Next {version}" : title.Trim();
         notes ??= string.Empty;
         if (notes.Length > MaximumNotesLength)
             notes = notes[..MaximumNotesLength] + Environment.NewLine + Environment.NewLine + "…";
+
+        releaseNotesUrl = NormalizeReleaseNotesUrl(releaseNotesUrl);
 
         DateTimeOffset? published = null;
         if (DateTimeOffset.TryParse(
@@ -63,5 +76,16 @@ internal sealed record UpdateReleaseInfo(
         }
 
         return new UpdateReleaseInfo(version, title, notes.Trim(), releaseNotesUrl, published);
+    }
+
+    private static string NormalizeReleaseNotesUrl(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) &&
+               uri.Scheme is "http" or "https"
+            ? uri.AbsoluteUri
+            : string.Empty;
     }
 }
