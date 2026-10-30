@@ -20,14 +20,11 @@ using QuickLookNext.Helpers;
 namespace QuickLook.Tests;
 
 /// <summary>
-/// v6.5.0: a normal launch owns a warm session immediately, and the configured idle
-/// wait can release it even before the first preview. The deliberate cold-idle process
-/// warms again only after a real preview.
+/// A normal launch owns a warm session immediately. Low-memory mode evaluates fixed
+/// windows and records only whether each window saw a preview, never every preview.
 /// </summary>
 internal class PreviewSessionTests
 {
-    private const long TimeoutMs = 300000;
-
     public void TheColdIdleProcessHasNothingToWarm()
     {
         var session = new PreviewSession();
@@ -38,10 +35,11 @@ internal class PreviewSessionTests
     public void ANormalLaunchStartsAWarmSessionImmediately()
     {
         var session = new PreviewSession();
-        session.Started(0);
+        session.Started();
 
         Assert.True(session.IsActive, "the launch owns a session");
         Assert.True(session.ShouldWarm(lowMemoryMode: true), "and prepares the parked window");
+        Assert.False(session.HasPreviewInWindow, "the first window starts without preview activity");
     }
 
     public void TheNormalModeKeepsItsWindowWarmAllAlong()
@@ -49,86 +47,132 @@ internal class PreviewSessionTests
         var session = new PreviewSession();
 
         Assert.True(session.ShouldWarm(lowMemoryMode: false), "before the first preview");
-        session.Opened(0);
+        session.Opened();
         Assert.True(session.ShouldWarm(lowMemoryMode: false), "and after it");
     }
 
     public void OnceTheUserPreviewsTheRebuiltWindowIsWarmed()
     {
         var session = new PreviewSession();
-        session.Opened(0);
+        session.Opened();
 
         Assert.True(session.ShouldWarm(lowMemoryMode: true), "while the first preview is open");
-
-        // The window is rebuilt on close - that rebuild is what used to be cold.
-        session.Closed(1_000);
         Assert.True(session.ShouldWarm(lowMemoryMode: true), "after closing it");
     }
 
-    public void TheParkedWindowIsReleasedExactlyAtTheIdleTimeout()
+    public void AWindowWithoutPreviewReleasesTheWarmProcess()
     {
         var session = new PreviewSession();
-        session.Opened(0);
-        session.Closed(1_000);
+        session.Started();
 
-        Assert.False(session.ShouldRelease(1_000 + TimeoutMs - 1, true, previewOpen: false, TimeoutMs),
-            "a moment before the timeout");
-        Assert.True(session.ShouldRelease(1_000 + TimeoutMs, true, previewOpen: false, TimeoutMs),
-            "at the timeout");
+        Assert.Equal(
+            PreviewSession.WindowResult.Release,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "nothing used the warm process during the first full window");
     }
 
-    public void EverySessionActivityRearmsTheIdleDeadline()
+    public void APreviewKeepsTheNextCompleteWindowWarm()
+    {
+        var session = new PreviewSession();
+        session.Started();
+        session.Opened();
+
+        Assert.Equal(
+            PreviewSession.WindowResult.KeepWarm,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "one preview is enough to keep the next window warm");
+        Assert.Equal(
+            PreviewSession.WindowResult.Release,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "the complete window with no preview releases the process");
+    }
+
+    public void EveryWindowWithActivityEarnsAnotherWarmWindow()
+    {
+        var session = new PreviewSession();
+        session.Started();
+
+        session.Opened();
+        Assert.Equal(
+            PreviewSession.WindowResult.KeepWarm,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "the first active window keeps the process warm");
+
+        session.Opened();
+        Assert.Equal(
+            PreviewSession.WindowResult.KeepWarm,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "activity in the second window keeps it warm again");
+    }
+
+    public void RepeatedPreviewsOnlySetOneWindowFlag()
     {
         var session = new PreviewSession();
         var changes = 0;
         session.ActivityChanged += (_, _) => changes++;
 
-        session.Opened(0);
-        Assert.Equal(1, changes, "opening starts the countdown");
+        session.Started();
+        session.Opened();
+        session.Opened();
+        session.Opened();
 
-        // The original timer can already have fired while the preview stayed
-        // open. Closing must notify the host so it schedules a fresh wait from
-        // the instant the preview went away.
-        session.Closed(TimeoutMs * 10);
-        Assert.Equal(2, changes, "closing restarts the countdown");
-        Assert.False(
-            session.ShouldRelease(
-                TimeoutMs * 11 - 1, lowMemoryMode: true, previewOpen: false, TimeoutMs),
-            "the fresh wait is measured from the close");
-        Assert.True(
-            session.ShouldRelease(
-                TimeoutMs * 11, lowMemoryMode: true, previewOpen: false, TimeoutMs),
-            "and releases when that fresh wait expires");
-
-        session.End();
-        Assert.Equal(3, changes, "ending the session retires its timer");
+        Assert.True(session.HasPreviewInWindow, "the window records that it saw a preview");
+        Assert.Equal(1, changes, "previews do not move or restart the fixed window");
     }
 
-    public void AnOpenPreviewIsNeverReleased()
+    public void AnOpenPreviewCountsAsActivityAtTheBoundary()
     {
         var session = new PreviewSession();
-        session.Opened(0);
+        session.Started();
 
-        // Closing the window would close the preview the user is reading.
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: true, TimeoutMs),
-            "a preview is open");
+        Assert.Equal(
+            PreviewSession.WindowResult.KeepWarm,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: true),
+            "an open preview is activity and must never be closed by the release");
+    }
+
+    public void TheFirstPreviewAfterAReleaseStartsAFreshWindow()
+    {
+        var session = new PreviewSession();
+        var changes = 0;
+        session.ActivityChanged += (_, _) => changes++;
+
+        session.Started();
+        Assert.Equal(
+            PreviewSession.WindowResult.Release,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "the first window finds no activity");
+
+        session.Opened();
+        Assert.Equal(2, changes, "the first preview starts a new fixed window");
+        Assert.Equal(
+            PreviewSession.WindowResult.KeepWarm,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "and its activity earns another warm window");
     }
 
     public void ABlockedReleaseStaysPendingWhileTheSessionIsActive()
     {
         var session = new PreviewSession();
-        session.Started(0);
+        session.Started();
+        session.CompleteWindow(lowMemoryMode: true, previewOpen: false);
 
         Assert.True(
             session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: false),
             "another window may close and allow the release later");
         Assert.False(
             session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: true),
-            "a newly opened preview owns the next activity deadline");
+            "a preview opening during the retry owns a fresh window");
         Assert.False(
             session.ShouldRetryBlockedRelease(lowMemoryMode: false, previewOpen: false),
             "turning low memory mode off cancels the pending release");
 
+        session.Opened();
+        Assert.False(
+            session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: false),
+            "a new preview window replaces the pending release");
+
+        session.CompleteWindow(lowMemoryMode: true, previewOpen: false);
         session.End();
         Assert.False(
             session.ShouldRetryBlockedRelease(lowMemoryMode: true, previewOpen: false),
@@ -138,81 +182,38 @@ internal class PreviewSessionTests
     public void TheNormalModeNeverReleasesItsWindow()
     {
         var session = new PreviewSession();
-        session.Opened(0);
-        session.Closed(0);
+        session.Opened();
 
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, lowMemoryMode: false, previewOpen: false, TimeoutMs),
-            "normal mode");
-    }
-
-    public void IdleDurationTracksTheLastActivity()
-    {
-        var session = new PreviewSession();
-        session.Started(1_000);
-
-        Assert.Equal(4_000, session.IdleFor(5_000), "time since launch");
-
-        session.Opened(8_000);
-        Assert.Equal(2_000, session.IdleFor(10_000), "opening resets the idle span");
-
-        session.Closed(12_000);
-        Assert.Equal(3_000, session.IdleFor(15_000), "closing resets the idle span");
-
-        session.End();
-        Assert.Equal(0, session.IdleFor(99_000), "an ended session has no idle span");
-    }
-
-    public void AStartupSessionCanBeReleasedWithoutAPreview()
-    {
-        var session = new PreviewSession();
-        session.Started(0);
-
-        Assert.False(session.ShouldRelease(TimeoutMs - 1, true, previewOpen: false, TimeoutMs),
-            "the startup warm-up still has time");
-        Assert.True(session.ShouldRelease(TimeoutMs, true, previewOpen: false, TimeoutMs),
-            "the timeout releases a launch that never previewed");
+        Assert.Equal(
+            PreviewSession.WindowResult.Inactive,
+            session.CompleteWindow(lowMemoryMode: false, previewOpen: false),
+            "normal mode has no release window");
     }
 
     public void AnEndedSessionGoesBackToCold()
     {
         var session = new PreviewSession();
-        session.Opened(0);
-        session.Closed(10);
+        session.Opened();
         session.End();
 
         Assert.False(session.ShouldWarm(lowMemoryMode: true), "the next window is built cold");
-        Assert.False(session.ShouldRelease(TimeoutMs * 10, true, previewOpen: false, TimeoutMs),
-            "and there is nothing left to release");
+        Assert.Equal(
+            PreviewSession.WindowResult.Inactive,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "and there is no running window to complete");
     }
 
     public void PreviewingAgainAfterAnEndedSessionStartsANewOne()
     {
         var session = new PreviewSession();
-        session.Opened(0);
-        session.Closed(10);
+        session.Opened();
         session.End();
 
-        session.Opened(TimeoutMs * 5);
+        session.Opened();
         Assert.True(session.ShouldWarm(lowMemoryMode: true), "warm again");
-        Assert.False(session.ShouldRelease(TimeoutMs * 5 + TimeoutMs - 1, true, previewOpen: false, TimeoutMs),
-            "and the countdown starts over");
-    }
-
-    /// <summary>
-    /// v5.6.3: the wait is the user's choice, so the rule has to take it from the
-    /// caller rather than from a constant.
-    /// </summary>
-    public void TheWaitIsWhateverTheUserPicked()
-    {
-        var session = new PreviewSession();
-        session.Opened(0);
-        session.Closed(0);
-
-        const long thirtyMinutes = 30 * 60 * 1000;
-
-        Assert.False(session.ShouldRelease(TimeoutMs + 1, true, false, thirtyMinutes),
-            "past the default but not past the chosen wait");
-        Assert.True(session.ShouldRelease(thirtyMinutes + 1, true, false, thirtyMinutes),
-            "past the chosen wait");
+        Assert.Equal(
+            PreviewSession.WindowResult.KeepWarm,
+            session.CompleteWindow(lowMemoryMode: true, previewOpen: false),
+            "and its new window starts over");
     }
 }

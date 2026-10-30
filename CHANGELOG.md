@@ -7,6 +7,32 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.5
+
+### Configurable preview warm-up and event-driven low-memory windows
+
+6.7.5 lets each user choose how much preview work to keep ready while making
+low-memory release decisions from fixed activity windows instead of per-preview
+timestamps.
+
+- **Preview warm-up is configurable.** The tray menu can prepare the 1, 3, 5 or
+  8 most-used warmable preview families. Three remains the balanced default,
+  and the choice is persisted and applied after restart.
+- **Unsupported families no longer consume warm-up slots.** Usage ranking is
+  filtered before taking the requested count, so video, Office, PE and other
+  families that cannot be prepared safely do not displace PDF, archives or
+  other useful preview types.
+- **Low-memory decisions use fixed windows.** Any preview during a window keeps
+  the process warm for one more complete window; a complete window without a
+  preview releases the warmed footprint. Repeated previews do not move the
+  deadline or record another timestamp.
+- **Open previews remain protected.** A preview still open at a window boundary
+  counts as activity and is never closed by low-memory release.
+- **The tray menu is shorter.** The redundant standalone Open Data Folder entry
+  has been removed; the Data & Cache window still provides the same action.
+- **Release quality.** 374 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.4
 
 ### Reliable low-memory release when another window is open

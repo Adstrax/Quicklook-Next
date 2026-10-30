@@ -93,6 +93,23 @@ internal static class PluginUsageTracker
     }
 
     /// <summary>
+    /// The complete usage ranking. Preview warm-up filters out families it cannot
+    /// prepare safely and then takes its own count, so unsupported videos, Office
+    /// documents, and similar plugins must not consume one of the requested slots.
+    /// </summary>
+    internal static IReadOnlyList<string> GetAllByUsage()
+    {
+        lock (Sync)
+        {
+            return Counts
+                .OrderByDescending(pair => pair.Value)
+                .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => pair.Key)
+                .ToList();
+        }
+    }
+
+    /// <summary>
     /// Synchronous save on app exit so the last previews are persisted.
     /// </summary>
     internal static void Flush()

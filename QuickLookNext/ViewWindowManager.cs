@@ -46,30 +46,32 @@ public class ViewWindowManager : IDisposable
     // v6.5.1: the idle deadline is a threading timer, not a DispatcherTimer. A
     // DispatcherTimer at Background priority can remain queued indefinitely in a
     // tray-only process when WPF keeps producing higher-priority work. The old
-    // timer also stopped permanently after one tick, so a tick that arrived while
-    // a preview was open made the release depend entirely on a later Closed event.
-    // This timer runs independently and only marshals the final decision to the UI
-    // thread.
+    // timer also stopped permanently after one tick. This timer runs independently,
+    // represents one fixed activity window at a time, and only marshals the final
+    // decision to the UI thread.
     private Timer _sessionTimer;
     private long _sessionTimerGeneration;
     private string _releaseBlockerSummary;
 
-    // A non-preview window may be open when the idle deadline arrives. Keep the
+    // A non-preview window may be open when a fixed low-memory window expires. Keep the
     // warm session alive and retry instead of ending it permanently; otherwise
     // closing that window later can never return the native preview footprint.
     private static readonly TimeSpan ReleaseRetryDelay = TimeSpan.FromSeconds(5);
 
     internal ViewWindowManager()
     {
-        // Opening and closing both move the idle deadline. Arming from the
-        // session event keeps those two paths in sync instead of relying on
-        // every caller to remember the timer after changing the session.
-        _session.ActivityChanged += (_, _) => ArmSessionTimer();
+        // Only a new fixed window starts the release timer. Opening or closing a
+        // preview inside that window deliberately does not move its deadline.
+        _session.ActivityChanged += (_, _) =>
+        {
+            _releaseBlockerSummary = null;
+            ArmSessionTimer();
+        };
 
-        // v6.5.0: an ordinary launch is already a warm session. This makes the user's
-        // idle wait start immediately, even if they do not preview a file first.
+        // An ordinary launch is already a warm session. Its first fixed window starts
+        // immediately, even if the user does not preview a file first.
         if (Helpers.StartupWarmUp.IsEnabled)
-            _session.Started(Environment.TickCount64);
+            _session.Started();
 
         // v3.40.0 used to build the window here, inside RunListener, so the first
         // preview of a session would never wait for it.
@@ -486,7 +488,7 @@ public class ViewWindowManager : IDisposable
 
         // v5.6.2: from here on the low memory mode keeps a warm window around, so a
         // folder full of files previews at the same speed as the normal mode does.
-        _session.Opened(Environment.TickCount64);
+        _session.Opened();
 
         // v5.8.0: the family warm-up follows the session the same way the window warm-up
         // does. The normal mode has already prepared the families while nobody was
@@ -549,7 +551,6 @@ private void InitNewViewerWindow()
         // window closes so the next Space reopens the preview instead of
         // "closing" the off-screen warm window again.
         _invokedPath = string.Empty;
-        _session.Closed(Environment.TickCount64);
         StopFocusMonitor();
 
         // v6.1.1: rebuilding here cost ~120 ms of UI thread inside the close, right
@@ -585,12 +586,11 @@ private void InitNewViewerWindow()
         _viewerWindow.WarmUp();
     App.RecordStartupPhase("after-viewer-window-warmup");
 
-    ArmSessionTimer();
 }
 
     /// <summary>
-    /// v5.6.2: restarts the idle countdown. Called on every preview open and close, so
-    /// it always measures "time since the user last previewed something".
+    /// Starts one fixed low-memory window. Previews inside the window only mark it as
+    /// active; they do not call this method or move its deadline.
     /// </summary>
     private void ArmSessionTimer(TimeSpan? dueTime = null)
     {
@@ -659,8 +659,7 @@ private void InitNewViewerWindow()
     {
         lock (_sessionTimerSync)
         {
-            // A preview opened, closed, or the setting changed after this timer
-            // fired. That newer activity owns the current deadline.
+            // A new fixed window or setting change superseded this timer.
             if (generation != _sessionTimerGeneration)
                 return;
 
@@ -669,30 +668,26 @@ private void InitNewViewerWindow()
             timer?.Dispose();
         }
 
-        var now = Environment.TickCount64;
         var lowMemoryMode = Helpers.StartupWarmUp.IsLowMemoryMode;
         var previewOpen = !string.IsNullOrEmpty(_invokedPath);
         var timeoutSeconds = Helpers.LowMemoryMode.Seconds;
-        var timeoutMs = (long)TimeSpan.FromSeconds(timeoutSeconds).TotalMilliseconds;
-        var idleMs = _session.IdleFor(now);
+        var completion = _session.CompleteWindow(lowMemoryMode, previewOpen);
 
-        if (!_session.ShouldRelease(now, lowMemoryMode, previewOpen, timeoutMs))
+        if (completion == PreviewSession.WindowResult.Inactive)
+            return;
+
+        if (completion == PreviewSession.WindowResult.KeepWarm)
         {
-            // A real open preview must not be restarted away. Closing it raises
-            // ActivityChanged and arms a fresh deadline, so log this case because
-            // it is the only intentional reason a due deadline does nothing.
-            if (lowMemoryMode && _session.IsActive && timeoutSeconds > 0 && previewOpen)
-            {
-                ProcessHelper.WriteLog(
-                    $"Low memory mode: release deferred because a preview is open " +
-                    $"(idle={idleMs / 1000.0:0.0}s, wait={timeoutSeconds}s)");
-            }
+            ProcessHelper.WriteLog(
+                $"Low memory mode: preview activity found in the {timeoutSeconds}s window; " +
+                $"keeping warm for another full window");
+            ArmSessionTimer();
             return;
         }
 
         ProcessHelper.WriteLog(
-            $"Low memory mode: idle deadline reached " +
-            $"(idle={idleMs / 1000.0:0.0}s, wait={timeoutSeconds}s)");
+            $"Low memory mode: no preview during the complete {timeoutSeconds}s window; " +
+            $"releasing the warm footprint");
 
         // v5.6.3: in-process there is nothing left to give back - the managed heap is
         // ~9 MB after a preview while the private bytes sit ~80 MB above the baseline,
@@ -712,7 +707,7 @@ private void InitNewViewerWindow()
             // A failed launch must not leave the process without a timer. Keep
             // the session alive and try again after the configured wait.
             ProcessHelper.WriteLog("Low memory mode: restart could not be started; timer re-armed");
-            _session.Started(now);
+            _session.Started();
             return;
         }
 
@@ -770,7 +765,7 @@ private void InitNewViewerWindow()
         return string.IsNullOrEmpty(blockerSummary);
     }
 
-    /// <summary>Re-arms the current session after the user changes the idle wait.</summary>
+    /// <summary>Starts a fresh fixed window after the user changes the low-memory wait.</summary>
     internal void RefreshSessionTimer() => ArmSessionTimer();
 
     public static ViewWindowManager GetInstance()

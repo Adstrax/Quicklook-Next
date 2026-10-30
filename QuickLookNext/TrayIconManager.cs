@@ -120,6 +120,10 @@ internal partial class TrayIconManager : IDisposable
         var lowMemoryLabel =
             $"{TranslationHelper.Get("Icon_LowMemoryMode", failsafe: "Low memory mode")}：" +
             TranslationHelper.Get(lowMemoryChoice.ShortKey, failsafe: lowMemoryChoice.ShortName);
+        var warmUpChoice = Helpers.PreviewWarmUp.CurrentFamilyCountChoice;
+        var warmUpLabel =
+            $"{TranslationHelper.Get("Icon_PreviewWarmUp", failsafe: "Preview warm-up")}：" +
+            TranslationHelper.Get(warmUpChoice.ShortKey, failsafe: warmUpChoice.ShortName);
 
         return
         [
@@ -240,6 +244,12 @@ internal partial class TrayIconManager : IDisposable
                 Icon = FontSymbols.Leaf,
                 Children = BuildLowMemoryEntries(lowMemoryChoice),
             },
+            new TrayMenuEntry
+            {
+                Header = warmUpLabel,
+                Icon = FontSymbols.SpeedHigh,
+                Children = BuildWarmUpEntries(warmUpChoice),
+            },
             TrayMenuEntry.Separator,
             new TrayMenuEntry
             {
@@ -260,12 +270,6 @@ internal partial class TrayIconManager : IDisposable
                 Header = TranslationHelper.Get("Icon_PluginManager", failsafe: "&Plugin Market..."),
                 Icon = FontSymbols.Puzzle,
                 Command = PluginManagerWindow.ShowWindow,
-            },
-            new TrayMenuEntry
-            {
-                Header = TranslationHelper.Get("Icon_OpenDataFolder"),
-                Icon = FontSymbols.FolderOpen,
-                Command = () => Process.Start("explorer.exe", SettingHelper.LocalDataPath),
             },
             new TrayMenuEntry
             {
@@ -490,6 +494,19 @@ internal partial class TrayIconManager : IDisposable
         return entries;
     }
 
+    private static List<TrayMenuEntry> BuildWarmUpEntries(
+        Helpers.PreviewWarmUp.FamilyCountChoice current)
+    {
+        return Helpers.PreviewWarmUp.FamilyCountChoices
+            .Select(choice => new TrayMenuEntry
+            {
+                Header = TranslationHelper.Get(choice.Key, failsafe: choice.Name),
+                Command = () => SetWarmUpFamilyCount(choice),
+                IsChecked = choice == current,
+            })
+            .ToList();
+    }
+
     /// <summary>
     /// v5.6.4: applies one of the mode's states. Only a change of the mode itself is worth a
     /// notification - a different wait is already visible in the menu.
@@ -513,6 +530,19 @@ internal partial class TrayIconManager : IDisposable
                     "Low memory mode is on - startup stays warm and the warmed process is kept.");
 
         ShowNotification(string.Empty, TranslationHelper.Get(key, failsafe: failsafe));
+    }
+
+    private static void SetWarmUpFamilyCount(Helpers.PreviewWarmUp.FamilyCountChoice choice)
+    {
+        var previous = Helpers.PreviewWarmUp.CurrentFamilyCountChoice;
+        Helpers.PreviewWarmUp.SetFamilyCount(choice.Count);
+        if (choice == previous)
+            return;
+
+        var message = TranslationHelper.Get(
+            "Icon_PreviewWarmUpChanged",
+            failsafe: "Preview warm-up will prepare {0} families after the app restarts.");
+        ShowNotification(string.Empty, string.Format(message, choice.Count));
     }
 
     internal static bool IsDarkTheme()

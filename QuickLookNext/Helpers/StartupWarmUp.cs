@@ -36,9 +36,9 @@ namespace QuickLookNext.Helpers;
 /// <para>
 /// The window warm-up buys ~200 ms, the family warm-up 100-200 ms per family (text
 /// 289-&gt;96 ms, image 170-&gt;100 ms). The app now warms on every normal launch,
-/// because the first file is commonly opened immediately after startup. Once the
-/// configured idle wait expires it restarts into a deliberate cold-idle process, which
-/// skips both warm-ups until the next real preview.
+/// because the first file is commonly opened immediately after startup. Once a complete
+/// fixed window contains no preview it restarts into a deliberate cold-idle process,
+/// which skips both warm-ups until the next real preview.
 /// </para>
 ///
 /// <para>

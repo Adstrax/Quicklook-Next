@@ -34,10 +34,12 @@ namespace QuickLookNext.Helpers;
 /// </para>
 ///
 /// <para>
-/// v6.5.0: every normal launch warms the window and the three most-used preview families
-/// immediately. A timed choice starts its countdown at launch and re-arms it on every
-/// preview open or close; after the wait the process restarts into a cold-idle state.
-/// "Off" and "Never" keep the warmed process until it exits or restarts.
+/// Every normal launch warms the window and the user's chosen number of most-used
+/// preview families immediately. A timed choice evaluates fixed windows of the selected
+/// length. A window records only whether it contained at least one preview; any activity
+/// keeps the process warm for one more complete window. A window with no preview restarts
+/// into the cold-idle state. "Off" and "Never" keep the warmed process until it exits or
+/// restarts.
 /// </para>
 ///
 /// <para>
@@ -74,15 +76,15 @@ internal static class LowMemoryMode
     [
         new(false, 0, "Icon_LowMemory_Off", "Off (keep warm-up)",
             "Icon_LowMemory_Off_Short", "Off"),
-        new(true, 90, "Icon_Release_90s", "Release after 90 seconds",
+        new(true, 90, "Icon_Release_90s", "Release after a 90-second window without previews",
             "Icon_Release_90s_Short", "90 s"),
-        new(true, 300, "Icon_Release_5m", "Release after 5 minutes",
+        new(true, 300, "Icon_Release_5m", "Release after a 5-minute window without previews",
             "Icon_Release_5m_Short", "5 min"),
-        new(true, 900, "Icon_Release_15m", "Release after 15 minutes",
+        new(true, 900, "Icon_Release_15m", "Release after a 15-minute window without previews",
             "Icon_Release_15m_Short", "15 min"),
-        new(true, 1800, "Icon_Release_30m", "Release after 30 minutes",
+        new(true, 1800, "Icon_Release_30m", "Release after a 30-minute window without previews",
             "Icon_Release_30m_Short", "30 min"),
-        new(true, 3600, "Icon_Release_1h", "Release after 1 hour",
+        new(true, 3600, "Icon_Release_1h", "Release after a 1-hour window without previews",
             "Icon_Release_1h_Short", "1 h"),
         new(true, 0, "Icon_Release_Never", "Never (like normal mode)",
             "Icon_Release_Never_Short", "Never"),

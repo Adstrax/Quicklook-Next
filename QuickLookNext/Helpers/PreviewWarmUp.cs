@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using System;
 using System.Collections.Generic;
@@ -41,10 +42,11 @@ namespace QuickLookNext.Helpers;
 /// startup, so the head start is prepared before the user asks for it.
 /// </para>
 /// <para>
-/// v6.0.0: the warm-up is fixed at three families. The usage history decides the
-/// *order*: the families this user opens most are prepared first, so a preview that
-/// arrives mid-preparation is most likely to be for one that is already ready. There
-/// is no user setting; the lower footprint of the three-family policy is the default.
+/// The usage history decides both the family *order* and the candidates: the families
+/// this user opens most are prepared first, so a preview that arrives mid-preparation is
+/// most likely to be for one that is already ready. The user chooses how many of those
+/// families to prepare from the tray menu. Three remains the balanced default; one is a
+/// lower-memory choice and eight prepares every family that can be warmed safely.
 /// </para>
 /// <para>
 /// Video, audio and Office are deliberately left out of the family list - preparing
@@ -54,19 +56,62 @@ namespace QuickLookNext.Helpers;
 /// </summary>
 internal static class PreviewWarmUp
 {
+    private const string FamilyCountSetting = "WarmUpFamilyCount";
+
     /// <summary>
-    /// The fixed policy: the two common families plus the most likely third one
-    /// from the user's history.
+    /// The default: the two common families plus the most likely third one from the
+    /// user's history.
     /// </summary>
     internal const int DefaultFamilyCount = 3;
 
     /// <summary>
     /// How many families make up "all of them" - the ones a sample file can be
     /// written for (see the class comment for why video, audio and Office are not in
-    /// the list). Kept for the tests and diagnostics; the shipping policy uses
-    /// <see cref="DefaultFamilyCount"/>.
+    /// the list). The largest menu choice prepares the whole supported list.
     /// </summary>
     internal static int AllFamilies => Families.Count;
+
+    internal readonly record struct FamilyCountChoice(
+        int Count, string Key, string Name, string ShortKey, string ShortName);
+
+    /// <summary>
+    /// Four useful operating points rather than every number from one to eight:
+    /// minimum footprint, balanced default, broader daily coverage and everything that
+    /// can be warmed without starting playback or synthesising an Office document.
+    /// </summary>
+    internal static readonly FamilyCountChoice[] FamilyCountChoices =
+    [
+        new(1, "Icon_WarmUpFamilies_1",
+            "1 most-used preview family",
+            "Icon_WarmUpFamilies_1_Short", "1 family"),
+        new(3, "Icon_WarmUpFamilies_3",
+            "3 most-used preview families (default)",
+            "Icon_WarmUpFamilies_3_Short", "3 families"),
+        new(5, "Icon_WarmUpFamilies_5",
+            "5 most-used preview families",
+            "Icon_WarmUpFamilies_5_Short", "5 families"),
+        new(8, "Icon_WarmUpFamilies_8",
+            "All 8 supported preview families",
+            "Icon_WarmUpFamilies_8_Short", "8 families"),
+    ];
+
+    /// <summary>The persisted choice shown by the tray menu and used by the next warm-up.</summary>
+    internal static FamilyCountChoice CurrentFamilyCountChoice =>
+        ChoiceFor(SettingHelper.Get(FamilyCountSetting, DefaultFamilyCount, "QuickLookNext"));
+
+    internal static FamilyCountChoice ChoiceFor(int count)
+    {
+        var fallback = FamilyCountChoices.First(choice => choice.Count == DefaultFamilyCount);
+        return FamilyCountChoices.FirstOrDefault(choice => choice.Count == count, fallback);
+    }
+
+    internal static void SetFamilyCount(int count)
+    {
+        if (!FamilyCountChoices.Any(choice => choice.Count == count))
+            throw new ArgumentOutOfRangeException(nameof(count));
+
+        SettingHelper.Set(FamilyCountSetting, count, "QuickLookNext");
+    }
 
     /// <summary>
     /// Wait before the first family. At startup the app is still settling; when a preview
@@ -183,7 +228,7 @@ internal static class PreviewWarmUp
                 List<string> families;
                 try
                 {
-                    families = await Task.Run(() => ChooseFamilies(DefaultFamilyCount));
+                families = await Task.Run(() => ChooseFamilies(CurrentFamilyCountChoice.Count));
                 }
                 catch
                 {
@@ -193,6 +238,10 @@ internal static class PreviewWarmUp
 
                 if (families.Count == 0)
                     return;
+
+                ProcessHelper.WriteLog(
+                    $"Preview warm-up: preparing {families.Count} families " +
+                    $"({string.Join(", ", families)})");
 
                 await Task.Run(WarmUpSamples.ResetFolder);
                 await Task.Delay(FirstDelay);
@@ -268,10 +317,18 @@ internal static class PreviewWarmUp
     /// count covering the whole list really does choose every family.
     /// </summary>
     internal static List<string> ChooseFamilies(int count)
+        => ChooseFamilies(count, PluginUsageTracker.GetAllByUsage());
+
+    /// <summary>
+    /// Chooses the requested number of warmable families from a complete usage ranking.
+    /// Exposed separately so the tests can prove that an un-warmable plugin does not
+    /// consume one of the requested slots.
+    /// </summary>
+    internal static List<string> ChooseFamilies(int count, IEnumerable<string> usageOrder)
     {
         var chosen = new List<string>();
 
-        foreach (var plugin in PluginUsageTracker.GetMostUsed(count))
+        foreach (var plugin in usageOrder)
         {
             if (Families.ContainsKey(plugin) && !chosen.Contains(plugin))
                 chosen.Add(plugin);

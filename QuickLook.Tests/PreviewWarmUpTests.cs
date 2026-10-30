@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+using QuickLook.Common.Helpers;
 using QuickLookNext.Helpers;
 using System;
 using System.Linq;
@@ -75,6 +76,34 @@ internal class PreviewWarmUpTests : SettingsFixture
             "every chosen family is known");
     }
 
+    public void TheMenuOffersFourUsefulWarmUpSizes()
+    {
+        var counts = PreviewWarmUp.FamilyCountChoices.Select(choice => choice.Count).ToArray();
+
+        Assert.True(counts.SequenceEqual([1, 3, 5, 8]), "the menu covers the useful operating points");
+        Assert.Equal(PreviewWarmUp.AllFamilies, counts[^1],
+            "the largest choice prepares every supported family");
+
+        foreach (var choice in PreviewWarmUp.FamilyCountChoices)
+        {
+            Assert.True(!string.IsNullOrWhiteSpace(choice.Key), "a translation key");
+            Assert.True(!string.IsNullOrWhiteSpace(choice.Name), "a fallback name");
+            Assert.True(!string.IsNullOrWhiteSpace(choice.ShortKey), "a short translation key");
+            Assert.True(!string.IsNullOrWhiteSpace(choice.ShortName), "a short fallback name");
+        }
+    }
+
+    public void TheWarmUpSizeIsPersistedAndUnknownValuesUseTheDefault()
+    {
+        PreviewWarmUp.SetFamilyCount(5);
+        Assert.Equal(5, PreviewWarmUp.CurrentFamilyCountChoice.Count,
+            "the selected count is read back from the settings store");
+
+        SettingHelper.Set("WarmUpFamilyCount", 6, "QuickLookNext");
+        Assert.Equal(PreviewWarmUp.DefaultFamilyCount, PreviewWarmUp.CurrentFamilyCountChoice.Count,
+            "a hand-edited value outside the menu falls back to the balanced default");
+    }
+
     /// <summary>
     /// The two families the common-format order does not name (.zip, .ttf) are the ones a
     /// top-up loop that only walked that order used to leave out.
@@ -107,6 +136,33 @@ internal class PreviewWarmUpTests : SettingsFixture
             "and both of them are families the warm-up knows");
 
         Assert.Equal(0, PreviewWarmUp.ChooseFamilies(0).Count, "a count of zero prepares nothing");
+    }
+
+    public void TheCountSkipsFamiliesThatCannotBeWarmedSafely()
+    {
+        var chosen = PreviewWarmUp.ChooseFamilies(
+            5,
+            [
+                "QuickLook.Plugin.OfficeViewer",
+                "QuickLook.Plugin.PEViewer",
+                "QuickLook.Plugin.VideoViewer",
+                "QuickLook.Plugin.ImageViewer",
+                "QuickLook.Plugin.MarkdownViewer",
+                "QuickLook.Plugin.TextViewer",
+                "QuickLook.Plugin.PDFViewer",
+                "QuickLook.Plugin.ArchiveViewer",
+            ]);
+
+        Assert.True(
+            chosen.SequenceEqual(
+            [
+                "QuickLook.Plugin.ImageViewer",
+                "QuickLook.Plugin.MarkdownViewer",
+                "QuickLook.Plugin.TextViewer",
+                "QuickLook.Plugin.PDFViewer",
+                "QuickLook.Plugin.ArchiveViewer",
+            ], StringComparer.OrdinalIgnoreCase),
+            "unsupported families do not consume warm-up slots");
     }
 
     /// <summary>

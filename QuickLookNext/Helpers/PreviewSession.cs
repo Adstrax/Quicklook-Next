@@ -36,92 +36,110 @@ namespace QuickLookNext.Helpers;
 ///
 /// <para>
 /// A normal launch starts the session immediately, including the startup warm-up.
-/// The user's wait starts at that moment and is restarted whenever a preview opens or
-/// closes. When it expires the process restarts cold; the next real preview starts a new
-/// warm session. A session can therefore be released even if the user never previewed a
-/// file after launch.
+/// Low-memory decisions run in fixed windows of the user's chosen length. A window
+/// records only whether it saw at least one preview; repeated previews do not re-arm the
+/// timer or store another timestamp. When the window expires, activity keeps the process
+/// warm for one more complete window, while an entirely inactive window releases it.
+/// The next real preview starts a fresh warm session.
 /// </para>
 ///
 /// <para>
-/// The class holds no clock and touches no UI: the caller passes the time in, which
-/// is what makes the rules testable without a window.
+/// The class holds no clock and touches no UI: the host owns the timer and calls
+/// <see cref="CompleteWindow"/> when a fixed window expires. This makes the rules
+/// testable without waiting or creating a window.
 /// </para>
 /// </summary>
 internal sealed class PreviewSession
 {
-    private long _lastActivityMs;
+    private bool _windowRunning;
+    private bool _previewSeenInWindow;
 
     /// <summary>
-    /// Raised whenever opening, closing or ending a session changes the instant
-    /// from which the idle wait is measured. The host uses this as the single
-    /// rearm point for its release timer, so closing a preview cannot leave an
-    /// already-fired timer stopped.
+    /// Raised when a new fixed window begins or the session ends. The host uses this
+    /// as the single point that starts the release timer. Previews inside a running
+    /// window deliberately do not raise it, because they must not move the deadline.
     /// </summary>
     internal event EventHandler ActivityChanged;
 
     /// <summary>True while this process owns a warm preview session.</summary>
     internal bool IsActive { get; private set; }
 
+    /// <summary>Whether any preview was opened during the current fixed window.</summary>
+    internal bool HasPreviewInWindow => _previewSeenInWindow;
+
     /// <summary>Starts a warm session at launch, without waiting for the first preview.</summary>
-    internal void Started(long nowMs)
+    internal void Started()
     {
         IsActive = true;
-        _lastActivityMs = nowMs;
+        _windowRunning = true;
+        _previewSeenInWindow = false;
         NotifyActivityChanged();
     }
 
-    /// <summary>A preview is about to be shown.</summary>
-    internal void Opened(long nowMs)
+    /// <summary>
+    /// Records that a preview is about to be shown. Only the first preview after a
+    /// stopped window starts a new deadline; further previews only set the boolean.
+    /// </summary>
+    internal void Opened()
     {
+        var startsWindow = !IsActive || !_windowRunning;
         IsActive = true;
-        _lastActivityMs = nowMs;
-        NotifyActivityChanged();
-    }
-
-    /// <summary>The preview window closed - the user closed it, or the plugin failed.</summary>
-    internal void Closed(long nowMs)
-    {
-        if (IsActive)
-        {
-            _lastActivityMs = nowMs;
+        _windowRunning = true;
+        _previewSeenInWindow = true;
+        if (startsWindow)
             NotifyActivityChanged();
-        }
     }
 
     /// <summary>Should a freshly created preview window be warmed off-screen?</summary>
     internal bool ShouldWarm(bool lowMemoryMode) => !lowMemoryMode || IsActive;
 
-    /// <summary>
-    /// Is the warm window no longer worth its memory? Only ever true in the low
-    /// memory mode, only inside a session, never while a preview is open (closing the
-    /// window would close that preview), and only after the idle timeout. A startup
-    /// session counts even when no preview has been opened.
-    /// </summary>
-    internal bool ShouldRelease(long nowMs, bool lowMemoryMode, bool previewOpen, long timeoutMs)
+    internal enum WindowResult
     {
-        if (!lowMemoryMode || !IsActive || previewOpen)
-            return false;
+        Inactive,
+        KeepWarm,
+        Release
+    }
 
-        return nowMs - _lastActivityMs >= timeoutMs;
+    /// <summary>
+    /// Completes the current fixed window. Any preview during it keeps the process
+    /// warm for a full new window. An open preview also counts as activity and can
+    /// never be closed by an idle release.
+    /// </summary>
+    internal WindowResult CompleteWindow(bool lowMemoryMode, bool previewOpen)
+    {
+        if (!lowMemoryMode || !IsActive)
+        {
+            _windowRunning = false;
+            _previewSeenInWindow = false;
+            return WindowResult.Inactive;
+        }
+
+        if (previewOpen)
+            _previewSeenInWindow = true;
+
+        if (_previewSeenInWindow)
+        {
+            _previewSeenInWindow = false;
+            return WindowResult.KeepWarm;
+        }
+
+        _windowRunning = false;
+        return WindowResult.Release;
     }
 
     /// <summary>
     /// A due release can be blocked by a panel or dialog. Keep the session alive
-    /// and retry later; only a disabled mode, an ended session, or a newly opened
-    /// preview invalidates that pending work.
+    /// and retry later. A preview opening at that point starts a new full window.
     /// </summary>
     internal bool ShouldRetryBlockedRelease(bool lowMemoryMode, bool previewOpen)
-        => lowMemoryMode && IsActive && !previewOpen;
-
-    /// <summary>Time since the last session activity, for low-memory diagnostics.</summary>
-    internal long IdleFor(long nowMs) =>
-        IsActive ? Math.Max(0, nowMs - _lastActivityMs) : 0;
+        => lowMemoryMode && IsActive && !_windowRunning && !previewOpen;
 
     /// <summary>Ends the session, so the next window is built cold.</summary>
     internal void End()
     {
         IsActive = false;
-        _lastActivityMs = 0;
+        _windowRunning = false;
+        _previewSeenInWindow = false;
         NotifyActivityChanged();
     }
 

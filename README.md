@@ -48,7 +48,7 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 | | Upstream QuickLook | QuickLook-Next |
 |---|---|---|
 | Runtime | .NET Framework 4.6.2 | .NET 10 |
-| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the same, plus a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 30 min / 1 h / never), the plugin market and the data & cache panel — "find plugins" moved into the plugin market's Browse view, which is the view the panel opens on |
+| Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the standalone Open data folder entry is omitted; adds a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 30 min / 1 h / never), a preview warm-up size selector (1 / 3 / 5 / 8 families), the plugin market and the data & cache panel — "find plugins" moved into the plugin market's Browse view, which is the view the panel opens on |
 | Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
 | Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin market, which lists name, version and origin and has a search box |
 | Installing a plugin | download a `.qlplugin` from the wiki in a browser, then preview the file to install it | browse the list inside the panel and install in one click, with the size and SHA-256 verified before anything is written |
@@ -187,12 +187,12 @@ fixes or implements is noted where there is one.
 - **Data & cache panel** — the tray menu shows what the app actually occupies (WebView2 caches,
   leftover update files, settings, logs, the WebView2 profile) and clears only the rebuildable
   parts: sign-in data, settings, statistics and logs survive. (upstream #1933)
-- **Low memory mode** — every normal launch warms the preview window and the three
-  most-used preview families immediately, so the first file usually opened after startup
-  gets the fast path. The released idle-memory setting now controls when that warm
-  footprint is handed back: five minutes by default, with 90 seconds, 15 minutes,
-  30 minutes, 1 hour, off and never also available. After release the app restarts cold
-  and stays there until the next real preview, so it cannot restart in a loop.
+- **Low memory mode** — every normal launch warms the preview window and a configurable
+  number of the most-used preview families: 1, 3, 5 or all 8 supported families, with
+  3 as the balanced default. The hand-back policy uses fixed windows of five minutes by
+  default, with 90 seconds, 15 minutes, 30 minutes, 1 hour, off and never also available.
+  Any preview inside a window keeps the process warm for the next complete window; a
+  window with no preview restarts the app cold, where it stays until the next real preview.
 - **Huge-image protection** — a 40 MP decode cap, plus zoom and memory accounting in the coordinate
   space the image was actually decoded in: a 64 MP image dropped from a 1705 MB peak to 1156 MB
   without changing how it looks. (upstream #1054)
