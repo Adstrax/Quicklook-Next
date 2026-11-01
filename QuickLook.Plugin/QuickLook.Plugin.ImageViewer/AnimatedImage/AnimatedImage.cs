@@ -16,6 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.ExtensionMethods;
+using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using QuickLook.Plugin.ImageViewer.Helpers;
 using System;
@@ -152,8 +153,7 @@ public class AnimatedImage : Image, IDisposable
 
         // The first request comes from the host in DIP. A detail request already carries device
         // pixels, so only the initial size is converted here.
-        var requestedSize = renderSize ??
-                            ImageHelper.ToDevicePixels(instance.ContextObject.PreferredSize);
+        var requestedSize = renderSize ?? InitialDecodeSize(instance);
         var task = instance._animation.GetThumbnail(requestedSize, cancellation.Token);
         if (task == null) return;
 
@@ -189,6 +189,19 @@ public class AnimatedImage : Image, IDisposable
                 instance.BeginAnimation(AnimationFrameIndexProperty, animator);
         }));
         task.Start();
+    }
+
+    private static Size InitialDecodeSize(AnimatedImage instance)
+    {
+        var realSize = instance.Meta?.GetSize() ?? Size.Empty;
+        var displayScale = ImageHelper.GetDisplayScaleFactor();
+        var requested = ImageZoom.InitialImageDecodeSize(
+            instance.ContextObject.PreferredSize,
+            realSize,
+            displayScale.Horizontal,
+            displayScale.Vertical);
+
+        return DecodePixelLimit.Limit(requested);
     }
 
     private static void AnimationFrameIndexChanged(DependencyObject obj, DependencyPropertyChangedEventArgs ev)

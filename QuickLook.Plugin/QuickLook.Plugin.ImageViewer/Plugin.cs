@@ -289,7 +289,12 @@ public sealed partial class Plugin : IViewer, IMoreMenu, IPreviewQuiesce
         context.DeferResizeUntilReady = true;
 
         if (!size.IsEmpty)
-            context.SetPreferredSizeFit(size, 0.8d);
+        {
+            if (ImageZoom.IsLongImage(size))
+                context.SetPreferredLongImageSizeFit(size, 0.8d);
+            else
+                context.SetPreferredSizeFit(size, 0.8d);
+        }
         else
             context.PreferredSize = new Size(800, 600);
 
@@ -314,6 +319,7 @@ public sealed partial class Plugin : IViewer, IMoreMenu, IPreviewQuiesce
             return;
 
         _ip = new ImagePanel(context, _meta);
+        _ip.UseLongImageScrolling = true;
         var size = _meta.GetSize();
 
         // v1.2.14: don't swap the content in until the first frame is decoded;

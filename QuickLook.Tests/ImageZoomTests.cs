@@ -91,6 +91,60 @@ internal class ImageZoomTests
             "an unmeasured viewport does not produce a zero scale");
     }
 
+    public void LongImagesFitTheirShortAxisAndScrollTheirLongAxis()
+    {
+        var viewport = new System.Windows.Size(800, 600);
+        var portrait = new System.Windows.Size(750, 7678);
+        var landscape = new System.Windows.Size(7678, 750);
+
+        Assert.True(ImageZoom.IsLongImage(portrait), "a 750x7678 image is a long image");
+        Assert.True(ImageZoom.IsLongImage(landscape), "a 7678x750 image is a long image");
+        Assert.False(ImageZoom.IsLongImage(new System.Windows.Size(800, 600)),
+            "a normal 4:3 image keeps the contain-to-fit behaviour");
+
+        var portraitFit = ImageZoom.ImageFitFactor(viewport, portrait);
+        Assert.True(Math.Abs(portraitFit - 800d / 750d) < 0.0001,
+            "a vertical long image fits the viewport width");
+        Assert.True(portrait.Height * portraitFit > viewport.Height,
+            "and overflows vertically so it can scroll");
+
+        var landscapeFit = ImageZoom.ImageFitFactor(viewport, landscape);
+        Assert.True(Math.Abs(landscapeFit - 600d / 750d) < 0.0001,
+            "a horizontal long image fits the viewport height");
+        Assert.True(landscape.Width * landscapeFit > viewport.Width,
+            "and overflows horizontally so it can scroll");
+    }
+
+    public void InitialLongImageDecodeKeepsTheOriginalAspectRatio()
+    {
+        var portrait = ImageZoom.InitialImageDecodeSize(
+            new System.Windows.Size(1000, 800),
+            new System.Windows.Size(750, 7678),
+            1d, 1d);
+
+        Assert.Equal(750d, portrait.Width, "the short side is bounded by the file");
+        Assert.Equal(7678d, portrait.Height, "the long side is decoded without compression");
+
+        var landscape = ImageZoom.InitialImageDecodeSize(
+            new System.Windows.Size(1400, 400),
+            new System.Windows.Size(30000, 1000),
+            1d, 1d);
+
+        Assert.Equal(12000d, landscape.Width, "the long side follows the requested short side");
+        Assert.Equal(400d, landscape.Height, "the whole visible short side is decoded");
+    }
+
+    public void InitialDecodeForAnOrdinaryImageIsUnchanged()
+    {
+        var decoded = ImageZoom.InitialImageDecodeSize(
+            new System.Windows.Size(800, 600),
+            new System.Windows.Size(8000, 6000),
+            1.5d, 1.5d);
+
+        Assert.Equal(1200d, decoded.Width, "normal images still decode at the requested device size");
+        Assert.Equal(900d, decoded.Height, "in both directions");
+    }
+
     public void MagnifyingPastTheDecodedDetailAsksForMore()
     {
         var viewport = new System.Windows.Size(800, 600);

@@ -69,6 +69,36 @@ internal class PreviewWindowSizingTests
         Assert.True(size.Width < ScreenFullHd.Width, "a portrait page stays narrower than the screen");
     }
 
+    public void ALongPortraitImageKeepsAReadableWidth()
+    {
+        var size = PreviewWindowSizing.FitLongImageWithin(
+            new Size(750, 7678), ScreenFullHd, 0.8d);
+
+        Assert.Equal(750d, size.Width, "the natural short-side width is kept");
+        Assert.True(Math.Abs(size.Height - 832d) < 0.01d,
+            $"the window uses 80% of the work area height, got {size.Height:0.##}");
+    }
+
+    public void ALongLandscapeImageKeepsAReadableHeight()
+    {
+        var size = PreviewWindowSizing.FitLongImageWithin(
+            new Size(7678, 750), ScreenFullHd, 0.8d);
+
+        Assert.True(Math.Abs(size.Width - 1536d) < 0.01d,
+            $"the window uses 80% of the work area width, got {size.Width:0.##}");
+        Assert.Equal(750d, size.Height, "the natural short-side height is kept");
+    }
+
+    public void LongImageSizingLeavesOrdinaryImagesOnTheContainedPath()
+    {
+        var content = new Size(800, 600);
+
+        Assert.Equal(
+            PreviewWindowSizing.FitWithin(content, ScreenFullHd, 0.8d),
+            PreviewWindowSizing.FitLongImageWithin(content, ScreenFullHd, 0.8d),
+            "ordinary content keeps the same contained size");
+    }
+
     public void AShareAboveOneMeansTheWholeScreen()
     {
         var ratio = PreviewWindowSizing.FitRatio(new Size(800, 600), Screen4KAt250, 5d);
@@ -192,6 +222,23 @@ internal class PreviewWindowSizingTests
         Assert.True(Math.Abs(context.PreferredSize.Width - 1024d) < 0.01d,
             $"width for the smaller screen, got {context.PreferredSize.Width:0.##}");
         Assert.True(context.PreferredSize.Height < 200d, "and the height follows the shape");
+    }
+
+    public void TheLongImageFitIsAlsoAskedAgainOnAnotherScreen()
+    {
+        var context = new ContextObject { HostDesktopSize = ScreenFullHd };
+        context.SetPreferredLongImageSizeFit(new Size(750, 7678), 0.8d);
+
+        Assert.Equal(750d, context.PreferredSize.Width, "the readable width is kept");
+        Assert.True(Math.Abs(context.PreferredSize.Height - 832d) < 0.01d,
+            "the initial height follows the screen");
+
+        context.HostDesktopSize = new Size(1280, 720);
+
+        Assert.True(context.RefitToHostDesktop(), "moving to a smaller screen asks again");
+        Assert.Equal(750d, context.PreferredSize.Width, "without squashing the image width");
+        Assert.True(Math.Abs(context.PreferredSize.Height - 576d) < 0.01d,
+            "the scrollable viewport follows the new screen");
     }
 
     public void APluginWithAFixedSizeHasNothingToRefit()

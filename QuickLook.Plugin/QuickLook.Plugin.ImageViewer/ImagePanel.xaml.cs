@@ -77,6 +77,7 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     private DispatcherTimer _readyTimer;
     private bool _applyingSourceSize;
     private bool _quiesced;
+    private bool _useLongImageScrolling;
 
     /// <summary>
     /// v5.6.6: waits for the zoom to settle before asking for more detail, so a flick of the wheel
@@ -221,6 +222,23 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         {
             _zoomToFit = value;
             OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The image plugin opts into long-image scrolling. PDF pages share this control and keep the
+    /// original fully contained fit unless they explicitly enable the mode as well.
+    /// </summary>
+    public bool UseLongImageScrolling
+    {
+        get => _useLongImageScrolling;
+        set
+        {
+            if (_useLongImageScrolling == value)
+                return;
+
+            _useLongImageScrolling = value;
+            UpdateZoomToFitFactor();
         }
     }
 
@@ -654,8 +672,22 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     {
         e.Handled = true;
 
+        var imageSize = viewPanelImage?.Source is { } imageSource
+            ? new Size(imageSource.Width, imageSource.Height)
+            : Size.Empty;
+        var longImage = UseLongImageScrolling && ImageZoom.IsLongImage(imageSize);
+        var controlPressed = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+
+        // A long image already opens at a readable scale, so the ordinary wheel is more useful
+        // for moving through it. Ctrl+wheel still zooms, matching the rest of the image viewer.
+        if (longImage && !controlPressed)
+        {
+            ScrollImageByWheel(e.Delta, imageSize.Width > imageSize.Height);
+            return;
+        }
+
         // normal scroll when Control is not pressed, useful for PdfViewer
-        if (ZoomWithControlKey && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        if (ZoomWithControlKey && !controlPressed)
         {
             viewPanel.ScrollToVerticalOffset(viewPanel.VerticalOffset - e.Delta);
             ImageScrolled?.Invoke(this, e.Delta);
@@ -667,6 +699,19 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         var newZoom = ImageZoom.Step(ZoomFactor, e.Delta / 120d);
 
         Zoom(newZoom);
+    }
+
+    private void ScrollImageByWheel(int delta, bool horizontalImage)
+    {
+        var horizontal = horizontalImage ||
+                         (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
+        if (horizontal && viewPanel.ScrollableWidth > 0d)
+            viewPanel.ScrollToHorizontalOffset(viewPanel.HorizontalOffset - delta);
+        else
+            viewPanel.ScrollToVerticalOffset(viewPanel.VerticalOffset - delta);
+
+        ImageScrolled?.Invoke(this, delta);
     }
 
     public Size GetScrollSize()
@@ -757,9 +802,19 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         if (viewPanel.ActualWidth <= 0 || viewPanel.ActualHeight <= 0)
             return; // layout not ready yet; SizeChanged will re-run this
 
-        ZoomToFitFactor = ImageZoom.FitFactor(
-            new Size(viewPanel.ActualWidth, viewPanel.ActualHeight),
-            new Size(viewPanelImage.Source.Width, viewPanelImage.Source.Height));
+        var viewport = UseLongImageScrolling
+            ? new Size(
+                viewPanel.ViewportWidth > 0d ? viewPanel.ViewportWidth : viewPanel.ActualWidth,
+                viewPanel.ViewportHeight > 0d ? viewPanel.ViewportHeight : viewPanel.ActualHeight)
+            : new Size(viewPanel.ActualWidth, viewPanel.ActualHeight);
+
+        ZoomToFitFactor = UseLongImageScrolling
+            ? ImageZoom.ImageFitFactor(
+                viewport,
+                new Size(viewPanelImage.Source.Width, viewPanelImage.Source.Height))
+            : ImageZoom.FitFactor(
+                viewport,
+                new Size(viewPanelImage.Source.Width, viewPanelImage.Source.Height));
     }
 
     public void ResetZoom()
@@ -804,8 +859,14 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         if (ShowZoomLevelInfo && !isToFit && !suppressEvent)
             ((Storyboard)zoomLevelInfo.FindResource("StoryboardShowZoomLevelInfo")).Begin();
 
+        var sourceSize = new Size(viewPanelImage.Source.Width, viewPanelImage.Source.Height);
+        var longImage = UseLongImageScrolling && ImageZoom.IsLongImage(sourceSize);
         var position = ZoomToFit
-            ? new Point(viewPanelImage.Source.Width / 2, viewPanelImage.Source.Height / 2)
+            ? longImage
+                ? sourceSize.Height > sourceSize.Width
+                    ? new Point(sourceSize.Width / 2, 0)
+                    : new Point(0, sourceSize.Height / 2)
+                : new Point(sourceSize.Width / 2, sourceSize.Height / 2)
             : Mouse.GetPosition(viewPanelImage);
 
         viewPanelImage.LayoutTransform = new ScaleTransform(factor, factor);
@@ -821,6 +882,14 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         viewPanel.ScrollToHorizontalOffset(offset.X);
         viewPanel.ScrollToVerticalOffset(offset.Y);
         UpdateLayout();
+
+        // Fit is also the reset gesture for a long image: always return to its beginning instead
+        // of opening halfway through it because the centre of the source anchored to the pointer.
+        if (ZoomToFit && longImage)
+        {
+            viewPanel.ScrollToHorizontalOffset(0);
+            viewPanel.ScrollToVerticalOffset(0);
+        }
 
         ViewChanged?.Invoke(this, EventArgs.Empty);
 

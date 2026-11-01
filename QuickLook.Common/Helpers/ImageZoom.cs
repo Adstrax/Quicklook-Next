@@ -34,6 +34,12 @@ namespace QuickLook.Common.Helpers;
 /// </summary>
 public static class ImageZoom
 {
+    /// <summary>
+    /// Images at or beyond this long-to-short edge ratio open in a scrolling view. Fitting both
+    /// axes would otherwise make a long screenshot or document capture only a few pixels wide.
+    /// </summary>
+    public const double LongImageAspectRatio = 3d;
+
     /// <summary>One wheel notch changes the factor by this ratio.</summary>
     public const double StepRatio = 1.1d;
 
@@ -60,6 +66,70 @@ public static class ImageZoom
         }
 
         return Math.Min(viewport.Width / content.Width, viewport.Height / content.Height);
+    }
+
+    /// <summary>
+    /// Whether an image is long enough that preserving its complete shape would make it
+    /// impractically small. The threshold deliberately leaves ordinary panoramas and document
+    /// pages on the existing contain-to-fit path.
+    /// </summary>
+    public static bool IsLongImage(Size content, double minimumAspectRatio = LongImageAspectRatio)
+    {
+        if (content.IsEmpty || content.Width <= 0 || content.Height <= 0 ||
+            minimumAspectRatio <= 0 || double.IsNaN(minimumAspectRatio) ||
+            double.IsInfinity(minimumAspectRatio))
+        {
+            return false;
+        }
+
+        var ratio = Math.Max(content.Width, content.Height) / Math.Min(content.Width, content.Height);
+        return ratio >= minimumAspectRatio;
+    }
+
+    /// <summary>
+    /// The image viewer's fit factor. Ordinary images still contain both axes. A long image
+    /// instead fits its short axis, leaving the long axis scrollable at a readable scale.
+    /// </summary>
+    public static double ImageFitFactor(Size viewport, Size content)
+    {
+        if (!IsLongImage(content))
+            return FitFactor(viewport, content);
+
+        if (viewport.IsEmpty ||
+            viewport.Width <= 0 || viewport.Height <= 0 ||
+            content.Width <= 0 || content.Height <= 0)
+        {
+            return 1d;
+        }
+
+        return content.Height > content.Width
+            ? viewport.Width / content.Width
+            : viewport.Height / content.Height;
+    }
+
+    /// <summary>
+    /// The initial decode size for an image preview. A long image must not be decoded into the
+    /// short, fully fitted window: that compresses the long axis before the scrolling view gets
+    /// its first frame. Keep the short side at its requested device resolution and let the long
+    /// side retain the file's aspect ratio; <paramref name="realSize"/> remains the ceiling.
+    /// </summary>
+    public static Size InitialImageDecodeSize(Size preferredDisplaySize, Size realSize,
+        double pixelsPerDipX, double pixelsPerDipY)
+    {
+        var requested = ToDevicePixels(preferredDisplaySize, pixelsPerDipX, pixelsPerDipY);
+        if (!IsLongImage(realSize) || requested.IsEmpty)
+            return requested;
+
+        var vertical = realSize.Height > realSize.Width;
+        var requestedShortEdge = vertical ? requested.Width : requested.Height;
+        var realShortEdge = vertical ? realSize.Width : realSize.Height;
+        if (requestedShortEdge <= 0 || realShortEdge <= 0)
+            return requested;
+
+        var scale = Math.Min(1d, requestedShortEdge / realShortEdge);
+        return new Size(
+            Math.Max(1d, Math.Ceiling(realSize.Width * scale)),
+            Math.Max(1d, Math.Ceiling(realSize.Height * scale)));
     }
 
     /// <summary>

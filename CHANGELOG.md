@@ -7,6 +7,31 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.6
+
+### Readable scrolling previews for ultra-long images
+
+6.7.6 fixes very tall and very wide images being reduced to an unreadably small
+size in order to fit both axes inside the preview window.
+
+- **Long images fit their short edge.** Images with a long-to-short ratio of at
+  least 3:1 now preserve a readable width or height and make the long edge
+  scrollable. Ordinary images keep the existing contain-to-fit behaviour.
+- **The preview opens at a useful size.** A vertical long image keeps its
+  natural short-side width and uses up to 80% of the work-area height; a
+  horizontal long image does the opposite.
+- **The first frame keeps the original aspect ratio.** Initial decoding no
+  longer compresses the long edge into the smaller preview window, avoiding a
+  soft first frame followed by a sharper reload.
+- **Scrolling follows the image direction.** The wheel scrolls vertically for
+  tall images and horizontally for wide images; Ctrl+wheel continues to zoom.
+- **Long images open at their beginning.** Fit-to-window returns tall images to
+  the top and wide images to the left instead of anchoring their centre.
+- **Other previews are unchanged.** PDF pages and ordinary image previews keep
+  their previous fit calculations.
+- **Release quality.** 381 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.5
 
 ### Configurable preview warm-up and event-driven low-memory windows

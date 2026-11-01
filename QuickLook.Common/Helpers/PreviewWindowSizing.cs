@@ -94,6 +94,33 @@ public static class PreviewWindowSizing
     }
 
     /// <summary>
+    /// Sizes a long image preview without shrinking its long edge onto the screen. A vertical
+    /// long image keeps its natural short-side width and takes up to <paramref name="maxRatio"/>
+    /// of the desktop height; a horizontal one does the opposite. The overflow is intentionally
+    /// available to the image panel's scroll viewer.
+    /// </summary>
+    public static Size FitLongImageWithin(Size content, Size desktop, double maxRatio)
+    {
+        if (!ImageZoom.IsLongImage(content))
+            return FitWithin(content, desktop, maxRatio);
+
+        if (double.IsNaN(maxRatio) || maxRatio > 1d || maxRatio <= 0d)
+            maxRatio = 1d;
+
+        if (!IsUsable(desktop.Width) || !IsUsable(desktop.Height))
+            return content;
+
+        var availableWidth = desktop.Width * maxRatio;
+        var availableHeight = desktop.Height * maxRatio;
+        if (!IsUsable(availableWidth) || !IsUsable(availableHeight))
+            return content;
+
+        return content.Height > content.Width
+            ? new Size(Math.Min(content.Width, availableWidth), availableHeight)
+            : new Size(availableWidth, Math.Min(content.Height, availableHeight));
+    }
+
+    /// <summary>
     /// Shrinks <paramref name="size"/> so that it fits onto
     /// <paramref name="desktop"/>. This is the last guard before the window is
     /// placed: whatever a plugin asked for - or whatever the window kept from

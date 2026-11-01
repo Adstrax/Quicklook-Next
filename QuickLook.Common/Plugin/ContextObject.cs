@@ -295,14 +295,40 @@ public class ContextObject : INotifyPropertyChanged
         // again when the window lands on another screen (see RefitToHostDesktop).
         _fitContent = size;
         _fitRatio = maxRatio;
+        _fitMode = PreferredSizeFitMode.Contain;
 
         PreferredSize = new Size { Width = size.Width * ratio, Height = size.Height * ratio };
 
         return ratio;
     }
 
+    /// <summary>
+    /// Sizes an image whose long axis should remain scrollable. The normal fit helper keeps
+    /// shrinking both axes until the entire image fits; for a long screenshot or document that
+    /// makes the image unreadably narrow.
+    /// </summary>
+    public void SetPreferredLongImageSizeFit(Size size, double maxRatio)
+    {
+        var desktop = HostDesktopSize;
+        if (desktop.Width <= 0d || desktop.Height <= 0d)
+            desktop = WindowHelper.GetCurrentDesktopSize();
+
+        _fitContent = size;
+        _fitRatio = maxRatio;
+        _fitMode = PreferredSizeFitMode.LongImage;
+        PreferredSize = PreviewWindowSizing.FitLongImageWithin(size, desktop, maxRatio);
+    }
+
     private Size _fitContent;
     private double _fitRatio;
+    private PreferredSizeFitMode _fitMode;
+
+    private enum PreferredSizeFitMode
+    {
+        None,
+        Contain,
+        LongImage,
+    }
 
     /// <summary>
     /// v5.2.0: re-runs the last <see cref="SetPreferredSizeFit"/> against the current
@@ -321,7 +347,10 @@ public class ContextObject : INotifyPropertyChanged
             return false;
 
         var before = PreferredSize;
-        SetPreferredSizeFit(_fitContent, _fitRatio);
+        if (_fitMode == PreferredSizeFitMode.LongImage)
+            SetPreferredLongImageSizeFit(_fitContent, _fitRatio);
+        else
+            SetPreferredSizeFit(_fitContent, _fitRatio);
 
         return PreferredSize != before;
     }
@@ -366,6 +395,7 @@ public class ContextObject : INotifyPropertyChanged
         // v5.2.0: the next preview asks for its own size - never re-fit the previous plugin's.
         _fitContent = new Size();
         _fitRatio = 0d;
+        _fitMode = PreferredSizeFitMode.None;
         CanResize = true;
         FullWindowDragging = false;
 
