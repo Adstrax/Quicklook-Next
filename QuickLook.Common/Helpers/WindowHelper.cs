@@ -34,6 +34,26 @@ public static class WindowHelper
         WcaAccentPolicy = 19,
     }
 
+    // Some features need a real HWND without showing UI to the user - the warm
+    // WebView2 controls live in such a window. Mark those hosts explicitly so
+    // lifecycle code can distinguish them from a real dialog or tool window.
+    private static readonly DependencyProperty IsInternalHostProperty =
+        DependencyProperty.RegisterAttached(
+            "IsInternalHost",
+            typeof(bool),
+            typeof(WindowHelper),
+            new FrameworkPropertyMetadata(false));
+
+    public static void SetIsInternalHost(Window window, bool value)
+    {
+        window.SetValue(IsInternalHostProperty, value);
+    }
+
+    public static bool GetIsInternalHost(Window window)
+    {
+        return (bool)window.GetValue(IsInternalHostProperty);
+    }
+
     public static Size GetCurrentDesktopSize()
     {
         var scale = DisplayDeviceHelper.GetCurrentScaleFactor();

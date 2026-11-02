@@ -743,9 +743,9 @@ private void InitNewViewerWindow()
 
     /// <summary>
     /// v5.6.3: a restart is silent and quick, but it must never interrupt something the
-    /// user is looking at. The parked preview window is ours and is ignored; anything
-    /// else on screen (tray menu, plugin manager, a dialog, the update progress panel)
-    /// means "not now".
+    /// user is looking at. The parked preview window and explicitly marked internal
+    /// hosts are ours and are ignored; anything else on screen (tray menu, plugin
+    /// manager, a dialog, the update progress panel) means "not now".
     /// </summary>
     private static bool CanReleaseByRestarting(out string blockerSummary)
     {
@@ -758,7 +758,10 @@ private void InitNewViewerWindow()
 
         blockerSummary = string.Join(", ", application.Windows
             .Cast<System.Windows.Window>()
-            .Where(window => window is not ViewerWindow && window.IsVisible)
+            .Where(window =>
+                window is not ViewerWindow &&
+                window.IsVisible &&
+                !WindowHelper.GetIsInternalHost(window))
             .Select(window =>
                 $"{window.GetType().Name}(title='{window.Title}', state={window.WindowState})"));
 

@@ -7,6 +7,26 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.7
+
+### Low-memory release no longer waits on an invisible WebView2 host
+
+6.7.7 fixes low-memory mode reaching its idle deadline while continuing to hold
+the warm preview footprint indefinitely.
+
+- **The invisible host is no longer treated as a user window.** A warm WebView2
+  control is intentionally kept inside an off-screen WPF host with a valid
+  window handle. Windows reports that host as visible, but it has no user-facing
+  UI and no longer blocks the low-memory restart.
+- **Real windows still protect the restart.** Settings, plugin management,
+  update dialogs, tray menus and every other ordinary visible window continue
+  to delay the restart until they close.
+- **The release is observable in diagnostics.** A successful idle release now
+  reaches `restarting to release the preview footprint` instead of repeatedly
+  reporting an untitled window as the blocker.
+- **Release quality.** 383 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.6
 
 ### Readable scrolling previews for ultra-long images

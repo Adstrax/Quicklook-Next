@@ -341,6 +341,7 @@ public static class WebView2ControlPool
             Top = -32000,
         };
 
+        WindowHelper.SetIsInternalHost(_parkingWindow, true);
         _parkingWindow.Show();
 
         return _parkingGrid;
