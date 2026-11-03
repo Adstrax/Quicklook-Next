@@ -7,6 +7,32 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.8
+
+### Built-in User Guide with remembered reading state
+
+6.7.8 adds a complete in-app guide and makes it behave like a long-lived
+reference surface instead of a one-session help window.
+
+- **The guide is available from the tray menu.** The new User Guide entry sits
+  directly below Clean cache and opens without leaving the app.
+- **The guide can be searched.** A left-hand section index and search field jump
+  between quick start, controls, supported previews, settings, performance,
+  plugins, updates, shortcuts, troubleshooting and feedback.
+- **English and Simplified Chinese are included.** The guide follows the
+  selected UI language and can also be switched manually from its header.
+- **The guide remembers where you were.** The last section, window width and
+  window height are restored the next time it opens.
+- **WCA Acrylic matches the tray menu.** The guide now uses the same 30% WCA
+  recipe, without the native resize frame that previously covered the material
+  and made the window look like two surfaces.
+- **Borderless resizing remains available.** Transparent edge and corner hit
+  targets resize the window while preserving the WCA surface.
+- **No network or WebView2 overhead.** Guide copy is embedded in the app and
+  opening it starts no background request.
+- **Release quality.** 383 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.7
 
 ### Low-memory release no longer waits on an invisible WebView2 host

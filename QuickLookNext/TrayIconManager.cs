@@ -279,6 +279,12 @@ internal partial class TrayIconManager : IDisposable
                 Icon = FontSymbols.Broom,
                 Command = () => DataCacheWindow.ShowWindow(),
             },
+            new TrayMenuEntry
+            {
+                Header = TranslationHelper.Get("Icon_UserGuide", failsafe: "User Guide..."),
+                Icon = FontSymbols.Help,
+                Command = UserGuideWindow.ShowWindow,
+            },
             TrayMenuEntry.Separator,
             new TrayMenuEntry
             {
