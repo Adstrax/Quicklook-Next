@@ -7,6 +7,28 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.7.9
+
+### Markdown material, tables and formula rendering
+
+6.7.9 finishes the Markdown preview pass by making its layout materials match
+the application window and by fixing inline LaTeX formulas.
+
+- **The Markdown table of contents is genuinely transparent.** It now exposes
+  the window's WCA material instead of painting a second opaque panel.
+- **Tables use the same material language.** Row backgrounds are alpha tints
+  rather than solid black or white blocks.
+- **Wide tables scroll independently.** Their columns keep their natural width
+  without stretching or clipping the reading column.
+- **Inline LaTeX delimiters survive Markdown parsing.** Formulas such as
+  `\(3\times10^8\)` now render as multiplication and superscripts instead of
+  leaking their source text.
+- **Mermaid uses its current asynchronous renderer.** Diagram source is safely
+  preserved, dark/light changes re-render the diagrams, and a failed diagram
+  shows readable source instead of an empty block.
+- **Release quality.** 383 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.8
 
 ### Built-in User Guide with remembered reading state

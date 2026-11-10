@@ -84,7 +84,12 @@
         max-width: 80%;
 
         height: 100vh;
-        background: var(--bgColor-muted);
+        /* Keep the WebView transparent here so the host window's WCA material
+           remains visible. A second translucent fill looks close in a static
+           screenshot but becomes a visibly different panel over light/dark
+           wallpapers and when the window loses focus. */
+        background: transparent;
+        border-right: 1px solid var(--borderColor-muted);
 
         overflow-y: var(--toc-overflow-y, auto);
         overflow-x: hidden;
@@ -175,6 +180,8 @@
       html[dir="rtl"] #toc {
         right: 0;
         left: auto;
+        border-right: 0;
+        border-left: 1px solid var(--borderColor-muted);
       }
 
       html[dir="rtl"] .table-of-contents a {
@@ -200,6 +207,7 @@
         display: flex;
         justify-content: center;
         margin: 1em 0;
+        overflow-x: auto;
       }
 
       .mermaid svg {
@@ -221,6 +229,58 @@
         border: 1px solid var(--borderColor-default);
         color: var(--fgColor-default);
       }
+
+      .mermaid-error {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--borderColor-danger-emphasis);
+        border-radius: 6px;
+        background: var(--bgColor-neutral-muted);
+      }
+
+      .mermaid-error-title {
+        margin: 0 0 0.5rem;
+        color: var(--fgColor-danger);
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+
+      .mermaid-error pre {
+        margin: 0;
+        background: transparent;
+        border: 0;
+      }
+
+      /* Tables live inside their own scroll viewport. Keeping the table itself
+         at its natural width preserves aligned columns without letting a wide
+         table stretch or clip the Markdown page. */
+      .markdown-table-scroll {
+        width: 100%;
+        margin: 1em 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+
+      .markdown-body .markdown-table-scroll table {
+        display: table;
+        width: max-content;
+        min-width: 100%;
+        max-width: none;
+        margin: 0;
+        overflow: visible;
+      }
+
+      /* GitHub's stylesheet gives every table row an opaque theme background.
+         Use only an alpha-tinted neutral so the host WCA material remains
+         visible through the table, including while the window is inactive. */
+      .markdown-body table tr {
+        background-color: transparent;
+      }
+
+      .markdown-body table thead tr,
+      .markdown-body table tr:nth-child(2n) {
+        background-color: var(--bgColor-neutral-muted);
+      }
     </style>
 
     <textarea id="text-input" style="display: none">{{content}}</textarea>
@@ -234,11 +294,41 @@
       // v3.5.0: mermaid (2.9 MB) and MathJax (2.1 MB) are only loaded when the
       // document actually needs them. Plain markdown previews skip ~5 MB of
       // JavaScript parsing entirely.
-      function loadScript(src, onLoad) {
+      function loadScript(src, onLoad, onError) {
         var s = document.createElement("script");
         s.src = src;
         if (onLoad) s.onload = onLoad;
+        if (onError) s.onerror = onError;
         document.head.appendChild(s);
+      }
+
+      function preserveLatexMathDelimiters(mdInstance) {
+        mdInstance.inline.ruler.before(
+          "escape",
+          "latex_math",
+          function (state, silent) {
+            const start = state.pos;
+            let closing;
+
+            if (state.src.startsWith("\\(", start)) closing = "\\)";
+            else if (state.src.startsWith("\\[", start)) closing = "\\]";
+            else return false;
+
+            const end = state.src.indexOf(closing, start + 2);
+            if (end < 0) return false;
+
+            if (!silent) {
+              // Keep the complete source as plain text so Markdown cannot eat
+              // \( \) \[ \], underscores, asterisks or other escaping before
+              // MathJax gets a chance to process it.
+              const token = state.push("text", "", 0);
+              token.content = state.src.slice(start, end + 2);
+            }
+
+            state.pos = end + 2;
+            return true;
+          }
+        );
       }
 
       var md = window
@@ -248,7 +338,10 @@
           quotes: "“”‘’",
           highlight: function (str, lang) {
             if (lang === 'mermaid') {
-              return '<div class="mermaid">' + str + '</div>';
+              // Mermaid reads the node's HTML and decodes entities itself.
+              // Escaping here preserves labels containing <, > and & instead
+              // of letting the browser turn them into unexpected markup.
+              return '<div class="mermaid">' + md.utils.escapeHtml(str) + '</div>';
             }
             if (lang && hljs.getLanguage(lang)) {
               try {
@@ -267,6 +360,7 @@
             );
           },
         })
+        .use(preserveLatexMathDelimiters)
         .use(markdownItAnchor, {
           permalink: false,
           slugify: (s) =>
@@ -307,61 +401,104 @@
         processFrontmatter(rawContent)
       );
 
-      // Initialize Mermaid lazily after markdown rendering
-      const mermaidDiagrams = document.querySelectorAll(".mermaid");
-      if (mermaidDiagrams.length > 0) {
-        // Determine theme based on system preference
-        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      // markdown-it emits bare tables. Wrap them so wide tables scroll
+      // independently while narrow tables still fill the reading column.
+      document.querySelectorAll("#preview table").forEach(function (table) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "markdown-table-scroll";
+        table.parentNode.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+      });
 
-        loadScript("js/mermaid.min.js", function () {
-          if (!window.mermaid) return;
+      // Initialize Mermaid lazily after markdown rendering
+      const mermaidDiagrams = Array.from(document.querySelectorAll(".mermaid"));
+      if (mermaidDiagrams.length > 0) {
+        const darkModeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+
+        // Preserve the original source so a diagram can be reset and rendered
+        // again when the app theme changes.
+        mermaidDiagrams.forEach(function (node) {
+          node.dataset.mermaidSource = node.textContent;
+        });
+
+        function configureMermaid(isDarkMode) {
           mermaid.initialize({
             startOnLoad: false,
             theme: isDarkMode ? 'dark' : 'default',
-            securityLevel: 'loose', // Allow HTML in diagrams for enhanced features
+            securityLevel: 'loose',
+            suppressErrorRendering: true,
             fontFamily: 'Segoe UI, Helvetica, Arial, sans-serif',
-            themeVariables: {
-              primaryColor: isDarkMode ? '#58a6ff' : '#0969da',
-              primaryTextColor: isDarkMode ? '#f0f6fc' : '#24292f',
-              primaryBorderColor: isDarkMode ? '#30363d' : '#d0d7de',
-              lineColor: isDarkMode ? '#484f58' : '#656d76',
-              sectionBkgColor: isDarkMode ? '#21262d' : '#f6f8fa',
-              altSectionBkgColor: isDarkMode ? '#161b22' : '#ffffff',
-              gridColor: isDarkMode ? '#21262d' : '#f6f8fa',
-              cScale0: isDarkMode ? '#58a6ff' : '#0969da',
-              cScale1: isDarkMode ? '#a5f3fc' : '#54aeff',
-              cScale2: isDarkMode ? '#ff7b72' : '#d1242f'
+          });
+        }
+
+        function resetDiagramNode(node) {
+          node.removeAttribute("data-processed");
+          node.classList.remove("mermaid--failed");
+          node.textContent = node.dataset.mermaidSource || "";
+        }
+
+        function renderDiagramFallback(node, error) {
+          const message = error && error.message ? error.message : "Unknown Mermaid error";
+          node.classList.add("mermaid--failed");
+          node.removeAttribute("data-processed");
+          node.textContent = "";
+
+          const panel = document.createElement("div");
+          panel.className = "mermaid-error";
+
+          const title = document.createElement("p");
+          title.className = "mermaid-error-title";
+          title.textContent = "Mermaid diagram could not be rendered. The source is shown below.";
+
+          const pre = document.createElement("pre");
+          const code = document.createElement("code");
+          code.textContent = node.dataset.mermaidSource || "";
+          pre.appendChild(code);
+
+          panel.appendChild(title);
+          panel.appendChild(pre);
+          panel.title = message;
+          node.appendChild(panel);
+        }
+
+        async function renderMermaidDiagrams() {
+          configureMermaid(darkModeMedia.matches);
+          mermaidDiagrams.forEach(resetDiagramNode);
+
+          try {
+            // Mermaid 11 renders asynchronously. Always inspect the result:
+            // run() can finish with a partially failed diagram collection.
+            await mermaid.run({
+              nodes: mermaidDiagrams,
+              suppressErrors: true
+            });
+          } catch (error) {
+            console.warn("Mermaid rendering error:", error);
+          }
+
+          mermaidDiagrams.forEach(function (node) {
+            if (!node.querySelector("svg") || node.querySelector(".error-icon")) {
+              renderDiagramFallback(node, null);
             }
           });
+        }
 
-          // Render Mermaid diagrams with error handling
-          try {
-            mermaid.init(undefined, mermaidDiagrams);
-          } catch (error) {
-            console.warn('Mermaid rendering error:', error);
+        loadScript("js/mermaid.min.js", function () {
+          if (!window.mermaid) {
+            mermaidDiagrams.forEach(function (node) {
+              renderDiagramFallback(node, new Error("Mermaid library did not initialize."));
+            });
+            return;
           }
+          renderMermaidDiagrams();
+        }, function () {
+          mermaidDiagrams.forEach(function (node) {
+            renderDiagramFallback(node, new Error("Mermaid library could not be loaded."));
+          });
         });
 
-        // Listen for theme changes and re-render diagrams
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-          if (window.mermaid) {
-            const newTheme = e.matches ? 'dark' : 'default';
-            mermaid.initialize({
-              startOnLoad: false,
-              theme: newTheme,
-              securityLevel: 'loose',
-              fontFamily: 'Segoe UI, Helvetica, Arial, sans-serif'
-            });
-            
-            // Re-render all Mermaid diagrams
-            setTimeout(function () {
-              try {
-                mermaid.init(undefined, mermaidDiagrams);
-              } catch (error) {
-                console.warn('Mermaid re-rendering error:', error);
-              }
-            }, 100);
-          }
+        darkModeMedia.addEventListener("change", function () {
+          if (window.mermaid) renderMermaidDiagrams();
         });
       }
 
