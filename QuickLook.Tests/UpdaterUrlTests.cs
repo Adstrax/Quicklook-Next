@@ -36,6 +36,9 @@ internal class UpdaterUrlTests
         Assert.True(Updater.IsTrustedDownloadUrl(
             "https://api.github.com/repos/Adstrax/QuickLook-Next/releases/latest"),
             "release api");
+        Assert.True(Updater.IsTrustedDownloadUrl(
+            "https://api.github.com/repos/Adstrax/QuickLook-Next/releases?per_page=30"),
+            "release list api");
     }
 
     public void ForeignHostsAreRejected()

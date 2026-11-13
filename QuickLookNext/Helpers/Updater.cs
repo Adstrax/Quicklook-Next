@@ -19,10 +19,12 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using QuickLook.Common.Helpers;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -50,12 +52,35 @@ internal class Updater
     /// <summary>v3.43.0: download progress, in bytes.</summary>
     internal readonly record struct DownloadProgress(long Received, long? Total);
 
+    internal readonly record struct ReleaseCandidate(
+        string Tag,
+        bool Draft,
+        DateTimeOffset? PublishedAt);
+
     // v3.31.0: refuse obviously oversized packages before writing them to disk.
     private const long MaxPackageBytes = 400L * 1024 * 1024;
 
     // v3.35.0: the version the user chose to skip ("Ignore update"/Update_Ignored). Background checks
     // stay quiet for it; a manual check clears it so the user can change their mind.
     private const string IgnoredVersionSetting = "IgnoredUpdateVersion";
+
+    private const string StableReleaseUrl =
+        "https://api.github.com/repos/Adstrax/QuickLook-Next/releases/latest";
+
+    private const string ReleasesUrl =
+        "https://api.github.com/repos/Adstrax/QuickLook-Next/releases?per_page=30";
+
+    private const string IncludeBetaUpdatesSetting = "IncludeBetaUpdates";
+
+    /// <summary>
+    /// Stable updates are the default. When enabled, background and manual checks
+    /// may pick the newest published prerelease that is newer than this build.
+    /// </summary>
+    internal static bool IncludeBetaUpdates
+    {
+        get => SettingHelper.Get(IncludeBetaUpdatesSetting, false, "QuickLookNext");
+        set => SettingHelper.Set(IncludeBetaUpdatesSetting, value, "QuickLookNext");
+    }
 
     // v3.31.0: the release package is only ever downloaded from GitHub. Without
     // this check a malformed API response (or a proxy rewriting it) could point
@@ -119,7 +144,9 @@ internal class Updater
         {
             try
             {
-                var json = DownloadJson("https://api.github.com/repos/Adstrax/QuickLook-Next/releases/latest");
+                var json = IncludeBetaUpdates
+                    ? SelectNewestRelease(DownloadJsonArray(ReleasesUrl), GetCurrentVersionText())
+                    : DownloadJson(StableReleaseUrl);
 
                 // v3.31.0: the "last checked" stamp is written only once the API
                 // call succeeded. Previously it was written before the check, so
@@ -127,17 +154,14 @@ internal class Updater
                 // checks for the next 30 days.
                 SettingHelper.Set("LastUpdateTicks", DateTime.Now.Ticks);
 
-                var nVersion = (string)json["tag_name"] ?? string.Empty;
+                var nVersion = (string)json?["tag_name"] ?? string.Empty;
 
                 // v3.29.0: tolerate a "v" prefix on release tags (GitHub
                 // conventions vary) and never let a malformed tag crash the
                 // update check - treat it as "no newer version".
-                var cleanVersion = nVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase)
-                    ? nVersion[1..]
-                    : nVersion;
-
-                if (!Version.TryParse(cleanVersion, out var latestVersion) ||
-                    latestVersion <= Assembly.GetExecutingAssembly().GetName().Version)
+                if (!ReleaseVersion.TryParse(nVersion, out var latestVersion) ||
+                    !ReleaseVersion.TryParse(GetCurrentVersionText(), out var currentVersion) ||
+                    latestVersion.CompareTo(currentVersion) <= 0)
                 {
                     if (!silent)
                     {
@@ -199,9 +223,16 @@ internal class Updater
     /// </summary>
     private static void AskAndUpdate(JObject release, string version)
     {
-        if (UpdateDialog.Ask(UpdateReleaseInfo.FromRelease(release, version)))
+        var action = UpdateDialog.Ask(UpdateReleaseInfo.FromRelease(release, version));
+        if (action == UpdateDialogAction.UpdateNow)
         {
             _ = Task.Run(() => RunUpdate(release, version));
+            return;
+        }
+
+        if (action == UpdateDialogAction.RefreshRequested)
+        {
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => CheckForUpdates()));
             return;
         }
 
@@ -812,5 +843,84 @@ internal class Updater
         // and it threw "Cannot implicitly convert type 'void' to 'object'" at run
         // time, so every update check failed before it even looked at the release.
         return JObject.Parse(json);
+    }
+
+    private static JArray DownloadJsonArray(string url)
+    {
+        var json = Http.GetStringAsync(url).GetAwaiter().GetResult();
+        var token = JToken.Parse(json);
+        return token as JArray
+            ?? throw new InvalidDataException("GitHub releases response is not an array");
+    }
+
+    /// <summary>
+    /// Selects the highest published release that is newer than the running
+    /// build. Draft releases are never eligible, and stable releases win over a
+    /// prerelease with the same core version.
+    /// </summary>
+    internal static JObject SelectNewestRelease(JArray releases, string currentVersion)
+    {
+        if (releases is null)
+            return null;
+
+        var candidates = releases.OfType<JObject>().Select(release => new ReleaseCandidate(
+            (string)release["tag_name"],
+            (bool?)release["draft"] == true,
+            ParsePublishedAt(release)));
+        var selectedTag = SelectNewestReleaseTag(candidates, currentVersion);
+        return string.IsNullOrEmpty(selectedTag)
+            ? null
+            : releases.OfType<JObject>().FirstOrDefault(release =>
+                string.Equals((string)release["tag_name"], selectedTag, StringComparison.Ordinal));
+    }
+
+    internal static string SelectNewestReleaseTag(
+        IEnumerable<ReleaseCandidate> releases,
+        string currentVersion)
+    {
+        if (releases is null || !ReleaseVersion.TryParse(currentVersion, out var current))
+            return null;
+
+        string selected = null;
+        ReleaseVersion selectedVersion = null;
+        DateTimeOffset? selectedPublished = null;
+
+        foreach (var release in releases)
+        {
+            if (release.Draft)
+                continue;
+
+            if (!ReleaseVersion.TryParse(release.Tag, out var version) ||
+                version.CompareTo(current) <= 0)
+                continue;
+
+            var comparison = selectedVersion is null ? 1 : version.CompareTo(selectedVersion);
+            if (comparison > 0 ||
+                comparison == 0 && release.PublishedAt > selectedPublished)
+            {
+                selected = release.Tag;
+                selectedVersion = version;
+                selectedPublished = release.PublishedAt;
+            }
+        }
+
+        return selected;
+    }
+
+    internal static string GetCurrentVersionText()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var informational = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+        return string.IsNullOrWhiteSpace(informational)
+            ? assembly.GetName().Version?.ToString() ?? "0.0.0"
+            : informational;
+    }
+
+    private static DateTimeOffset? ParsePublishedAt(JObject release)
+    {
+        var value = (string)release["published_at"] ?? (string)release["created_at"];
+        return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
     }
 }

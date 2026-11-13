@@ -51,12 +51,8 @@ internal sealed record UpdateReleaseInfo(
         string fallbackVersion = null)
     {
         version = string.IsNullOrWhiteSpace(version) ? fallbackVersion ?? "?" : version.Trim();
-        if (version.Length > 1 &&
-            version[0] is 'v' or 'V' &&
-            System.Version.TryParse(version[1..], out _))
-        {
-            version = version[1..];
-        }
+        if (ReleaseVersion.TryParse(version, out var parsedVersion))
+            version = parsedVersion.DisplayVersion;
 
         title = string.IsNullOrWhiteSpace(title) ? $"QuickLook-Next {version}" : title.Trim();
         notes ??= string.Empty;

@@ -20,7 +20,6 @@ using QuickLookNext.Helpers;
 using System;
 using System.Diagnostics;
 using System.Globalization;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -48,7 +47,7 @@ internal sealed class UpdateDialog : Window
     private readonly bool _isDark;
     private readonly UpdateReleaseInfo _release;
     private bool _accentApplied;
-    private bool _updateNow;
+    private UpdateDialogAction _action;
 
     private UpdateDialog(UpdateReleaseInfo release)
     {
@@ -98,7 +97,7 @@ internal sealed class UpdateDialog : Window
             }
             else if (e.Key == Key.Enter)
             {
-                _updateNow = true;
+                _action = UpdateDialogAction.UpdateNow;
                 Close();
             }
         };
@@ -119,13 +118,13 @@ internal sealed class UpdateDialog : Window
         ApplyBackdrop();
     }
 
-    /// <summary>Must be called on the UI thread. Returns true to update now.</summary>
-    internal static bool Ask(UpdateReleaseInfo release)
+    /// <summary>Must be called on the UI thread; returns the user's choice.</summary>
+    internal static UpdateDialogAction Ask(UpdateReleaseInfo release)
     {
         var dialog = new UpdateDialog(release);
         dialog.RunSmokeTestHook();
         dialog.ShowDialog();
-        return dialog._updateNow;
+        return dialog._action;
     }
 
     /// <summary>
@@ -223,7 +222,10 @@ internal sealed class UpdateDialog : Window
             TextWrapping = TextWrapping.Wrap,
         };
 
-        var currentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?";
+        var currentVersion = Updater.GetCurrentVersionText();
+        if (ReleaseVersion.TryParse(currentVersion, out var parsedCurrentVersion))
+            currentVersion = parsedCurrentVersion.DisplayVersion;
+
         var currentText = string.Format(
             TranslationHelper.Get("Update_CurrentVersion", failsafe: "Current version {0}"),
             currentVersion);
@@ -252,11 +254,48 @@ internal sealed class UpdateDialog : Window
             Margin = new Thickness(0, 8, 0, 10),
         };
 
+        var betaOption = new CheckBox
+        {
+            Content = TranslationHelper.Get(
+                "Update_IncludeBeta",
+                failsafe: "Receive Beta preview updates"),
+            IsChecked = Updater.IncludeBetaUpdates,
+            Foreground = ThemePalette.Text(_isDark),
+            Cursor = Cursors.Hand,
+            Margin = new Thickness(0, 0, 0, 5),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            betaOption,
+            betaOption.Content?.ToString());
+
+        var betaHint = new TextBlock
+        {
+            Text = TranslationHelper.Get(
+                "Update_BetaHint",
+                failsafe: "Beta builds may be less stable. You can switch back to stable updates at any time."),
+            Foreground = ThemePalette.SecondaryText(_isDark),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(20, 0, 0, 0),
+            Visibility = betaOption.IsChecked == true ? Visibility.Visible : Visibility.Collapsed,
+        };
+        betaOption.Click += (_, _) =>
+        {
+            var includeBeta = betaOption.IsChecked == true;
+            if (Updater.IncludeBetaUpdates == includeBeta)
+                return;
+
+            Updater.IncludeBetaUpdates = includeBeta;
+            _action = UpdateDialogAction.RefreshRequested;
+            Close();
+        };
+
         var update = CreateButton(TranslationHelper.Get("Update_Now", failsafe: "Update now"), primary: true, subtle: false);
         update.IsDefault = true;
         update.Click += (_, _) =>
         {
-            _updateNow = true;
+            _action = UpdateDialogAction.UpdateNow;
             Close();
         };
 
@@ -332,6 +371,8 @@ internal sealed class UpdateDialog : Window
         info.Children.Add(headline);
         info.Children.Add(current);
         info.Children.Add(body);
+        info.Children.Add(betaOption);
+        info.Children.Add(betaHint);
 
         var notesHeader = new Grid();
         notesHeader.ColumnDefinitions.Add(new ColumnDefinition());
@@ -452,4 +493,11 @@ internal sealed class UpdateDialog : Window
             // No default browser; ignore.
         }
     }
+}
+
+internal enum UpdateDialogAction
+{
+    Dismissed,
+    UpdateNow,
+    RefreshRequested,
 }
