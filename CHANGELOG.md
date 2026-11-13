@@ -7,6 +7,107 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 7.0.0-beta.1
+
+### .NET 11 runtime migration
+
+7.0.0-beta.1 moves the complete application and plugin set to .NET 11. The
+proven 6.8.0 preview rendering, application layout and settings behaviour stay
+in place, with targeted archive-preview compatibility fixes for this beta.
+
+- **All 30 projects now target .NET 11.** The app, shared host, tests and every
+  built-in plugin use `net11.0-windows`; runtime configuration requests .NET 11
+  Windows Desktop rather than mixing runtime versions.
+- **The installer checks the prerequisite before replacing files.** Setup reads
+  the registered x64 Windows Desktop Runtime list and aborts cleanly if the
+  .NET 11 runtime is absent, which also prevents an automatic update from
+  leaving a non-starting installation behind.
+- **Builds are reproducible.** `global.json` pins the .NET 11.0.100 feature band,
+  and both GitHub Actions workflows use the .NET 11 SDK.
+- **Existing configuration and plugins remain compatible.** The plugin contract,
+  settings format, user-data paths and WCA material path are unchanged.
+- **Same-name folders no longer steal archive previews.** When Explorer shows a
+  folder and a ZIP as the same visible name, the item actually under the pointer
+  now wins instead of the accessibility row index, which can be ordered
+  differently from the shell view. Details-row matching now requires a whitespace
+  separator, so a folder name no longer absorbs a later `.zip` extension. If
+  the shell view cannot report both positions, Explorer's matching accessibility
+  item keeps the middle-button preview from falling through to a new tab.
+- **Malformed archive paths no longer abort the complete listing.** Dot
+  segments and mixed separators are normalized, duplicate paths keep the first
+  entry, and blank or invalid entries are skipped.
+- **Unusual entry names can be previewed safely.** Temporary copies use a
+  bounded, Windows-safe filename that preserves the extension, including for
+  long names, trailing dots/spaces and reserved device names.
+- **Archive failures are explained accurately.** Encrypted entries, incomplete
+  or missing-volume archives, damaged/unsupported formats and disappeared
+  entries now have separate localized messages in English, Simplified Chinese
+  and Traditional Chinese.
+- **Very large archive listings keep the UI responsive.** Progress notifications
+  are throttled to at most roughly eight per second instead of one per archive
+  entry and are marshalled to the UI thread, while closing or switching the
+  preview cancels the background scan promptly.
+- **Large archive trees scroll without creating every row.** The folder tree now
+  virtualizes off-screen entries with reusable containers, and its single root
+  is expanded once after layout instead of running work on every layout pass.
+  Sorting, indentation, selection and nested-file preview behaviour are unchanged.
+- **Archive keyboard navigation is predictable.** Tree rows retain native
+  Up/Down and Left/Right navigation, while Home and End move focus to the first
+  or last tree item. Moving through a long directory keeps the active row in view.
+- **Large archives can be searched in place.** A search field filters file names
+  and complete internal paths, keeps the matching folder hierarchy visible and
+  opens those folders automatically. Multiple terms must all match, searching
+  runs in the background after a short pause, and Escape clears the filter and
+  restores the complete tree.
+- **Archive search is reachable and reversible.** The search field now sits below
+  the file tree so the auto-hiding top bar cannot cover it, while the archive
+  name stays visible above the list. The tree and search controls use white
+  text for acrylic contrast, including every file-row label. Ctrl+F focuses the
+  field, Enter opens the first matching file, and clearing search restores the
+  previous expanded folders, selection and scroll position.
+- **Search results are easy to scan and move through.** The search field shows
+  the number of matching files, matched text is highlighted in gold, F3 advances
+  to the next result and Shift+F3 returns to the previous one. The current
+  position is shown as `3 / 12`, every row exposes its complete archive path in
+  a tooltip, and rapid key presses advance without repeating the same result.
+  Compact previous, next and clear buttons make the same navigation available
+  with the mouse and disable themselves when they have no useful action.
+- **Archive PE previews no longer race temporary-file cleanup.** Metadata reads
+  now handle a preview being closed while the background task is still running,
+  so a missing extracted file is ignored instead of surfacing as an unobserved
+  task exception.
+- **The exception-report window now has a safe fallback.** If its own layout
+  fails, the damaged window is closed and a native message box shows the error
+  and log location instead of repeatedly triggering the same failure.
+- **XMind layouts tolerate incomplete column positions.** A missing column for
+  an individual topic no longer aborts layout with `KeyNotFoundException`.
+- **Lazy plugin route coverage is regression-tested.** The snapshot normalizes
+  extension keys and verifies every route points to a known built-in plugin.
+- **Office previews always show the latest selection.** Rapid worksheet and
+  page switches can overlap their background renderers, so only the newest
+  result may replace the page. Superseded results release their picture folder,
+  and a canceled render no longer becomes a UI-thread exception.
+- **Markdown failures recover immediately.** A missing, locked or malformed
+  document now shows a transparent error page that participates in the normal
+  first-frame handoff instead of waiting for the three-second fallback. The
+  original exception and file path are written to the diagnostic log, and a
+  later valid Markdown preview can reuse the same panel normally.
+- **PDF loads stay safe after the preview closes.** A document parsed in the
+  background is now released when its window has already moved to another file,
+  and load errors are observed and logged even if the preview is gone. A
+  dispatcher that has already shut down can no longer leave an unhandled task
+  or an undisposed PDF behind.
+- **Image zoom notifications belong to the current preview.** The delayed
+  zoom-settled callback now uses the panel's own UI timer, so closing or
+  switching an image cancels the pending notification instead of scheduling
+  work against a retired panel.
+- **Video teardown is serialized on the UI thread.** Media and player event
+  handlers are detached before closing, while only the native player disposal
+  runs in the background. This removes the old worker-thread mutation of the
+  visual-tree field and makes rapid switching safer.
+- **Validation:** all 30 projects build in Release with 0 errors, and the
+  437-test harness passes on .NET 11.
+
 ## QuickLook-Next 6.8.0
 
 ### Optional Beta preview update channel

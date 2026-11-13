@@ -1,4 +1,4 @@
-# Builds every QuickLookNext .NET project against .NET 10 (net10.0-windows).
+# Builds every QuickLookNext .NET project against .NET 11 (net11.0-windows).
 # Usage: .\build.ps1
 
 $ErrorActionPreference = 'Stop'

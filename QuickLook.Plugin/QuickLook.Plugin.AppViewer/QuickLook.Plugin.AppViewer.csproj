@@ -8,7 +8,9 @@
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <NoWarn>$(NoWarn);CA1416;SYSLIB0050</NoWarn>
         <OutputType>Library</OutputType>
-        <TargetFramework>net10.0-windows</TargetFramework>
+        <TargetFramework>net11.0-windows</TargetFramework>
+        <!-- Icon intentionally decodes a fresh native Bitmap for the caller to own. -->
+        <NoWarn>$(NoWarn);WFO2000</NoWarn>
         <RootNamespace>QuickLook.Plugin.AppViewer</RootNamespace>
         <AssemblyName>QuickLook.Plugin.AppViewer</AssemblyName>
         <FileAlignment>512</FileAlignment>

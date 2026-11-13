@@ -3,7 +3,7 @@
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <NoWarn>$(NoWarn);CA1416;SYSLIB0050</NoWarn>
         <OutputType>Library</OutputType>
-        <TargetFramework>net10.0-windows</TargetFramework>
+        <TargetFramework>net11.0-windows</TargetFramework>
         <RootNamespace>QuickLook.Common</RootNamespace>
         <AssemblyName>QuickLook.Common</AssemblyName>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

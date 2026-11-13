@@ -116,6 +116,7 @@ public partial class CompoundInfoPanel : UserControl, IDisposable, INotifyProper
                 if (_disposed)
                     return;
 
+                fileListView.SetArchiveName(Path.GetFileName(path));
                 fileListView.SetDataContext(_fileEntries[string.Empty].Children.Keys);
                 archiveCount.Content = $"Compound File{t}";
                 archiveSizeC.Content = string.Empty;

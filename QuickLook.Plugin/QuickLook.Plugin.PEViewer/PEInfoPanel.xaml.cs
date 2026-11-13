@@ -62,8 +62,11 @@ public partial class PEInfoPanel : UserControl
 
         _ = Task.Run(() =>
         {
-            if (File.Exists(path))
+            try
             {
+                if (!File.Exists(path))
+                    return;
+
                 var info = FileVersionInfo.GetVersionInfo(path);
                 var size = new FileInfo(path).Length;
                 var arch = default(string);
@@ -111,6 +114,18 @@ public partial class PEInfoPanel : UserControl
                     productVersion.Text = info.ProductVersion;
                     totalSize.Text = size.ToPrettySize(2);
                 });
+            }
+            catch (FileNotFoundException)
+            {
+                // Archive previews can clean their temporary folder while this
+                // background read is still finishing. Nothing remains to show.
+            }
+            catch (DirectoryNotFoundException)
+            {
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog($"PE information preview failed for \"{path}\": {ex}");
             }
         });
     }

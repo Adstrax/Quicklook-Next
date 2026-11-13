@@ -764,22 +764,12 @@ internal static class QuickLookNext
         var candidates = new List<int>();
         for (var i = 0; i < names.Count; i++)
         {
-            if (MatchItemName(names[i], hitName) is ItemNameMatch.DisplayName or ItemNameMatch.TruncatedLabel)
+            if (MatchItemName(names[i], hitName) != ItemNameMatch.None)
                 candidates.Add(i);
         }
 
         if (candidates.Count < 2)
             return -1;
-
-        // The accessibility tree gives the row directly in Explorer's list/details views, where
-        // GetItemPosition is unavailable. Verify it against the name before trusting the index.
-        if (uiaItemIndex >= 0 && uiaItemIndex < names.Count &&
-            MatchItemName(names[uiaItemIndex], hitName) != ItemNameMatch.None)
-        {
-            report = $"the ambiguous display name was resolved by accessibility item {uiaItemIndex} " +
-                     $"to \"{names[uiaItemIndex]}\"";
-            return uiaItemIndex;
-        }
 
         if (view.GetWindow(out var viewWindow) != S_OK || viewWindow == IntPtr.Zero)
         {
@@ -824,7 +814,16 @@ internal static class QuickLookNext
 
         if (screenPositions.Count < 2)
         {
-            report = "the view did not report the positions of both matching items";
+            var accessibleItem = PickAccessibilityCandidate(names, hitName, uiaItemIndex);
+            if (accessibleItem >= 0)
+            {
+                report = "the view did not report both item positions; the ambiguous display name was " +
+                         $"resolved by accessibility item {accessibleItem} to \"{names[accessibleItem]}\"";
+                return accessibleItem;
+            }
+
+            report = "the view did not report the positions of both matching items, and accessibility " +
+                     $"item {uiaItemIndex} could not identify one";
             return -1;
         }
 
@@ -834,14 +833,53 @@ internal static class QuickLookNext
         var boundsX = hitBounds.IsEmpty ? screenX : hitBounds.X;
         var boundsY = hitBounds.IsEmpty ? screenY : hitBounds.Y;
 
+        var nearest = PickCandidateNearestToPoint(
+            screenPositions, boundsX, boundsY,
+            out var nearestDistance, out var secondDistance);
+        if (nearest >= 0)
+        {
+            report = $"the ambiguous display name was resolved by item position to \"{names[nearest]}\" " +
+                     $"(distance²={nearestDistance}/{secondDistance})";
+            return nearest;
+        }
+
+        // A folder and a ZIP can share the same visible name ("附件1-4" and "附件1-4.zip").
+        // Explorer's accessibility index is useful for details view rows, but it is not
+        // guaranteed to use the same order as IFolderView when icons are sorted or grouped.
+        // The pressed item's screen position above is the stronger identity; only use the
+        // accessibility index when coordinates could not distinguish the candidates.
+        var fallbackItem = PickAccessibilityCandidate(names, hitName, uiaItemIndex);
+        if (fallbackItem >= 0)
+        {
+            report = $"the ambiguous display name was resolved by accessibility item {fallbackItem} " +
+                     $"to \"{names[fallbackItem]}\" after item positions were ambiguous";
+            return fallbackItem;
+        }
+
+        report = "the ambiguous display name matched, but the pressed icon/row was not unambiguous " +
+                 $"(distance²={nearestDistance}/{secondDistance})";
+        return -1;
+    }
+
+    /// <summary>
+    /// Selects the candidate whose shell-view anchor is nearest to the accessibility bounds
+    /// of the item actually pressed. A small unambiguous margin prevents an odd view from
+    /// turning this into another guess.
+    /// </summary>
+    internal static int PickCandidateNearestToPoint(
+        IReadOnlyList<(int Index, int X, int Y)> positions,
+        double pointX, double pointY,
+        out long nearestDistance, out long secondDistance)
+    {
         var nearest = -1;
         var second = -1;
-        var nearestDistance = long.MaxValue;
-        var secondDistance = long.MaxValue;
-        foreach (var position in screenPositions)
+        nearestDistance = long.MaxValue;
+        secondDistance = long.MaxValue;
+
+        foreach (var position in positions)
         {
-            var dx = boundsX - position.X;
-            var dy = boundsY - position.Y;
+            var dx = pointX - position.X;
+            var dy = pointY - position.Y;
             var distance = (long)(dx * dx + dy * dy);
 
             if (distance < nearestDistance)
@@ -858,16 +896,24 @@ internal static class QuickLookNext
             }
         }
 
-        if (nearest >= 0 && second >= 0 && secondDistance - nearestDistance >= 16)
-        {
-            report = $"the ambiguous display name was resolved by item position to \"{names[nearest]}\" " +
-                     $"(distance²={nearestDistance}/{secondDistance})";
-            return nearest;
-        }
+        return nearest >= 0 && second >= 0 && secondDistance - nearestDistance >= 16
+            ? nearest
+            : -1;
+    }
 
-        report = "the ambiguous display name matched, but the pressed icon/row was not unambiguous " +
-                 $"(distance²={nearestDistance}/{secondDistance})";
-        return -1;
+    /// <summary>
+    /// Resolves an ambiguous hit with Explorer's accessibility item index when the shell view cannot
+    /// report enough item positions. The index is accepted only when it names one of the matching items.
+    /// </summary>
+    internal static int PickAccessibilityCandidate(
+        IReadOnlyList<string> names, string hitName, int uiaItemIndex)
+    {
+        if (uiaItemIndex < 0 || uiaItemIndex >= names.Count)
+            return -1;
+
+        return MatchItemName(names[uiaItemIndex], hitName) != ItemNameMatch.None
+            ? uiaItemIndex
+            : -1;
     }
 
     private static bool TryGetItemScreenPosition(IFolderView folderView, int index, IntPtr viewWindow,
@@ -936,7 +982,7 @@ internal static class QuickLookNext
         // display-name match.
         if (hitName.Length > itemName.Length &&
             hitName.StartsWith(itemName, StringComparison.OrdinalIgnoreCase) &&
-            !char.IsLetterOrDigit(hitName[itemName.Length]))
+            char.IsWhiteSpace(hitName[itemName.Length]))
         {
             return ItemNameMatch.RowPrefix;
         }
@@ -968,51 +1014,27 @@ internal static class QuickLookNext
     }
 
     /// <summary>
-    /// The index of the item a reported name belongs to, or -1. A truncated label and a hidden-extension
-    /// display name only count when they match exactly one item: several files can share the visible
-    /// beginning of a long name, and "paper.docx" and "paper.pdf" are both reported as "paper" - in
-    /// either case previewing the wrong one would be worse than doing nothing.
+    /// The index of the item a reported name belongs to, or -1 when the name matches more than one item.
+    /// Explorer can report one visible name for several entries: "paper.docx" and "paper.pdf" are both
+    /// "paper", while a folder "attachments" and "attachments.zip" are both "attachments". Even an exact
+    /// folder name is therefore ambiguous in the second case; the caller resolves it from the pressed
+    /// item's screen position instead of guessing from item order.
     /// </summary>
     internal static int FindItemIndex(IReadOnlyList<string> itemNames, string hitName)
     {
-        var displayName = -1;
-        var displayNameMatches = 0;
-        var rowPrefix = -1;
-        var truncated = -1;
-        var truncatedMatches = 0;
+        var matchedIndex = -1;
+        var matchCount = 0;
 
         for (var i = 0; i < itemNames.Count; i++)
         {
-            switch (MatchItemName(itemNames[i], hitName))
-            {
-                case ItemNameMatch.Exact:
-                    return i;
+            if (MatchItemName(itemNames[i], hitName) == ItemNameMatch.None)
+                continue;
 
-                case ItemNameMatch.DisplayName:
-                    displayNameMatches++;
-                    if (displayName < 0)
-                        displayName = i;
-                    break;
-
-                case ItemNameMatch.RowPrefix when rowPrefix < 0:
-                    rowPrefix = i;
-                    break;
-
-                case ItemNameMatch.TruncatedLabel:
-                    truncatedMatches++;
-                    if (truncated < 0)
-                        truncated = i;
-                    break;
-            }
+            matchedIndex = i;
+            matchCount++;
         }
 
-        if (displayName >= 0 && displayNameMatches == 1)
-            return displayName;
-
-        if (rowPrefix >= 0)
-            return rowPrefix;
-
-        return truncatedMatches == 1 ? truncated : -1;
+        return matchCount == 1 ? matchedIndex : -1;
     }
 
     /// <summary>

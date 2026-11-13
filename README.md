@@ -9,10 +9,10 @@
 > 一句话：Windows 上的空格键文件预览工具，QuickLook 的衍生版，免费开源。
 > 26 个内置插件覆盖图片 / 视频 / PDF / Office / 压缩包 / 字体 / 数据库 / 3D 等；
 > 毛玻璃 + Win11 原生圆角；下载 `QuickLook-Next-Setup.exe` 安装后即可使用，
-> 需先装 .NET 10 桌面运行时。
+> 需先装 .NET 11 桌面运行时。
 
 > A **UI-polished and feature-complete** edition of [QuickLook](https://github.com/QL-Win/QuickLook)
-> (ported to .NET 10, based on the 4.5.0 codebase).
+> (ported to .NET 11, based on the 4.5.0 codebase).
 
 QuickLook-Next keeps the full file-preview capability and rebuilds the experience:
 preview backdrop, rounded corners, themes, tray menu, plugin market, language
@@ -26,7 +26,7 @@ side-by-side with the official build without conflicts.
 **QuickLook-Next is a fork of [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook)** — it is not
 the official build and is not affiliated with it.
 
-- **Codebase**: upstream 4.5.0, ported to .NET 10 and then reworked.
+- **Codebase**: upstream 4.5.0, ported to .NET 11 and then reworked.
 - **Licence**: GPL-3.0, the same licence as upstream; the licence text and the upstream copyright
   notices are kept.
 - **Plugins**: the plugin contract is unchanged (`QuickLook.Common` / `QuickLook.Plugin.*`), so
@@ -47,7 +47,7 @@ engine and the plugin ecosystem, and this fork owns the layer above it.
 
 | | Upstream QuickLook | QuickLook-Next |
 |---|---|---|
-| Runtime | .NET Framework 4.6.2 | .NET 10 |
+| Runtime | .NET Framework 4.6.2 | .NET 11 |
 | Tray menu | version, check for updates, find plugins, open the data folder, run at startup, close on lost focus, restart, quit | the standalone Open data folder entry is omitted; adds a theme mode, the language list, the backdrop list, "hide top bar", the low memory mode group (off / release after 90 s / 5 min / 15 min / 30 min / 1 h / never), a preview warm-up size selector (1 / 3 / 5 / 8 families), the plugin market and the data & cache panel — "find plugins" moved into the plugin market's Browse view, which is the view the panel opens on |
 | Theme and backdrop | a setting (`WindowBackdrop` is documented in `OPTIONS.md`) | switched straight from the tray menu, and the group header shows the value in use |
 | Removing a plugin | upstream's own guide: quit the app, find the data folder, delete the folder by hand | uninstall user plugins in the plugin market, which lists name, version and origin and has a search box |
@@ -254,7 +254,7 @@ fixes or implements is noted where there is one.
 
 ### Engineering
 
-- **.NET 10 migration**: targets `net10.0-windows`; only the .NET SDK is needed
+- **.NET 11 migration**: targets `net11.0-windows`; only the .NET SDK is needed
   to build.
 - **Pure C# space-key pipeline**: focus detection + Explorer / desktop selection
   reading use P/Invoke + Shell COM, no native C++ toolchain.
@@ -275,13 +275,14 @@ fixes or implements is noted where there is one.
 3. Right-click the tray icon to switch theme / backdrop / language, manage
    plugins, check for updates, etc.
 
-> **Requirements**: [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
-> on Windows 10 / 11. If the runtime is missing, the app shows a download prompt
-> — install it and reopen. The app will not start without .NET 10.
+> **Requirements**: [.NET 11 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/11.0)
+> on Windows 11 or Windows 10 LTSC. Setup checks the x64 Desktop Runtime before
+> changing any files; portable builds also need it installed. The app will not
+> start without .NET 11.
 
 ## Building
 
-Requires the .NET 10 SDK:
+Requires the .NET 11 SDK (`global.json` pins the 11.0.100 feature band):
 
 ```powershell
 dotnet build QuickLookNext.slnx -c Release

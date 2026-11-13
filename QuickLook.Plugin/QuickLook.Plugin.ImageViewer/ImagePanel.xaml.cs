@@ -29,7 +29,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -49,7 +48,6 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     private Point? _dragInitPos;
     private Uri _imageSource;
     private bool _isZoomFactorFirstSet = true;
-    private DateTime _lastZoomTime = DateTime.MinValue;
     /// <summary>
     /// v5.6.6: the wheel can magnify up to 8x now. It used to stop at 3x of the *decoded*
     /// pixels - and because a large image is decoded below its real size (see
@@ -75,6 +73,7 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
     private Visibility _metaIconVisibility = Visibility.Visible;
     private bool _contentReadyFired;
     private DispatcherTimer _readyTimer;
+    private DispatcherTimer _zoomChangedTimer;
     private bool _applyingSourceSize;
     private bool _quiesced;
     private bool _useLongImageScrolling;
@@ -114,6 +113,16 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         {
             _detailTimer.Stop();
             RequestMoreDetailIfNeeded();
+        };
+        _zoomChangedTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(500),
+        };
+        _zoomChangedTimer.Tick += (_, _) =>
+        {
+            _zoomChangedTimer.Stop();
+            if (!_quiesced)
+                ZoomChanged?.Invoke(this, EventArgs.Empty);
         };
         viewPanelImage.SourceSizeChanged += OnSourceSizeChanged;
         viewPanelImage.ImageLoaded += (sender, e) =>
@@ -421,6 +430,8 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         _quiesced = true;
         _detailTimer?.Stop();
         _detailTimer = null;
+        _zoomChangedTimer?.Stop();
+        _zoomChangedTimer = null;
         _readyTimer?.Stop();
         _readyTimer = null;
         viewPanelImage?.Dispose();
@@ -438,6 +449,7 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
         _quiesced = true;
         _detailTimer?.Stop();
+        _zoomChangedTimer?.Stop();
         _readyTimer?.Stop();
         viewPanelImage?.Quiesce();
     }
@@ -1009,18 +1021,11 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
 
     private void FireZoomChangedEvent()
     {
-        _lastZoomTime = DateTime.Now;
+        if (_quiesced || _zoomChangedTimer == null)
+            return;
 
-        Task.Delay(500).ContinueWith(t =>
-        {
-            if (DateTime.Now - _lastZoomTime < TimeSpan.FromSeconds(0.5))
-                return;
-
-            Debug.WriteLine($"FireZoomChangedEvent fired: {Thread.CurrentThread.ManagedThreadId}");
-
-            Dispatcher.BeginInvoke(new Action(() => ZoomChanged?.Invoke(this, EventArgs.Empty)),
-                DispatcherPriority.Background);
-        });
+        _zoomChangedTimer.Stop();
+        _zoomChangedTimer.Start();
     }
 
     [NotifyPropertyChangedInvocator]

@@ -3,7 +3,9 @@
     <PropertyGroup>
         <NoWarn>$(NoWarn);CA1416;SYSLIB0050</NoWarn>
         <OutputType>WinExe</OutputType>
-        <TargetFramework>net10.0-windows</TargetFramework>
+        <TargetFramework>net11.0-windows</TargetFramework>
+        <!-- TrayMenuEntry.Separator creates a distinct immutable menu row on demand. -->
+        <NoWarn>$(NoWarn);WFO2000</NoWarn>
         <AssemblyName>QuickLook-Next</AssemblyName>
         <FileAlignment>512</FileAlignment>
         <ApplicationIcon>Resources\app.ico</ApplicationIcon>

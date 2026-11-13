@@ -7,12 +7,18 @@
              d:DesignHeight="300"
              d:DesignWidth="300"
              mc:Ignorable="d">
-    <Grid x:Name="treeGrid" Grid.IsSharedSizeScope="True">
+    <Grid x:Name="treeGrid"
+          Grid.IsSharedSizeScope="True"
+          TextElement.Foreground="White">
         <Grid.RowDefinitions>
+            <!--  Archive name  -->
+            <RowDefinition Height="Auto" />
             <!--  Header row  -->
             <RowDefinition Height="Auto" />
             <!--  Row for data  -->
             <RowDefinition />
+            <!--  Archive search  -->
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Grid.Resources>
@@ -25,6 +31,49 @@
             <local:FileExtToIconConverter x:Key="FileExtToIconConverter" />
             <local:LevelToBooleanConverter x:Key="LevelToBooleanConverter" />
 
+            <Style x:Key="ArchiveSearchButtonStyle" TargetType="{x:Type Button}">
+                <Setter Property="Width" Value="28" />
+                <Setter Property="Height" Value="28" />
+                <Setter Property="Margin" Value="4,0,0,0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="#66FFFFFF" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border x:Name="chrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="chrome" Property="Background" Value="#26FFFFFF" />
+                                    <Setter TargetName="chrome" Property="BorderBrush" Value="#B3FFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="chrome" Property="Background" Value="#3DFFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="chrome" Property="BorderBrush" Value="White" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="chrome" Property="Opacity" Value="0.35" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!--  Template for directory information at all levels  -->
             <HierarchicalDataTemplate DataType="{x:Type local:ArchiveFileEntry}" ItemsSource="{Binding Children.Keys}">
                 <Grid>
@@ -33,7 +82,10 @@
                         <RowDefinition />
                         <RowDefinition Height="2" />
                     </Grid.RowDefinitions>
-                    <Grid Grid.Row="1" ShowGridLines="False">
+                    <Grid Grid.Row="1"
+                          ShowGridLines="False"
+                          ToolTip="{Binding DisplayPath}"
+                          ToolTipService.ShowDuration="60000">
                         <!--
                             All column widths are shared except for column 1 which is sized
                             to compensate for different indentation at each level
@@ -53,8 +105,11 @@
                                     </MultiBinding>
                                 </Image.Source>
                             </Image>
-                            <TextBlock Text="{Binding Name}" />
-                            <TextBlock Text="{Binding Encrypted, Converter={StaticResource BooleanToAsteriskConverter}}" />
+                            <local:SearchHighlightTextBlock Content="{Binding Name}"
+                                                            Foreground="White"
+                                                            SearchQuery="{Binding SearchQuery}" />
+                            <TextBlock Foreground="White"
+                                       Text="{Binding Encrypted, Converter={StaticResource BooleanToAsteriskConverter}}" />
                         </StackPanel>
                         <Rectangle Grid.Column="1">
                             <Rectangle.Width>
@@ -64,7 +119,7 @@
                                 </MultiBinding>
                             </Rectangle.Width>
                         </Rectangle>
-                        <TextBlock Grid.Column="2">
+                        <TextBlock Grid.Column="2" Foreground="White">
                             <TextBlock.Text>
                                 <MultiBinding Converter="{StaticResource SizePrettyPrintConverter}">
                                     <Binding Path="Size" />
@@ -72,7 +127,7 @@
                                 </MultiBinding>
                             </TextBlock.Text>
                         </TextBlock>
-                        <TextBlock Grid.Column="3">
+                        <TextBlock Grid.Column="3" Foreground="White">
                             <TextBlock.Text>
                                 <MultiBinding Converter="{StaticResource DatePrintConverter}">
                                     <Binding Path="ModifiedDate" />
@@ -85,9 +140,73 @@
             </HierarchicalDataTemplate>
         </Grid.Resources>
 
+        <TextBlock x:Name="archiveNameText"
+                   Grid.Row="0"
+                   Margin="0,0,0,4"
+                   FontSize="13"
+                   FontWeight="SemiBold"
+                   TextTrimming="CharacterEllipsis" />
+
+        <Grid Grid.Row="3" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <TextBox x:Name="archiveSearchBox"
+                         Height="28"
+                         MaxLength="200"
+                         Padding="7,3"
+                         VerticalContentAlignment="Center"
+                         Background="Transparent"
+                         BorderBrush="#99FFFFFF"
+                         BorderThickness="1"
+                         CaretBrush="White"
+                         Foreground="White"
+                         PreviewKeyDown="ArchiveSearchBox_PreviewKeyDown"
+                         TextChanged="ArchiveSearchBox_TextChanged" />
+                <TextBlock x:Name="archiveSearchHint"
+                           Margin="9,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="White"
+                           IsHitTestVisible="False"
+                           Opacity="0.75"
+                           Text="Search files or paths" />
+            </Grid>
+            <TextBlock x:Name="archiveSearchStatus"
+                       Grid.Column="1"
+                       Margin="8,0,0,0"
+                       VerticalAlignment="Center"
+                       AutomationProperties.LiveSetting="Polite"
+                       Foreground="White"
+                       Visibility="Collapsed" />
+            <Button x:Name="archivePreviousButton"
+                    Grid.Column="2"
+                    Style="{StaticResource ArchiveSearchButtonStyle}"
+                    Click="ArchivePreviousButton_Click"
+                    Content="↑"
+                    IsEnabled="False" />
+            <Button x:Name="archiveNextButton"
+                    Grid.Column="3"
+                    Style="{StaticResource ArchiveSearchButtonStyle}"
+                    Click="ArchiveNextButton_Click"
+                    Content="↓"
+                    IsEnabled="False" />
+            <Button x:Name="archiveClearButton"
+                    Grid.Column="4"
+                    Style="{StaticResource ArchiveSearchButtonStyle}"
+                    Click="ArchiveClearButton_Click"
+                    Content="×"
+                    IsEnabled="False" />
+        </Grid>
+
         <!--  Tree view with one item for the header row  -->
 
-        <TreeView Background="Transparent"
+        <TreeView Grid.Row="1"
+                  Background="Transparent"
                   BorderThickness="0"
                   Focusable="False"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -100,7 +219,9 @@
                             <ColumnDefinition SharedSizeGroup="column1" />
                             <ColumnDefinition SharedSizeGroup="column2" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text=" " />
+                        <TextBlock Grid.Column="0"
+                                   Foreground="White"
+                                   Text=" " />
                         <TreeViewItem Grid.Column="1">
                             <TreeViewItem.Header>
                                 <TreeViewItem x:Name="treeViewItemToMeasure" Padding="0" />
@@ -117,8 +238,12 @@
                                 </MultiBinding>
                             </TreeViewItem.Width>
                         </TreeViewItem>
-                        <TextBlock Grid.Column="2" Text="Original Size" />
-                        <TextBlock Grid.Column="3" Text="Modified Date" />
+                        <TextBlock Grid.Column="2"
+                                   Foreground="White"
+                                   Text="Original Size" />
+                        <TextBlock Grid.Column="3"
+                                   Foreground="White"
+                                   Text="Modified Date" />
                     </Grid>
                 </TreeViewItem.Header>
             </TreeViewItem>
@@ -127,7 +252,25 @@
         <!--  Tree view that will display hierarchical data rows  -->
 
         <TreeView x:Name="treeView"
-                  Grid.Row="1"
-                  ItemsSource="{Binding}" />
+                  Grid.Row="2"
+                  ItemsSource="{Binding}"
+                  ScrollViewer.CanContentScroll="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling">
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="Foreground" Value="White" />
+                    <Setter Property="IsExpanded"
+                            Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    <Setter Property="IsSelected"
+                            Value="{Binding IsSelected, Mode=TwoWay}" />
+                </Style>
+            </TreeView.ItemContainerStyle>
+            <TreeView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <VirtualizingStackPanel />
+                </ItemsPanelTemplate>
+            </TreeView.ItemsPanel>
+        </TreeView>
     </Grid>
 </UserControl>

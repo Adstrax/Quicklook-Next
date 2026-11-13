@@ -78,3 +78,59 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  DotNet11DesktopKey = 'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App';
+  DotNet11DesktopKey32 = 'SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App';
+  DotNet11DownloadUrl = 'https://dotnet.microsoft.com/download/dotnet/11.0';
+
+function HasDotNet11DesktopInKey(const Key: String): Boolean;
+var
+  Names: TArrayOfString;
+  I: Integer;
+begin
+  Result := False;
+  if RegGetValueNames(HKLM, Key, Names) then
+  begin
+    for I := 0 to GetArrayLength(Names) - 1 do
+    begin
+      if Pos('11.', Names[I]) = 1 then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+function HasDotNet11Desktop: Boolean;
+begin
+  Result := HasDotNet11DesktopInKey(DotNet11DesktopKey) or
+            HasDotNet11DesktopInKey(DotNet11DesktopKey32);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ShellErrorCode: Integer;
+begin
+  if HasDotNet11Desktop then
+  begin
+    Result := '';
+    Exit;
+  end;
+
+  if not WizardSilent then
+  begin
+    if MsgBox(
+      'QuickLook-Next 7 requires the Microsoft .NET 11 Desktop Runtime (x64).' + #13#10 +
+      'QuickLook-Next 7 需要 Microsoft .NET 11 桌面运行时（x64）。' + #13#10#13#10 +
+      'Open the official download page now? 现在打开官方下载页面吗？',
+      mbConfirmation, MB_YESNO) = IDYES then
+      ShellExec('open', DotNet11DownloadUrl, '', '', SW_SHOWNORMAL, ewNoWait, ShellErrorCode);
+  end;
+
+  Result :=
+    'Microsoft .NET 11 Desktop Runtime (x64) is required. ' +
+    'Install it from https://dotnet.microsoft.com/download/dotnet/11.0 and run Setup again.';
+end;

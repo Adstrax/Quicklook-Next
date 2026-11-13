@@ -42,10 +42,12 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
     private const string SplitRatioSetting = "ArchiveFileListRatio";
     private const string SettingsDomain = "QuickLook.Plugin.ArchiveViewer";
 
-    private readonly Dictionary<string, ArchiveFileEntry> _fileEntries = [];
+    private readonly Dictionary<string, ArchiveFileEntry> _fileEntries =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly string _archivePath;
     private readonly string _translationsPath;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private CancellationTokenSource _archiveLoadCancellation;
     private double _loadPercent;
     private int _previewVersion;
     private CancellationTokenSource _previewCancellation;
@@ -66,7 +68,9 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         // design-time only
         Resources.MergedDictionaries.Clear();
 
+        fileListView.SetArchiveName(Path.GetFileName(path));
         fileListView.FileSelected += FileListView_FileSelected;
+        lblLoading.Content = Translate("ArchivePreview_LoadingArchive", "Loading archive ...");
         SetPreviewMessage(Translate("ArchivePreview_SelectFile", "Select a file in the archive to preview it."));
         Loaded += ArchiveInfoPanel_Loaded;
 
@@ -89,6 +93,9 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         GC.SuppressFinalize(this);
 
         _disposed = true;
+
+        var archiveLoad = Interlocked.Exchange(ref _archiveLoadCancellation, null);
+        archiveLoad?.Cancel();
 
         Loaded -= ArchiveInfoPanel_Loaded;
         fileListView.FileSelected -= FileListView_FileSelected;
@@ -209,33 +216,14 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
             if (extracted != null)
                 ArchiveEntryExtractor.TryDeleteDirectory(extracted.TemporaryDirectory);
         }
-        catch (ArchiveEntryTooLargeException)
-        {
-            if (version == _previewVersion)
-            {
-                SetPreviewMessage(Translate(
-                    "ArchivePreview_TooLarge",
-                    "This file is larger than 512 MB and was not extracted."));
-            }
-        }
-        catch (UnauthorizedAccessException)
-        {
-            if (version == _previewVersion)
-            {
-                SetPreviewMessage(Translate(
-                    "ArchivePreview_Encrypted",
-                    "Encrypted files cannot be previewed yet."));
-            }
-        }
         catch (Exception ex)
         {
-            ProcessHelper.WriteLog(ex.ToString());
+            var failure = ArchivePreviewFailureClassifier.Classify(ex);
+            if (failure is not (ArchivePreviewFailure.Encrypted or ArchivePreviewFailure.TooLarge))
+                ProcessHelper.WriteLog(ex.ToString());
+
             if (version == _previewVersion)
-            {
-                SetPreviewMessage(Translate(
-                    "ArchivePreview_Failed",
-                    "Preview failed. See the diagnostic log for more details."));
-            }
+                SetPreviewFailure(failure);
         }
         finally
         {
@@ -346,67 +334,122 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
     private void BeginLoadArchive(string path)
     {
-        new Task(() =>
+        var cancellation = new CancellationTokenSource();
+        _archiveLoadCancellation = cancellation;
+        _ = Task.Run(() => LoadArchiveInBackground(path, cancellation));
+    }
+
+    private void LoadArchiveInBackground(string path, CancellationTokenSource cancellation)
+    {
+        try
         {
+            LoadArchiveCore(path, cancellation.Token);
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _archiveLoadCancellation, null, cancellation);
+            cancellation.Dispose();
+        }
+    }
+
+    private void LoadArchiveCore(string path, CancellationToken token)
+    {
+        try
+        {
+            token.ThrowIfCancellationRequested();
             _totalZippedSize = (ulong)new FileInfo(path).Length;
 
             var root = new ArchiveFileEntry(Path.GetFileName(path), true);
             _fileEntries.Add(string.Empty, root);
 
-            try
-            {
-                LoadItemsFromArchive(path);
-            }
-            catch (Exception e)
-            {
-                ProcessHelper.WriteLog(e.ToString());
-                Dispatcher.Invoke(() => { lblLoading.Content = "Preview failed. See log for more details."; });
+            LoadItemsFromArchive(path, token);
+            token.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception e)
+        {
+            if (token.IsCancellationRequested)
                 return;
-            }
 
-            var folders = -1; // do not count root node
-            var files = 0;
-            ulong sizeU = 0L;
-            _fileEntries.ForEach(e =>
-            {
-                if (e.Value.IsFolder)
-                    folders++;
-                else
-                    files++;
+            ProcessHelper.WriteLog(e.ToString());
+            QueueUiAction(() => ShowArchiveLoadFailure(e));
+            return;
+        }
 
-                sizeU += e.Value.Size;
-            });
-
-            string t;
-            var d = folders != 0 ? $"{folders} folders" : string.Empty;
-            var f = files != 0 ? $"{files} files" : string.Empty;
-            if (!string.IsNullOrEmpty(d) && !string.IsNullOrEmpty(f))
-                t = $", {d} and {f}";
-            else if (string.IsNullOrEmpty(d) && string.IsNullOrEmpty(f))
-                t = string.Empty;
+        var folders = -1; // do not count root node
+        var files = 0;
+        ulong sizeU = 0L;
+        _fileEntries.ForEach(e =>
+        {
+            if (e.Value.IsFolder)
+                folders++;
             else
-                t = $", {d}{f}";
+                files++;
 
-            Dispatcher.Invoke(() =>
-            {
-                if (_disposed)
-                    return;
+            sizeU += e.Value.Size;
+        });
 
-                fileListView.SetDataContext(_fileEntries[string.Empty].Children.Keys);
-                archiveCount.Content =
-                    $"{_type} archive{t}";
-                archiveSizeC.Content =
-                    $"Compressed size {((long)_totalZippedSize).ToPrettySize(2)}";
-                archiveSizeU.Content = $"Uncompressed size {((long)sizeU).ToPrettySize(2)}";
-            });
+        string t;
+        var d = folders != 0 ? $"{folders} folders" : string.Empty;
+        var f = files != 0 ? $"{files} files" : string.Empty;
+        if (!string.IsNullOrEmpty(d) && !string.IsNullOrEmpty(f))
+            t = $", {d} and {f}";
+        else if (string.IsNullOrEmpty(d) && string.IsNullOrEmpty(f))
+            t = string.Empty;
+        else
+            t = $", {d}{f}";
 
+        QueueUiAction(() =>
+        {
+            if (_disposed || token.IsCancellationRequested)
+                return;
+
+            fileListView.SetDataContext(_fileEntries[string.Empty].Children.Keys);
+            archiveCount.Content =
+                $"{_type} archive{t}";
+            archiveSizeC.Content =
+                $"Compressed size {((long)_totalZippedSize).ToPrettySize(2)}";
+            archiveSizeU.Content = $"Uncompressed size {((long)sizeU).ToPrettySize(2)}";
             LoadPercent = 100d;
-        }).Start();
+        });
     }
 
-    private void LoadItemsFromArchive(string path)
+    private void ReportLoadProgress(ArchiveLoadProgressThrottle throttle, FileStream fileStream)
+    {
+        var percent = fileStream.Length <= 0
+            ? 100d
+            : 100d * fileStream.Position / fileStream.Length;
+
+        if (throttle.ShouldReport(percent, Environment.TickCount64))
+            QueueUiAction(() =>
+            {
+                if (!_disposed)
+                    LoadPercent = percent;
+            });
+    }
+
+    private void QueueUiAction(Action action)
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            return;
+
+        try
+        {
+            Dispatcher.BeginInvoke(action);
+        }
+        catch (InvalidOperationException)
+        {
+            // The preview can be closed while its background scan is finishing.
+        }
+    }
+
+    private void LoadItemsFromArchive(string path, CancellationToken cancellationToken)
     {
         using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var progress = new ArchiveLoadProgressThrottle();
 
         // ReaderFactory is slow... so limit its usage
         string[] useReader = [".tar.gz", ".tgz", ".tar.bz2", ".tar.lz", ".tar.xz"];
@@ -419,9 +462,8 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
             while (reader.MoveToNextEntry())
             {
-                if (_disposed)
-                    return;
-                LoadPercent = 100d * fileStream.Position / fileStream.Length;
+                cancellationToken.ThrowIfCancellationRequested();
+                ReportLoadProgress(progress, fileStream);
                 ProcessByLevel(reader.Entry);
             }
         }
@@ -433,17 +475,20 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
             foreach (var entry in archive.Entries)
             {
-                if (_disposed)
-                    return;
-                LoadPercent = 100d * fileStream.Position / fileStream.Length;
+                cancellationToken.ThrowIfCancellationRequested();
+                ReportLoadProgress(progress, fileStream);
                 ProcessByLevel(entry);
             }
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private void ProcessByLevel(IEntry entry)
     {
-        var pf = GetPathFragments(entry.Key);
+        var pf = GetPathFragments(ArchiveEntryExtractor.NormalizeArchivePath(entry.Key));
+        if (pf.Length == 0)
+            return;
 
         // process folders. When entry is a directory, all fragments are folders.
         pf.Take(entry.IsDirectory ? pf.Length : pf.Length - 1)
@@ -457,17 +502,23 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
                 var afe = new ArchiveFileEntry(Path.GetFileName(f), true, parent, f);
 
-                _fileEntries.Add(f, afe);
+                _fileEntries.TryAdd(f, afe);
             });
 
         // add the last path fragments, which is a file
         if (!entry.IsDirectory)
         {
-            var file = pf.Last();
+            var file = pf[^1];
+
+            // ZIP and TAR archives can legally contain duplicate paths. The tree
+            // has one node per path, so keep the first item and continue listing
+            // the rest instead of failing the complete archive.
+            if (_fileEntries.ContainsKey(file))
+                return;
 
             _fileEntries.TryGetValue(GetDirectoryName(file), out var parent);
 
-            _fileEntries.Add(file, new ArchiveFileEntry(Path.GetFileName(entry.Key), false, parent, file)
+            _fileEntries.Add(file, new ArchiveFileEntry(Path.GetFileName(file), false, parent, file)
             {
                 Encrypted = entry.IsEncrypted,
                 Size = (ulong)entry.Size,
@@ -491,6 +542,45 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         var frags = path.Split('\\', '/').Where(f => !string.IsNullOrEmpty(f)).ToArray();
 
         return [.. frags.Select((s, i) => frags.Take(i + 1).Aggregate((a, b) => a + "\\" + b))];
+    }
+
+    private void ShowArchiveLoadFailure(Exception exception)
+    {
+        if (_disposed)
+            return;
+
+        loadingProgress.Visibility = Visibility.Collapsed;
+        lblLoading.Content = GetFailureMessage(ArchivePreviewFailureClassifier.Classify(exception));
+    }
+
+    private void SetPreviewFailure(ArchivePreviewFailure failure)
+    {
+        SetPreviewMessage(GetFailureMessage(failure));
+    }
+
+    private string GetFailureMessage(ArchivePreviewFailure failure)
+    {
+        return failure switch
+        {
+            ArchivePreviewFailure.Encrypted => Translate(
+                "ArchivePreview_Encrypted",
+                "Encrypted files cannot be previewed yet."),
+            ArchivePreviewFailure.TooLarge => Translate(
+                "ArchivePreview_TooLarge",
+                "This file is larger than 512 MB and was not extracted."),
+            ArchivePreviewFailure.MissingEntry => Translate(
+                "ArchivePreview_EntryMissing",
+                "The selected file is no longer present in the archive."),
+            ArchivePreviewFailure.Incomplete => Translate(
+                "ArchivePreview_Incomplete",
+                "The archive is incomplete or one of its volumes is missing."),
+            ArchivePreviewFailure.InvalidFormat => Translate(
+                "ArchivePreview_Invalid",
+                "The archive is damaged or uses an unsupported format."),
+            _ => Translate(
+                "ArchivePreview_Failed",
+                "Preview failed. See the diagnostic log for more details."),
+        };
     }
 
     [NotifyPropertyChangedInvocator]

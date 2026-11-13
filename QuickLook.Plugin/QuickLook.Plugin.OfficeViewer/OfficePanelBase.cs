@@ -44,6 +44,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     private readonly WebView2 _webView;
     private readonly System.Drawing.Color _pageColour;
     private readonly string _pageHex;
+    private readonly LatestOfficeContentRequest _contentRequests = new();
     private EventHandler<CoreWebView2WebMessageReceivedEventArgs> _messageHandler;
     private string _imageFolder;
     private bool _quiesced;
@@ -413,22 +414,44 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     protected void NavigateAsync(Func<OfficePanelContent> build)
     {
         var dispatcher = Dispatcher;
+        var request = _contentRequests.Begin();
 
         _ = Task.Run(build).ContinueWith(t =>
         {
-            dispatcher.BeginInvoke(() =>
+            var result = OfficePanelContentTaskResult.Read(t);
+
+            try
             {
-                if (_disposed || _quiesced)
-                    return;
-
-                if (t.IsFaulted || t.Result is null)
+                dispatcher.BeginInvoke(() =>
                 {
-                    ReportRenderFailure(t.Exception);
-                    return;
-                }
+                    if (_disposed || _quiesced || !_contentRequests.IsCurrent(request))
+                    {
+                        result.Discard();
+                        return;
+                    }
 
-                ApplyContent(t.Result);
-            });
+                    if (result.State == OfficePanelContentTaskState.Canceled)
+                    {
+                        ProcessHelper.WriteLog(
+                            $"[OfficePanel] background page build was canceled: {result.Error}");
+                        return;
+                    }
+
+                    if (!result.IsSuccess)
+                    {
+                        ReportRenderFailure(result.Error);
+                        return;
+                    }
+
+                    ApplyContent(result.Content);
+                });
+            }
+            catch (Exception e)
+            {
+                result.Discard();
+                ProcessHelper.WriteLog(
+                    $"[OfficePanel] could not dispatch a rendered page: {e.GetBaseException().Message}");
+            }
         }, TaskScheduler.Default);
     }
 
@@ -476,6 +499,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
     public void Dispose()
     {
+        _contentRequests.Invalidate();
         _disposed = true;
 
         var control = _webView;
@@ -520,6 +544,7 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         if (_disposed || _quiesced)
             return;
 
+        _contentRequests.Invalidate();
         _quiesced = true;
 
         try

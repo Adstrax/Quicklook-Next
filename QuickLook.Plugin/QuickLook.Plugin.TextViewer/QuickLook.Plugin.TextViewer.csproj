@@ -8,7 +8,13 @@
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <NoWarn>$(NoWarn);CA1416;SYSLIB0050</NoWarn>
         <OutputType>Library</OutputType>
-        <TargetFramework>net10.0-windows</TargetFramework>
+        <TargetFramework>net11.0-windows</TargetFramework>
+        <!--
+            WFO2000 flags the highlighting definitions' intentional "new instance
+            per access" properties. Caching those mutable definitions would share
+            state across highlighted documents, so keep the existing behaviour.
+        -->
+        <NoWarn>$(NoWarn);WFO2000</NoWarn>
         <RootNamespace>QuickLook.Plugin.TextViewer</RootNamespace>
         <AssemblyName>QuickLook.Plugin.TextViewer</AssemblyName>
         <FileAlignment>512</FileAlignment>

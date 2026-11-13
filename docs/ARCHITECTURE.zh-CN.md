@@ -6,7 +6,7 @@
 
 ## 1. 项目定位
 
-QuickLook-Next 是 [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook) 4.5.0 的 .NET 10 衍生版。
+QuickLook-Next 是 [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook) 4.5.0 的 .NET 11 衍生版。
 
 它常驻在 Windows 托盘中，监听资源管理器和桌面的文件选择，在用户按下空格、鼠标中键或通过命令行发起请求时，弹出一个预览窗口。项目本身不做文件编辑，核心目标是把“选中文件 -> 找到合适的查看器 -> 尽快显示第一帧”这条链路做得稳定、快速。
 

@@ -49,6 +49,14 @@ public class ArchiveFileEntry : IComparable<ArchiveFileEntry>
     public bool IsFolder { get; set; }
     public ulong Size { get; set; }
     public DateTime ModifiedDate { get; set; }
+    public bool IsExpanded { get; set; }
+    public bool IsSelected { get; set; }
+    public bool IsSearchMatch { get; set; }
+    public string SearchQuery { get; set; }
+    internal ArchiveFileEntry Parent => _parent;
+    public string DisplayPath => string.IsNullOrWhiteSpace(ArchivePath)
+        ? Name ?? string.Empty
+        : ArchivePath.Replace('/', '\\');
 
     /// <summary>
     /// Returns the maximum depth of all siblings

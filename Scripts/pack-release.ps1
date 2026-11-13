@@ -234,9 +234,9 @@ QuickLook-Next 使用说明
 
 1. 双击根目录的 QuickLook-Next.exe 即可使用。
 2. 选中文件后按空格预览，Esc 关闭。
-3. 需要 .NET 10 Desktop Runtime（Windows 10 / 11）。
+3. 需要 .NET 11 Desktop Runtime（Windows 11 / Windows 10 LTSC）。
    如果启动时提示缺少运行时，点击提示窗口中的下载按钮安装，然后重新打开。
-   下载地址：https://dotnet.microsoft.com/download/dotnet/10.0
+   下载地址：https://dotnet.microsoft.com/download/dotnet/11.0
 4. 便携模式：数据目录跟随本文件夹（UserData），可整体移动。
 
 更新

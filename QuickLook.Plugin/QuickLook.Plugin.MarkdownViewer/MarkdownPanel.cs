@@ -78,29 +78,46 @@ public class MarkdownPanel : WebpagePanel
         var dispatcher = Dispatcher;
         _ = Task.Run(() => GenerateMarkdownHtml(path)).ContinueWith(t =>
         {
-            dispatcher.BeginInvoke(() =>
+            var result = MarkdownPreviewGenerationResult.Read(t);
+            if (!result.IsSuccess)
             {
-                // The panel was disposed (preview closed / superseded).
-                if (_webView == null || IsDisposed || version != _previewVersion)
-                    return;
+                ProcessHelper.WriteLog(
+                    $"[Markdown] Failed to render \"{path}\": {result.Error}");
+            }
 
-                // The panel keeps its WebView2 across Markdown -> Markdown switches, so
-                // only the latest render may navigate. The old page stays visible until
-                // the new document commits, which removes the blank frame between files.
-                FallbackPath = fallbackPath;
-                _homePage = t.IsFaulted
-                    ? Encoding.UTF8.GetBytes(ErrorHtml())
-                    : Encoding.UTF8.GetBytes(t.Result);
+            try
+            {
+                dispatcher.BeginInvoke(() =>
+                {
+                    // The panel was disposed (preview closed / superseded).
+                    if (_webView == null || IsDisposed || version != _previewVersion)
+                        return;
 
-                // A reused control already shows this same host URL; give each document
-                // its own URL so WPF/Chromium really navigates instead of ignoring the set.
-                var uri = new Uri(
-                    $"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
-                // Set the expected URL first: NavigationStarting must accept this
-                // navigation even if WebView2 raises it before the Source setter returns.
-                _currentUri = uri;
-                NavigateToUri(uri);
-            });
+                    // The panel keeps its WebView2 across Markdown -> Markdown switches, so
+                    // only the latest render may navigate. The old page stays visible until
+                    // the new document commits, which removes the blank frame between files.
+                    FallbackPath = fallbackPath;
+                    var html = result.IsSuccess
+                        ? result.Html
+                        : MarkdownPreviewGenerationResult.ErrorHtml(path);
+                    _homePage = Encoding.UTF8.GetBytes(html);
+
+                    // A reused control already shows this same host URL; give each document
+                    // its own URL so WPF/Chromium really navigates instead of ignoring the set.
+                    var uri = new Uri(
+                        $"file://quicklook/?v={Interlocked.Increment(ref _navigationSerial)}");
+                    // Set the expected URL first: NavigationStarting must accept this
+                    // navigation even if WebView2 raises it before the Source setter returns.
+                    _currentUri = uri;
+                    NavigateToUri(uri);
+                });
+            }
+            catch (Exception e)
+            {
+                ProcessHelper.WriteLog(
+                    $"[Markdown] Could not dispatch the rendered page for \"{path}\": " +
+                    e.GetBaseException().Message);
+            }
         }, TaskScheduler.Default);
     }
 
@@ -217,16 +234,6 @@ public class MarkdownPanel : WebpagePanel
     {
         using var reader = new StreamReader(ReadStream(key), Encoding.UTF8);
         return reader.ReadToEnd();
-    }
-
-    private static string ErrorHtml()
-    {
-        return
-            """
-            <!DOCTYPE html><html><head><meta charset="utf-8">
-            <style>body{margin:24px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#C42B1C}</style>
-            </head><body><div>This document cannot be read (the file may be corrupt or in an unsupported format).</div></body></html>
-            """;
     }
 
     public new static class MimeTypes

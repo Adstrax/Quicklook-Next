@@ -124,8 +124,59 @@ internal class ItemNameMatchTests
         Assert.Equal(0, Match.FindItemIndex(items, "2024论文-V2.docx"), "the full name picks the DOCX");
     }
 
+    public void AFolderAndAZipWithTheSameVisibleNameAreNotGuessed()
+    {
+        // The folder is an exact name match while Explorer hides ".zip" from the archive. Returning the
+        // exact folder immediately would skip position resolution and preview the folder for both icons.
+        string[] items = ["附件1-4", "附件1-4.zip"];
+
+        Assert.Equal(-1, Match.FindItemIndex(items, "附件1-4"),
+            "the pressed position must distinguish the folder from the ZIP");
+        Assert.Equal(1, Match.FindItemIndex(items, "附件1-4.zip"), "shown extensions still identify the ZIP");
+    }
+
+    public void AccessibilityIndexResolvesTheZipWhenShellPositionsAreUnavailable()
+    {
+        string[] items = ["其他文件", "附件1-4", "另一个文件", "附件1-4.zip"];
+
+        Assert.Equal(3, Match.PickAccessibilityCandidate(items, "附件1-4", 3),
+            "Explorer's selected accessibility item identifies the ZIP");
+        Assert.Equal(-1, Match.PickAccessibilityCandidate(items, "附件1-4", 0),
+            "an unrelated accessibility item is not accepted");
+    }
+
     public void AnEmptyFolderFindsNothing()
     {
         Assert.Equal(-1, Match.FindItemIndex(Array.Empty<string>(), "photo.jpg"), "no items");
+    }
+
+    public void ThePressedPositionBeatsAnOrderDifferentAccessibilityIndex()
+    {
+        // Explorer reported the same visible name for both items. Its accessibility index
+        // happened to point at the folder, while the ZIP was the item actually under the
+        // pointer. The shell-view position must win so the middleware previews the ZIP.
+        (int Index, int X, int Y)[] positions =
+        [
+            (6, 1244, 753),
+            (10, 1979, 753),
+        ];
+
+        var picked = Match.PickCandidateNearestToPoint(
+            positions, 1980, 755, out var nearest, out var second);
+
+        Assert.Equal(10, picked, "the item under the pointer wins");
+        Assert.True(nearest < second, "its position is measurably closer than the other candidate");
+    }
+
+    public void TwoEquallyClosePositionsAreStillNotGuessed()
+    {
+        (int Index, int X, int Y)[] positions =
+        [
+            (1, 100, 100),
+            (2, 102, 100),
+        ];
+
+        Assert.Equal(-1, Match.PickCandidateNearestToPoint(
+            positions, 101, 100, out _, out _), "the margin is too small to choose safely");
     }
 }

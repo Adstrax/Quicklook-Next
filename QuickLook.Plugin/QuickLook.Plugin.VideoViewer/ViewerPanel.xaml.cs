@@ -186,6 +186,9 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
         _quiesced = true;
         _disposed = true;
         Interlocked.Increment(ref _metaVersion);
@@ -203,15 +206,34 @@ public partial class ViewerPanel : UserControl, IDisposable, INotifyPropertyChan
 
         try
         {
-            if (mediaElement?.MediaUriPlayer != null)
-                mediaElement.MediaUriPlayer.NewAllocatorFrame -= PlayerFramePresented;
+            var media = mediaElement;
+            mediaElement = null;
+            var player = media?.MediaUriPlayer;
 
-            mediaElement?.Close();
+            if (player != null)
+            {
+                player.PlayerStateChanged -= PlayerStateChanged;
+                player.NewAllocatorFrame -= PlayerFramePresented;
+            }
+
+            if (media != null)
+            {
+                media.MediaOpened -= MediaOpened;
+                media.MediaEnded -= MediaEnded;
+                media.MediaFailed -= MediaFailed;
+                media.Close();
+            }
 
             Task.Run(() =>
             {
-                mediaElement?.MediaUriPlayer.Dispose();
-                mediaElement = null;
+                try
+                {
+                    player?.Dispose();
+                }
+                catch (Exception e)
+                {
+                    ProcessHelper.WriteLog($"Video player cleanup failed: {e}");
+                }
             });
         }
         catch (Exception e)

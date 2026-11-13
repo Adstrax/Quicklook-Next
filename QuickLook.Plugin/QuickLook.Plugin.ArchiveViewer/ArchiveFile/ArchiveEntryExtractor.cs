@@ -34,6 +34,9 @@ public sealed class ArchiveEntryTooLargeException(long size)
 public sealed class ArchiveEntryNotFoundException(string path)
     : Exception($"The archive entry was not found: {path}");
 
+public sealed class ArchiveEntryEncryptedException()
+    : Exception("Encrypted archive entries cannot be previewed.");
+
 /// <summary>
 /// Extracts only the selected archive entry. Existing QuickLook viewers operate
 /// on file paths, so a short-lived private copy is the safest way to reuse them
@@ -122,7 +125,7 @@ public static class ArchiveEntryExtractor
         CancellationToken cancellationToken)
     {
         if (entry.IsEncrypted)
-            throw new UnauthorizedAccessException("Encrypted archive entries cannot be previewed yet.");
+            throw new ArchiveEntryEncryptedException();
 
         var temporaryDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -177,16 +180,53 @@ public static class ArchiveEntryExtractor
         }
     }
 
-    private static string GetSafeFileName(string entryPath)
+    internal static string GetSafeFileName(string entryPath)
     {
         var name = Path.GetFileName(entryPath.Replace('/', '\\'));
         if (string.IsNullOrWhiteSpace(name) || name == "." || name == "..")
             name = "archive-entry.bin";
 
         var invalid = Path.GetInvalidFileNameChars();
-        var safe = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+        var safe = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray())
+            .TrimEnd(' ', '.');
 
-        return string.IsNullOrWhiteSpace(safe) ? "archive-entry.bin" : safe;
+        if (string.IsNullOrWhiteSpace(safe))
+            return "archive-entry.bin";
+
+        if (IsReservedDeviceName(Path.GetFileNameWithoutExtension(safe)))
+            safe = "_" + safe;
+
+        const int MaxSafeNameLength = 128;
+        if (safe.Length > MaxSafeNameLength)
+        {
+            var extension = Path.GetExtension(safe);
+            if (extension.Length > 32)
+                extension = string.Empty;
+
+            var stemLength = MaxSafeNameLength - extension.Length;
+            safe = safe[..stemLength] + extension;
+        }
+
+        return safe;
+    }
+
+    private static bool IsReservedDeviceName(string name)
+    {
+        if (string.Equals(name, "CON", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "PRN", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "AUX", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "NUL", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (name.Length != 4)
+            return false;
+
+        var prefix = name[..3];
+        return (string.Equals(prefix, "COM", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(prefix, "LPT", StringComparison.OrdinalIgnoreCase)) &&
+               name[3] is >= '1' and <= '9';
     }
 
     public static void TryDeleteDirectory(string path)

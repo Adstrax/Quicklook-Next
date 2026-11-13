@@ -20,6 +20,7 @@ using QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Controls;
@@ -91,6 +92,7 @@ public partial class DSStoreInfoPanel : UserControl, IDisposable, INotifyPropert
             {
                 if (_disposed) return;
 
+                fileListView.SetArchiveName(Path.GetFileName(path));
                 fileListView.SetDataContext(root.Children.Keys);
                 archiveCount.Content = $"DS_Store, {f}";
                 archiveSizeC.Content = string.Empty;

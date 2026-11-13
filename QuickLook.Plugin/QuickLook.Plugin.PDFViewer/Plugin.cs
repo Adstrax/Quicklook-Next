@@ -104,37 +104,60 @@ public sealed class Plugin : IViewer
         // it off the UI thread so the preview window stays responsive (close /
         // scroll / switch) while the document loads; the parsed document is
         // applied back on the UI thread when ready.
+        var control = _pdfControl;
+        var dispatcher = control.Dispatcher;
         _ = Task.Run(() =>
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             return new PdfDocumentWrapper(stream);
         }).ContinueWith(t =>
         {
-            _pdfControl.Dispatcher.BeginInvoke(() =>
-            {
-                if (_disposed)
-                {
-                    if (t.IsCompletedSuccessfully)
-                        t.Result.Dispose();
-                    return;
-                }
+            var result = BackgroundTaskResult<PdfDocumentWrapper>.Read(t);
 
-                if (t.IsFaulted)
+            try
+            {
+                dispatcher.BeginInvoke(new Action(() =>
                 {
-                    var error = t.Exception?.GetBaseException();
-                    if (error is PdfException pe &&
-                        pe.Message == "Password required or incorrect password")
+                    if (_disposed || !ReferenceEquals(_pdfControl, control))
                     {
-                        ShowPasswordControl(path, context);
+                        if (result.IsSuccess)
+                            result.Value.Dispose();
                         return;
                     }
 
-                    ShowError(context, error?.ToString() ?? "Failed to load PDF.");
-                    return;
-                }
+                    if (result.State == BackgroundTaskState.Canceled)
+                        return;
 
-                ApplyDocument(t.Result, path, context);
-            });
+                    if (!result.IsSuccess)
+                    {
+                        ProcessHelper.WriteLog(
+                            $"[PDF] Failed to load \"{path}\": {result.Error}");
+
+                        if (result.Error is PdfException pe &&
+                            pe.Message == "Password required or incorrect password")
+                        {
+                            ShowPasswordControl(path, context);
+                            return;
+                        }
+
+                        ShowError(
+                            context,
+                            result.Error?.ToString() ?? "Failed to load PDF.");
+                        return;
+                    }
+
+                    ApplyDocument(result.Value, path, context);
+                }), DispatcherPriority.Background);
+            }
+            catch (Exception e)
+            {
+                if (result.IsSuccess)
+                    result.Value.Dispose();
+
+                ProcessHelper.WriteLog(
+                    $"[PDF] Could not dispatch the loaded document for \"{path}\": " +
+                    e.GetBaseException().Message);
+            }
         }, TaskScheduler.Default);
     }
 

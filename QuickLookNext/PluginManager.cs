@@ -285,6 +285,19 @@ public sealed class PluginManager
             return LoadedPlugins.ToArray();
     }
 
+    internal static IReadOnlyDictionary<string, string[]> GetExtensionRoutingSnapshot()
+    {
+        return LazyExtensionHints.ToDictionary(
+            entry => entry.Key.ToLowerInvariant(),
+            entry => entry.Value.ToArray(),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal static IReadOnlySet<string> GetLazyBuiltinPluginNamesSnapshot()
+    {
+        return new HashSet<string>(LazyBuiltinPluginNames, StringComparer.OrdinalIgnoreCase);
+    }
+
     internal void EnsureLoaded()
     {
         // v3.3.0: only waits for assembly discovery + instance creation, not

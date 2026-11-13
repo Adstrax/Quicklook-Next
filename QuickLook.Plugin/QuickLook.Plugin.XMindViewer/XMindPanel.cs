@@ -390,10 +390,17 @@ public sealed class XMindPanel : UserControl
         double top,
         IReadOnlyDictionary<int, double> columnPositions)
     {
+        if (!columnPositions.TryGetValue(layout.Depth, out var columnPosition))
+        {
+            columnPosition = layout.Side == Side.Right
+                ? columnPositions.Values.DefaultIfEmpty(CanvasMargin).Max()
+                : columnPositions.Values.DefaultIfEmpty(CanvasMargin).Min() - layout.Width;
+        }
+
         if (layout.Side == Side.Right)
-            layout.X = columnPositions[layout.Depth];
+            layout.X = columnPosition;
         else
-            layout.X = columnPositions[layout.Depth] - layout.Width;
+            layout.X = columnPosition - layout.Width;
 
         if (layout.Children.Count == 0)
         {

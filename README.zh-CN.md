@@ -5,7 +5,7 @@
 </p>
 
 > QuickLook 的 **UI 美化与功能完善版**（基于 [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook)
-> 4.5.0 的 .NET 10 迁移版）。
+> 4.5.0 的 .NET 11 迁移版）。
 
 QuickLook-Next 保留完整的文件预览能力，并把预览背景、窗口圆角、主题、托盘菜单、
 插件市场、语言、自动更新等体验全面重构与增强——**功能只多不少**。
@@ -17,7 +17,7 @@ QuickLook-Next 保留完整的文件预览能力，并把预览背景、窗口�
 **QuickLook-Next 是 [QL-Win/QuickLook](https://github.com/QL-Win/QuickLook) 的衍生版（fork）**，
 不是官方版本，也与官方团队无关。
 
-- **代码基线**：上游 4.5.0，迁移到 .NET 10 之后重做。
+- **代码基线**：上游 4.5.0，迁移到 .NET 11 之后重做。
 - **许可证**：与上游一样是 GPL-3.0，许可证正文和上游版权声明一并保留。
 - **插件**：插件契约没有改动（仍是 `QuickLook.Common` / `QuickLook.Plugin.*`），
   为原版写的插件不用重新编译就能加载；26 个内置插件也来自这套生态。
@@ -32,7 +32,7 @@ QuickLook-Next 保留完整的文件预览能力，并把预览背景、窗口�
 
 | | 上游 QuickLook | QuickLook-Next |
 |---|---|---|
-| 运行时 | .NET Framework 4.6.2 | .NET 10 |
+| 运行时 | .NET Framework 4.6.2 | .NET 11 |
 | 托盘菜单 | 版本号、检查更新、查找插件、打开数据目录、开机启动、失焦关闭、重启、退出 | 移除单独的「打开数据目录」，保留其他各项（「查找插件」已并入插件市场的可安装页，面板默认打开这一页），外加主题模式、语言列表、背景材质列表、「顶栏默认隐藏」、省内存模式分组（关闭 / 90 秒 / 5 分钟 / 15 分钟 / 1 小时 / 从不）、预览预热数量（1 / 3 / 5 / 8 类）、插件市场面板和数据与缓存面板 |
 | 主题与背景材质 | 设置项（`WindowBackdrop` 写在 `OPTIONS.md` 里） | 托盘菜单直接切换，组标题显示当前选中的值 |
 | 卸载插件 | 上游官方说明：退出程序 → 找到数据目录 → 手动删文件夹 | 在插件市场面板里卸载用户插件，面板列出名称、版本、来源，并带搜索框 |
@@ -209,7 +209,7 @@ WebView2 自研渲染；固定浅色纸面、阅读舒适，圆角与主题和�
 
 ### 工程与架构
 
-- **.NET 10 迁移**：目标框架 net10.0-windows，构建只需 .NET SDK
+- **.NET 11 迁移**：目标框架 net11.0-windows，构建只需 .NET SDK
 - **纯 C# 空格键链路**：焦点判断 + Explorer / 桌面选区读取改为 P/Invoke + Shell COM，
   不再依赖原生 C++ 工具链
 - **命名隔离**：管道 / 互斥体使用 `QuickLookNext.App.*`，与官方完整版互不干扰
@@ -226,13 +226,13 @@ WebView2 自研渲染；固定浅色纸面、阅读舒适，圆角与主题和�
 2. 选中文件按 **空格** 预览，**Esc** 关闭；预览窗口支持置顶、跨预览拖拽内容
 3. 托盘图标右键可切换主题 / 背景 / 语言、管理插件、检查更新等
 
-> **系统要求**：需要 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
-> （Windows 10 / 11）。如果启动时提示缺少运行时，点击提示中的下载按钮安装后
-> 重新打开即可；未安装 .NET 10 时应用不会启动。
+> **系统要求**：需要 [.NET 11 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/11.0)
+> （Windows 11 或 Windows 10 LTSC）。安装器会在写入文件前检查 x64 桌面运行时；
+> 便携版也需要预先安装；未安装 .NET 11 时应用不会启动。
 
 ## 构建
 
-需要 .NET 10 SDK：
+需要 .NET 11 SDK（`global.json` 固定到 11.0.100 功能带）：
 
 ```powershell
 dotnet build QuickLookNext.slnx -c Release

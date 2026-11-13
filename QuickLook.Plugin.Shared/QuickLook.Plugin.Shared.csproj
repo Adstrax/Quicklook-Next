@@ -16,7 +16,7 @@
     -->
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <TargetFramework>net10.0-windows</TargetFramework>
+        <TargetFramework>net11.0-windows</TargetFramework>
         <AssemblyName>QuickLook.Shared</AssemblyName>
         <RootNamespace>QuickLook.Plugin.Shared</RootNamespace>
         <UseWPF>true</UseWPF>

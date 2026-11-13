@@ -127,6 +127,8 @@ public partial class App : Application
     // report itself fails to render, re-showing it from inside the dispatcher
     // exception handler would recurse and flood the log.
     private bool _exceptionReportShowing;
+    private bool _exceptionReportFallbackScheduled;
+    private Exception _pendingExceptionReport;
 
     static App()
     {
@@ -582,6 +584,14 @@ public partial class App : Application
                 return;
             }
 
+            if (_exceptionReportShowing &&
+                ExceptionReportDiagnostics.IsReportSurfaceFailure(e.Exception))
+            {
+                ScheduleNativeExceptionFallback(e.Exception);
+                e.Handled = true;
+                return;
+            }
+
             try
             {
                 ProcessHelper.WriteLog(e.Exception.ToString());
@@ -592,28 +602,12 @@ public partial class App : Application
                     return;
                 }
 
-                _exceptionReportShowing = true;
-                Current?.Dispatcher?.BeginInvoke(() =>
-                {
-                    try
-                    {
-                        Wpf.Ui.Violeta.Controls.ExceptionReport.Show(e.Exception);
-                    }
-                    finally
-                    {
-                        // Reset on the next idle pass: the nested
-                        // DispatcherUnhandledException (when the report itself
-                        // throws) is processed before Background priority, so
-                        // it sees the flag still set and does not recurse.
-                        Current?.Dispatcher?.BeginInvoke(
-                            () => _exceptionReportShowing = false,
-                            System.Windows.Threading.DispatcherPriority.Background);
-                    }
-                });
+                PresentExceptionReport(e.Exception);
             }
             catch (Exception ex)
             {
                 ProcessHelper.WriteLog(ex.ToString());
+                ScheduleNativeExceptionFallback(e.Exception);
             }
             finally
             {
@@ -630,10 +624,9 @@ public partial class App : Application
                 if (e.ExceptionObject is Exception ex)
                 {
                     ProcessHelper.WriteLog(ex.ToString());
-                    Current?.Dispatcher?.BeginInvoke(() =>
-                    {
-                        Wpf.Ui.Violeta.Controls.ExceptionReport.Show(ex);
-                    });
+                    Current?.Dispatcher?.BeginInvoke(
+                        () => PresentExceptionReport(ex),
+                        System.Windows.Threading.DispatcherPriority.Send);
                 }
             }
             catch (Exception ex)
@@ -684,6 +677,94 @@ public partial class App : Application
         // this user actually opens, in the background, while they are still busy
         // elsewhere - see PreviewWarmUp for the measurements behind it.
         Helpers.PreviewWarmUp.Start();
+    }
+
+    private void PresentExceptionReport(Exception exception)
+    {
+        if (exception is null || _exceptionReportShowing)
+            return;
+
+        _exceptionReportShowing = true;
+        _pendingExceptionReport = exception;
+
+        try
+        {
+            Wpf.Ui.Violeta.Controls.ExceptionReport.Show(exception);
+        }
+        catch (Exception reportError)
+        {
+            ProcessHelper.WriteLog($"Built-in exception report failed: {reportError}");
+            ScheduleNativeExceptionFallback(exception);
+        }
+        finally
+        {
+            if (!_exceptionReportFallbackScheduled)
+                ResetExceptionReportState();
+        }
+    }
+
+    private void ScheduleNativeExceptionFallback(Exception surfaceFailure)
+    {
+        if (_exceptionReportFallbackScheduled)
+            return;
+
+        _exceptionReportFallbackScheduled = true;
+        ProcessHelper.WriteLog($"Built-in exception report surface failed: {surfaceFailure}");
+
+        var original = _pendingExceptionReport ?? surfaceFailure;
+        Current?.Dispatcher?.BeginInvoke(() =>
+        {
+            try
+            {
+                foreach (var window in Current.Windows.OfType<Window>().ToArray())
+                {
+                    if (window.GetType().FullName != "Wpf.Ui.Violeta.Controls.ExceptionWindow")
+                        continue;
+
+                    try
+                    {
+                        window.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        ProcessHelper.WriteLog($"Closing the failed exception window did not succeed: {ex}");
+                    }
+                }
+
+                ShowNativeExceptionFallback(original);
+            }
+            finally
+            {
+                ResetExceptionReportState();
+            }
+        }, System.Windows.Threading.DispatcherPriority.Send);
+    }
+
+    private static void ShowNativeExceptionFallback(Exception exception)
+    {
+        try
+        {
+            var owner = Current?.MainWindow;
+            var handle = owner is null ? 0 : new WindowInteropHelper(owner).Handle;
+            User32.MessageBoxW(
+                handle,
+                ExceptionReportDiagnostics.BuildFallbackMessage(exception),
+                "QuickLook-Next",
+                User32.MessageBoxType.Ok |
+                User32.MessageBoxType.IconError |
+                User32.MessageBoxType.SetForeground);
+        }
+        catch (Exception ex)
+        {
+            ProcessHelper.WriteLog($"Native exception fallback failed: {ex}");
+        }
+    }
+
+    private void ResetExceptionReportState()
+    {
+        _pendingExceptionReport = null;
+        _exceptionReportFallbackScheduled = false;
+        _exceptionReportShowing = false;
     }
 
     internal static void RecordStartupPhase(string phase)
