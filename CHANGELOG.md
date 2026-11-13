@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 7.0.0
+
+### Stable .NET 11 release
+
+7.0.0 promotes the tested 7.0.0-beta.1 build to the stable update channel.
+Preview rendering, application layout, settings behaviour and archive-preview
+fixes are unchanged from the beta. The Beta-channel accessibility issue found
+during release testing is intentionally deferred to the next release so this
+stable build stays identical to the version that passed local testing.
+
+- **Stable channel:** the 7.0.0 installer is published as a normal release and
+  becomes the default update for 6.x users.
+- **Same tested runtime:** all 30 projects continue to target .NET 11, and Setup
+  still verifies the x64 Windows Desktop Runtime before replacing files.
+- **Same tested previews:** archive search and navigation, same-name archive
+  routing, Office page switching, Markdown fallback, PDF/image/video lifetime
+  handling and the other beta.1 improvements are included without additional
+  behavioural changes.
+- **Validation:** Release build completed with 0 warnings and 0 errors; the
+  437-test suite passed before the stable promotion.
+
 ## QuickLook-Next 7.0.0-beta.1
 
 ### .NET 11 runtime migration
