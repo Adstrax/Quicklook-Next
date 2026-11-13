@@ -7,6 +7,29 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 6.8.0
+
+### Optional Beta preview update channel
+
+6.8.0 adds an opt-in preview channel while keeping stable updates as the
+default for every existing installation.
+
+- **Stable remains the default.** The update prompt shows a new “Receive Beta
+  preview updates” checkbox that is off unless the user enables it.
+- **The choice is remembered.** Manual and automatic update checks follow the
+  saved channel after the application restarts.
+- **Beta releases can be checked immediately.** Changing the checkbox saves the
+  preference and starts a fresh update check without ignoring the release that
+  was already shown.
+- **Release ordering understands prereleases.** Tags such as
+  `6.8.0-beta.2` and `6.8.0-beta.10` are ordered correctly, drafts are ignored,
+  a stable release wins over a prerelease with the same core version, and an
+  installed beta can advance to a later beta from the same release line.
+- **No extra tray-menu entry.** The channel switch stays inside the update
+  window, so the tray menu remains unchanged.
+- **Release quality.** 393 unit tests pass with a Release build of 0 warnings
+  and 0 errors.
+
 ## QuickLook-Next 6.7.9
 
 ### Markdown material, tables and formula rendering
