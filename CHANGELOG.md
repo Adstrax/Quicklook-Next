@@ -7,6 +7,44 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 7.1.0
+
+### Archive browser redesign and faster preview switching
+
+7.1.0 turns the archive preview into a complete two-pane browser. The left side
+shows the archive hierarchy and the right side renders the selected file with
+the same plugin, theme and WCA backdrop as a normal preview.
+
+- **Browse and preview without leaving the archive.** A single click previews
+  the selected entry in the right pane. Double-clicking a file or pressing
+  Enter opens it in a full preview window for immersive reading, zooming and
+  document controls.
+- **A resizable archive workspace.** The split between navigation and preview
+  can be dragged and is remembered for the next archive. The navigation tree
+  opens every folder by default, keeps complete archive paths in tooltips and
+  virtualizes large trees.
+- **Search stays available at the bottom of the sidebar.** Match counts no
+  longer push the search box around, matched text is highlighted, and previous,
+  next and clear controls sit inside the search field. Ctrl+F, Enter, F3 and
+  Shift+F3 remain available.
+- **Archive information is clearer.** File and folder counts plus compressed
+  and uncompressed sizes use one consistent `Label: Value` format and stay in
+  the right pane's compact footer.
+- **Switching files is faster and visually stable.** Selection debounce was
+  reduced from 120 ms to 50 ms, recently extracted entries are kept in a
+  bounded 12-item/64 MB temporary cache, and the previous preview remains
+  visible until the replacement is ready. Cached files are removed when the
+  archive preview closes.
+- **Full archive-entry previews behave like normal previews.** Reload,
+  fullscreen and keyboard commands are routed to the detached preview while
+  the archive browser stays open.
+- **Manual update checks now always show their channel controls.** Even when no
+  newer release exists, a manual check can display the up-to-date dialog and
+  let stable users opt into Beta previews; automatic no-update checks remain
+  silent.
+- **Validation:** Release build completed with 0 warnings and 0 errors; all
+  444 automated tests passed.
+
 ## QuickLook-Next 7.0.0
 
 ### Stable .NET 11 release

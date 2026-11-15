@@ -163,11 +163,14 @@ internal class Updater
                     !ReleaseVersion.TryParse(GetCurrentVersionText(), out var currentVersion) ||
                     latestVersion.CompareTo(currentVersion) <= 0)
                 {
-                    if (!silent)
+                    if (ShouldShowUpToDateDialog(silent))
                     {
-                        Application.Current.Dispatcher.Invoke(() =>
-                            TrayIconManager.ShowNotification(string.Empty,
-                                TranslationHelper.Get("Update_NoUpdate")));
+                        var action = UpdateDialogAction.Dismissed;
+                        Application.Current.Dispatcher.Invoke(
+                            () => action = UpdateDialog.AskUpToDate());
+
+                        if (action == UpdateDialogAction.RefreshRequested)
+                            CheckForUpdates();
                     }
                     return;
                 }
@@ -917,6 +920,12 @@ internal class Updater
             ? assembly.GetName().Version?.ToString() ?? "0.0.0"
             : informational;
     }
+
+    /// <summary>
+    /// Automatic checks stay quiet when there is nothing newer. A manual check
+    /// still needs the dialog because it also owns the stable/Beta channel switch.
+    /// </summary>
+    internal static bool ShouldShowUpToDateDialog(bool silent) => !silent;
 
     private static DateTimeOffset? ParsePublishedAt(JObject release)
     {

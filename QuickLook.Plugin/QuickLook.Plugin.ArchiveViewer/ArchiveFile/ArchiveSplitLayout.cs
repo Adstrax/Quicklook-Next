@@ -17,9 +17,9 @@ namespace QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 /// </summary>
 internal static class ArchiveSplitLayout
 {
-    internal const double DefaultRatio = 0.52d;
-    internal const double MinimumRatio = 0.22d;
-    internal const double MaximumRatio = 0.78d;
+    internal const double DefaultRatio = 0.32d;
+    internal const double MinimumRatio = 0.20d;
+    internal const double MaximumRatio = 0.62d;
 
     internal static double Normalize(double ratio)
         => double.IsFinite(ratio)

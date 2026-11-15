@@ -39,7 +39,6 @@ public sealed class Percent100ToVisibilityVisibleConverter : DependencyObject, I
         throw new NotImplementedException();
     }
 }
-
 public sealed class Percent100ToVisibilityCollapsedConverter : DependencyObject, IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

@@ -63,6 +63,16 @@ internal class UpdaterReleaseSelectionTests
             "nothing newer than the installed version is selected");
     }
 
+    public void ManualChecksStillShowTheChannelDialogWhenNoReleaseIsNewer()
+    {
+        Assert.True(
+            Updater.ShouldShowUpToDateDialog(silent: false),
+            "a manual check must still expose the Beta channel switch");
+        Assert.False(
+            Updater.ShouldShowUpToDateDialog(silent: true),
+            "an automatic no-update check must stay silent");
+    }
+
     private static Updater.ReleaseCandidate[] Releases(
         params (string Tag, bool Prerelease, bool Draft, string Published)[] values)
     {

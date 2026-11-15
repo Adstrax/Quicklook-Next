@@ -149,6 +149,8 @@ public partial class ViewerWindow : Window
                 return;
             if (Pinned)
                 return;
+            if (HasVisibleOwnedWindow())
+                return;
             // Defer close to ContextIdle so pending Render/Input operations
             // (e.g. MoveWindow, BringToFront) complete before the window is closed.
             Dispatcher.BeginInvoke(() =>
@@ -230,6 +232,17 @@ public partial class ViewerWindow : Window
 
         // v5.3.0: the caption is icon-only; screen readers need a name for each button.
         SetCaptionAutomationNames();
+    }
+
+    private bool HasVisibleOwnedWindow()
+    {
+        foreach (Window window in OwnedWindows)
+        {
+            if (window.IsVisible)
+                return true;
+        }
+
+        return false;
     }
 
     private void SetCaptionAutomationNames()

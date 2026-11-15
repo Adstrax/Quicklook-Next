@@ -155,7 +155,7 @@ internal sealed class EmbeddedPreviewSession : IEmbeddedPreviewSession
         var context = new ContextObject
         {
             Source = _source,
-            Theme = Themes.None,
+            Theme = AppThemeState.IsDark ? Themes.Dark : Themes.Light,
             IsBusy = true,
         };
 

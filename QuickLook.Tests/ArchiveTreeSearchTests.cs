@@ -17,6 +17,7 @@
 
 using QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
@@ -142,6 +143,50 @@ internal class ArchiveTreeSearchTests
             "the complete entry path uses Windows separators");
         Assert.Equal("archive.zip", root.DisplayPath,
             "an entry without an internal path falls back to its name");
+    }
+
+    public void SidebarFolderProjectionExcludesFiles()
+    {
+        var root = new ArchiveFileEntry("archive.zip", true);
+        var docs = new ArchiveFileEntry("docs", true, root, "docs");
+        _ = new ArchiveFileEntry("nested", true, docs, @"docs\nested");
+        _ = new ArchiveFileEntry("readme.txt", false, root, "readme.txt");
+
+        var folders = root.Folders.ToList();
+
+        Assert.Equal(1, folders.Count, "the root exposes its child folders");
+        Assert.Equal("docs", folders[0].Name, "folders keep archive ordering");
+        Assert.Equal(1, docs.Folders.Count(), "nested folders remain available");
+    }
+
+    public void InitialArchiveViewExpandsEveryFolderLevel()
+    {
+        var root = new ArchiveFileEntry("archive.zip", true);
+        var docs = new ArchiveFileEntry("docs", true, root, "docs");
+        var nested = new ArchiveFileEntry("nested", true, docs, @"docs\nested");
+        var deepest = new ArchiveFileEntry("deep", true, nested, @"docs\nested\deep");
+
+        ArchiveFileListView.ExpandAllFolders(root);
+
+        Assert.True(root.IsExpanded, "the archive root is expanded");
+        Assert.True(docs.IsExpanded, "the first folder level is expanded");
+        Assert.True(nested.IsExpanded, "the nested folder level is expanded");
+        Assert.True(deepest.IsExpanded, "the deepest folder level is expanded");
+    }
+
+    public void FolderExpansionNotifiesTheTreeBinding()
+    {
+        var folder = new ArchiveFileEntry("docs", true);
+        var changed = new List<string>();
+        folder.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        folder.IsExpanded = true;
+        folder.IsSelected = true;
+
+        Assert.True(changed.Contains(nameof(ArchiveFileEntry.IsExpanded)),
+            "expanding a folder updates its TreeViewItem");
+        Assert.True(changed.Contains(nameof(ArchiveFileEntry.IsSelected)),
+            "selecting a folder updates its TreeViewItem");
     }
 
     public void FilenameHighlightMarksEveryMatchingSegment()

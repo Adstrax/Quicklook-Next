@@ -63,6 +63,25 @@ public static class PluginHelper
         }
     }
 
+    /// <summary>
+    /// Creates a full QuickLook preview window owned by the supplied window.
+    /// The returned session can replace its entry repeatedly and must be
+    /// disposed when the owning browser closes.
+    /// </summary>
+    public static IDetachedPreviewSession CreateDetachedPreview(object owner, object source = null)
+    {
+        try
+        {
+            dynamic instance = GetInstance();
+            return instance?.CreateDetachedPreview(owner, source) as IDetachedPreviewSession;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            return null;
+        }
+    }
+
     private static dynamic GetInstance()
     {
         try

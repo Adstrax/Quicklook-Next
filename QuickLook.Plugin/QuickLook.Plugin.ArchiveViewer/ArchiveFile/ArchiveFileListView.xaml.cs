@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -6,37 +6,35 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 using QuickLook.Common.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 
 namespace QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 
 public partial class ArchiveFileListView : UserControl, IDisposable
 {
+    private const string SettingsDomain = "QuickLook.Plugin.ArchiveViewer";
+    private const string FileListRatioSetting = "ArchiveSidebarRatio";
     private static readonly TimeSpan SearchDelay = TimeSpan.FromMilliseconds(180);
 
     private readonly DispatcherTimer _searchDelayTimer;
-    private EventHandler _pendingRootExpansion;
+    private ArchiveFileEntry _archiveRoot;
+    private ArchiveFileEntry _selectedEntry;
+    private ArchiveFileEntry _selectionPreviewAlreadyRequested;
     private IEnumerable<ArchiveFileEntry> _unfilteredItems;
     private List<ArchiveFileEntry> _visibleSearchResults;
     private List<ArchiveFileEntry> _searchMatches;
@@ -45,9 +43,11 @@ public partial class ArchiveFileListView : UserControl, IDisposable
     private CancellationTokenSource _searchCancellation;
     private int _activeSearchIndex = -1;
     private long _searchVersion;
+    private bool _suppressSearchTextChanged;
     private volatile bool _disposed;
 
-    public event EventHandler<ArchiveFileSelectedEventArgs> FileSelected;
+    public event EventHandler<ArchiveFileSelectedEventArgs> PreviewRequested;
+    public event EventHandler<ArchiveFileSelectedEventArgs> SelectionPreviewRequested;
 
     public ArchiveFileListView()
     {
@@ -55,14 +55,14 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         {
             Interval = SearchDelay
         };
+
         InitializeComponent();
 
         _searchDelayTimer.Tick += SearchDelayTimer_Tick;
-        treeView.SelectedItemChanged += TreeView_SelectedItemChanged;
-        treeView.PreviewKeyDown += TreeView_PreviewKeyDown;
+        Loaded += ArchiveFileListView_Loaded;
         PreviewKeyDown += ArchiveFileListView_PreviewKeyDown;
 
-        SetSearchTexts();
+        SetLocalizedTexts();
         RefreshSearchActionState();
     }
 
@@ -71,14 +71,12 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         GC.SuppressFinalize(this);
 
         _disposed = true;
+        Loaded -= ArchiveFileListView_Loaded;
         _searchDelayTimer.Stop();
         _searchDelayTimer.Tick -= SearchDelayTimer_Tick;
-        CancelSearch();
-        CancelPendingRootExpansion();
-        archiveSearchBox.TextChanged -= ArchiveSearchBox_TextChanged;
-        treeView.SelectedItemChanged -= TreeView_SelectedItemChanged;
-        treeView.PreviewKeyDown -= TreeView_PreviewKeyDown;
         PreviewKeyDown -= ArchiveFileListView_PreviewKeyDown;
+        CancelSearch();
+        archiveSearchBox.TextChanged -= ArchiveSearchBox_TextChanged;
         IconManager.ClearCache();
     }
 
@@ -88,35 +86,94 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         archiveNameText.ToolTip = archiveName;
     }
 
-    public void SetDataContext(object context)
+    public void SetArchiveSummary(
+        string count,
+        string compressedSize,
+        string uncompressedSize)
+    {
+        archiveCountText.Text = count ?? string.Empty;
+        archiveCountText.ToolTip = count;
+        archiveSizeCText.Text = compressedSize ?? string.Empty;
+        archiveSizeCText.ToolTip = compressedSize;
+        archiveSizeUText.Text = uncompressedSize ?? string.Empty;
+        archiveSizeUText.ToolTip = uncompressedSize;
+    }
+
+    public void SetDataContext(ArchiveFileEntry root)
     {
         CancelSearch();
-        CancelPendingRootExpansion();
         _searchState = null;
         _visibleSearchResults = null;
         _searchMatches = null;
         _completedSearchQuery = null;
         _activeSearchIndex = -1;
-        _unfilteredItems = context as IEnumerable<ArchiveFileEntry>;
-        treeGrid.DataContext = context;
+        _archiveRoot = root;
+        _selectedEntry = root;
+        _unfilteredItems = root == null ? [] : [root];
+
+        treeView.ItemsSource = _unfilteredItems;
+        ExpandAllFolders(_archiveRoot);
         ClearSearchStatus();
         RefreshSearchActionState();
-        ScheduleRootExpansion();
+        ScheduleTreeSelection(root, verticalOffset: -1);
     }
 
-    private void SetSearchTexts()
+    public void ShowPreviewStatus(string title, string message, bool showProgress)
     {
-        var chinese = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
-            .Equals("zh", StringComparison.OrdinalIgnoreCase);
+        previewTitleText.Text = title ?? string.Empty;
+        previewTitleText.ToolTip = title;
+        previewStatusText.Text = message ?? string.Empty;
+        previewProgress.Visibility = showProgress
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (!showProgress)
+            previewContent.Content = null;
+        previewStatusPanel.Visibility = Visibility.Visible;
+    }
 
-        archiveSearchHint.Text = chinese ? "搜索文件或路径" : "Search files or paths";
+    public void ShowPreviewContent(string title, object content)
+    {
+        if (content == null)
+        {
+            ShowPreviewStatus(
+                title,
+                Translate("No preview is available for this file.", "此文件暂无可用的内容预览。"),
+                showProgress: false);
+            return;
+        }
+
+        previewTitleText.Text = title ?? string.Empty;
+        previewTitleText.ToolTip = title;
+        previewContent.Content = content;
+        previewStatusPanel.Visibility = Visibility.Collapsed;
+    }
+
+    public void SetPreviewContent(object content)
+    {
+        previewContent.Content = content;
+    }
+
+    private void ArchiveFileListView_Loaded(object sender, RoutedEventArgs e)
+    {
+        ApplyFileListRatio(SettingHelper.Get(
+            FileListRatioSetting,
+            ArchiveSplitLayout.DefaultRatio,
+            SettingsDomain));
+    }
+
+    private void SetLocalizedTexts()
+    {
+        var chinese = IsChineseUi;
+
+        archiveSearchHint.Text = chinese ? "搜索文件和路径" : "Search files or paths";
         archiveSearchStatus.Text = string.Empty;
         archiveSearchBox.ToolTip = chinese
             ? "按文件名或路径搜索；多个关键词用空格分隔。Esc 清空。"
             : "Search by file name or path. Separate multiple terms with spaces. Press Esc to clear.";
-        AutomationProperties.SetName(
-            archiveSearchBox,
-            chinese ? "搜索压缩包内容" : "Search archive contents");
+        previewTitleText.Text = chinese ? "预览" : "Preview";
+        previewStatusText.Text = chinese
+            ? "在左侧选择文件即可预览。双击文件或按 Enter 打开独立窗口。"
+            : "Select a file on the left to preview it. Double-click a file or press Enter to open a separate window.";
         archivePreviousButton.ToolTip = chinese
             ? "上一个匹配项（Shift+F3）"
             : "Previous match (Shift+F3)";
@@ -124,8 +181,15 @@ public partial class ArchiveFileListView : UserControl, IDisposable
             ? "下一个匹配项（F3）"
             : "Next match (F3)";
         archiveClearButton.ToolTip = chinese
-            ? "清空搜索并恢复之前的目录位置"
-            : "Clear search and restore the previous tree position";
+            ? "清空搜索并恢复之前的展开、选中和滚动位置"
+            : "Clear search and restore the previous selection and scroll position";
+
+        AutomationProperties.SetName(
+            archiveSearchBox,
+            chinese ? "搜索压缩包内容" : "Search archive contents");
+        AutomationProperties.SetName(
+            treeView,
+            chinese ? "压缩包文件导航" : "Archive file navigation");
         AutomationProperties.SetName(
             archivePreviousButton,
             chinese ? "上一个匹配项" : "Previous match");
@@ -137,9 +201,131 @@ public partial class ArchiveFileListView : UserControl, IDisposable
             chinese ? "清空搜索" : "Clear search");
     }
 
+    private static bool IsChineseUi =>
+        CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
+            .Equals("zh", StringComparison.OrdinalIgnoreCase);
+
+    private void TreeView_SelectedItemChanged(
+        object sender,
+        RoutedPropertyChangedEventArgs<object> e)
+    {
+        var entry = e.NewValue as ArchiveFileEntry;
+        if (entry == null)
+            return;
+
+        _selectedEntry = entry;
+        UpdateSearchSelection(entry);
+
+        if (entry.IsFolder)
+            return;
+
+        if (ReferenceEquals(_selectionPreviewAlreadyRequested, entry))
+        {
+            _selectionPreviewAlreadyRequested = null;
+            return;
+        }
+
+        SelectionPreviewRequested?.Invoke(
+            this,
+            new ArchiveFileSelectedEventArgs(entry));
+    }
+
+    private void UpdateSearchSelection(ArchiveFileEntry entry)
+    {
+        if (_searchMatches == null || _searchMatches.Count == 0)
+            return;
+
+        var index = _searchMatches.IndexOf(entry);
+        if (index < 0)
+        {
+            _activeSearchIndex = -1;
+            SetSearchStatus(FormatMatchCount(_searchMatches.Count));
+            return;
+        }
+
+        _activeSearchIndex = index;
+        SetSearchStatus(ArchiveSearchPresentation.FormatMatchPosition(
+            index,
+            _searchMatches.Count), entry.DisplayPath);
+    }
+
+    private void TreeView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source ||
+            FindVisualParent<ToggleButton>(source) != null ||
+            FindVisualParent<TreeViewItem>(source) is not { } item ||
+            item.DataContext is not ArchiveFileEntry entry)
+        {
+            return;
+        }
+
+        if (entry.IsFolder)
+        {
+            entry.IsExpanded = !entry.IsExpanded;
+        }
+        else
+        {
+            MarkSelectionPreviewRequested(entry);
+            PreviewRequested?.Invoke(
+                this,
+                new ArchiveFileSelectedEventArgs(entry));
+        }
+
+        e.Handled = true;
+    }
+
+    private void TreeView_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && treeView.SelectedItem is ArchiveFileEntry entry)
+        {
+            if (entry.IsFolder)
+            {
+                entry.IsExpanded = !entry.IsExpanded;
+            }
+            else
+            {
+                MarkSelectionPreviewRequested(entry);
+                PreviewRequested?.Invoke(
+                    this,
+                    new ArchiveFileSelectedEventArgs(entry));
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key is not (Key.Home or Key.End) ||
+            Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return;
+        }
+
+        var direction = e.Key == Key.Home
+            ? FocusNavigationDirection.First
+            : FocusNavigationDirection.Last;
+        if (treeView.MoveFocus(new TraversalRequest(direction)))
+            e.Handled = true;
+    }
+
+    private void SidebarSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        var ratio = ArchiveSplitLayout.RatioFromWidths(
+            fileListColumn.ActualWidth,
+            previewColumn.ActualWidth);
+        ApplyFileListRatio(ratio);
+        SettingHelper.Set(FileListRatioSetting, ratio, SettingsDomain);
+    }
+
+    private void ApplyFileListRatio(double ratio)
+    {
+        var normalized = ArchiveSplitLayout.Normalize(ratio);
+        fileListColumn.Width = new GridLength(normalized, GridUnitType.Star);
+        previewColumn.Width = new GridLength(1 - normalized, GridUnitType.Star);
+    }
+
     private void ArchiveSearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (archiveSearchHint == null || archiveSearchStatus == null)
+        if (_suppressSearchTextChanged)
             return;
 
         _visibleSearchResults = null;
@@ -162,7 +348,7 @@ public partial class ArchiveFileListView : UserControl, IDisposable
             return;
         }
 
-        _searchState ??= CaptureSearchState();
+        _searchState ??= CaptureSearchViewState();
         _searchDelayTimer.Start();
     }
 
@@ -239,9 +425,8 @@ public partial class ArchiveFileListView : UserControl, IDisposable
             _searchMatches = ArchiveTreeSearch.GetNavigationMatches(results);
             _completedSearchQuery = query;
             _activeSearchIndex = -1;
-            CancelPendingRootExpansion();
-            treeGrid.DataContext = results;
-            ScheduleRootExpansion();
+            treeView.ItemsSource = results;
+            ExpandSearchBranches();
 
             if (_searchMatches.Count == 0)
                 SetSearchStatus(Translate("No matches", "无匹配项"));
@@ -273,11 +458,11 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         }
     }
 
-    private SearchViewState CaptureSearchState()
+    private SearchViewState CaptureSearchViewState()
     {
         return new SearchViewState(
-            treeView.SelectedItem as ArchiveFileEntry,
-            FindScrollViewer(treeView)?.VerticalOffset ?? 0);
+            _selectedEntry,
+            FindScrollViewer(treeView)?.VerticalOffset ?? 0d);
     }
 
     private void ApplyUnfilteredItems(SearchViewState restoreState)
@@ -286,24 +471,45 @@ public partial class ArchiveFileListView : UserControl, IDisposable
             return;
 
         ++_searchVersion;
-        CancelPendingRootExpansion();
-        treeGrid.DataContext = _unfilteredItems;
-        ScheduleRootExpansion();
+        var entry = restoreState?.Selected ?? _archiveRoot;
+        treeView.ItemsSource = _unfilteredItems;
+        ExpandAllFolders(_archiveRoot);
+        ScheduleTreeSelection(entry, restoreState?.VerticalOffset ?? -1d);
+    }
 
-        if (restoreState?.Selected != null)
-            restoreState.Selected.IsSelected = true;
-
-        if (restoreState == null)
+    private void ScheduleTreeSelection(ArchiveFileEntry entry, double verticalOffset)
+    {
+        if (entry == null)
             return;
 
-        treeView.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
             if (_disposed)
                 return;
 
+            RevealTreeEntry(entry);
             treeView.UpdateLayout();
-            FindScrollViewer(treeView)?.ScrollToVerticalOffset(restoreState.VerticalOffset);
+            if (verticalOffset >= 0d)
+            {
+                FindScrollViewer(treeView)?.ScrollToVerticalOffset(verticalOffset);
+            }
         }));
+    }
+
+    private void RevealTreeEntry(ArchiveFileEntry entry)
+    {
+        if (entry == null)
+            return;
+
+        ExpandFolderChain(entry.Parent);
+        _selectedEntry = entry;
+        entry.IsSelected = true;
+
+        if (FindContainer(entry) is not { } container)
+            return;
+
+        container.IsSelected = true;
+        container.BringIntoView();
     }
 
     private void CancelSearch()
@@ -345,25 +551,30 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         if (string.IsNullOrEmpty(archiveSearchBox.Text))
             return;
 
+        _suppressSearchTextChanged = true;
         archiveSearchBox.Clear();
+        _suppressSearchTextChanged = false;
+
+        var restoreState = _searchState;
+        _searchState = null;
+        _visibleSearchResults = null;
+        _searchMatches = null;
+        _completedSearchQuery = null;
+        _activeSearchIndex = -1;
+        CancelSearch();
+        ClearSearchStatus();
+        RefreshSearchActionState();
+        ApplyUnfilteredItems(restoreState);
         FocusSearchBox();
     }
 
     private static string Translate(string english, string chinese)
-    {
-        return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
-            .Equals("zh", StringComparison.OrdinalIgnoreCase)
-            ? chinese
-            : english;
-    }
+        => IsChineseUi ? chinese : english;
 
     private static string FormatMatchCount(int count)
     {
-        if (CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
-            .Equals("zh", StringComparison.OrdinalIgnoreCase))
-        {
+        if (IsChineseUi)
             return $"{count} 个匹配项";
-        }
 
         return count == 1 ? "1 match" : $"{count} matches";
     }
@@ -393,23 +604,17 @@ public partial class ArchiveFileListView : UserControl, IDisposable
 
     private void OpenFirstMatch()
     {
-        OpenSearchMatch(0);
+        OpenSearchMatch(0, openFullPreview: true);
     }
 
     private void ArchivePreviousButton_Click(object sender, RoutedEventArgs e)
-    {
-        MoveSearchMatch(-1);
-    }
+        => MoveSearchMatch(-1);
 
     private void ArchiveNextButton_Click(object sender, RoutedEventArgs e)
-    {
-        MoveSearchMatch(1);
-    }
+        => MoveSearchMatch(1);
 
     private void ArchiveClearButton_Click(object sender, RoutedEventArgs e)
-    {
-        ClearSearchAndRestore();
-    }
+        => ClearSearchAndRestore();
 
     private void MoveSearchMatch(int direction)
     {
@@ -428,16 +633,16 @@ public partial class ArchiveFileListView : UserControl, IDisposable
 
         var currentIndex = _activeSearchIndex;
         if (currentIndex < 0 || currentIndex >= _searchMatches.Count)
-            currentIndex = _searchMatches.IndexOf(treeView.SelectedItem as ArchiveFileEntry);
+            currentIndex = _searchMatches.IndexOf(_selectedEntry);
 
         var nextIndex = ArchiveSearchPresentation.GetNextMatchIndex(
             currentIndex,
             _searchMatches.Count,
             direction);
-        OpenSearchMatch(nextIndex);
+        OpenSearchMatch(nextIndex, openFullPreview: false);
     }
 
-    private void OpenSearchMatch(int index)
+    private void OpenSearchMatch(int index, bool openFullPreview)
     {
         if (_searchMatches == null ||
             index < 0 ||
@@ -451,22 +656,66 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         SetSearchStatus(ArchiveSearchPresentation.FormatMatchPosition(
             index,
             _searchMatches.Count), target.DisplayPath);
-        treeView.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+
+        ScheduleTreeSelection(target, verticalOffset: -1d);
+
+        if (target.IsFolder)
+            return;
+
+        MarkSelectionPreviewRequested(target);
+        var args = new ArchiveFileSelectedEventArgs(target);
+        if (openFullPreview)
+            PreviewRequested?.Invoke(this, args);
+        else
+            SelectionPreviewRequested?.Invoke(this, args);
+    }
+
+    private void MarkSelectionPreviewRequested(ArchiveFileEntry entry)
+    {
+        _selectionPreviewAlreadyRequested = entry;
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
         {
-            if (_disposed)
-                return;
-
-            var container = FindContainer(target);
-            if (container == null)
-            {
-                target.IsSelected = true;
-                return;
-            }
-
-            container.IsSelected = true;
-            container.Focus();
-            container.BringIntoView();
+            if (ReferenceEquals(_selectionPreviewAlreadyRequested, entry))
+                _selectionPreviewAlreadyRequested = null;
         }));
+    }
+
+    private void ExpandSearchBranches()
+    {
+        if (_visibleSearchResults == null)
+            return;
+
+        foreach (var entry in _visibleSearchResults)
+            ExpandFolderChain(entry);
+    }
+
+    private static void ExpandFolderChain(ArchiveFileEntry entry)
+    {
+        while (entry != null)
+        {
+            if (entry.IsFolder)
+                entry.IsExpanded = true;
+            entry = entry.Parent;
+        }
+    }
+
+    internal static void ExpandAllFolders(ArchiveFileEntry root)
+    {
+        if (root == null)
+            return;
+
+        var pending = new Stack<ArchiveFileEntry>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var entry = pending.Pop();
+            if (!entry.IsFolder)
+                continue;
+
+            entry.IsExpanded = true;
+            foreach (var child in entry.Folders)
+                pending.Push(child);
+        }
     }
 
     private TreeViewItem FindContainer(ArchiveFileEntry entry)
@@ -492,6 +741,22 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         return container;
     }
 
+    private static T FindVisualParent<T>(DependencyObject source)
+        where T : DependencyObject
+    {
+        for (var current = source; current != null;)
+        {
+            if (current is T match)
+                return match;
+
+            current = current is Visual or Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : LogicalTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
     private static ScrollViewer FindScrollViewer(DependencyObject parent)
     {
         if (parent is ScrollViewer scrollViewer)
@@ -509,85 +774,6 @@ public partial class ArchiveFileListView : UserControl, IDisposable
         }
 
         return null;
-    }
-
-    private void ScheduleRootExpansion()
-    {
-        _pendingRootExpansion = TryExpandSingleRoot;
-        treeView.LayoutUpdated += _pendingRootExpansion;
-        TryExpandSingleRoot(treeView, EventArgs.Empty);
-    }
-
-    private void TryExpandSingleRoot(object sender, EventArgs e)
-    {
-        // Wait for the ItemsSource binding during the first layout pass.
-        if (treeView.Items.Count == 0)
-        {
-            if (treeView.IsLoaded)
-                CancelPendingRootExpansion();
-
-            return;
-        }
-
-        // The view is normally populated with one archive root.
-        if (treeView.Items.Count > 1)
-        {
-            CancelPendingRootExpansion();
-            return;
-        }
-
-        if (treeView.ItemContainerGenerator.ContainerFromIndex(0) is not TreeViewItem root)
-            return;
-
-        CancelPendingRootExpansion();
-        root.IsExpanded = true;
-    }
-
-    private void CancelPendingRootExpansion()
-    {
-        if (_pendingRootExpansion == null)
-            return;
-
-        treeView.LayoutUpdated -= _pendingRootExpansion;
-        _pendingRootExpansion = null;
-    }
-
-    private void TreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
-    {
-        var entry = e.NewValue as ArchiveFileEntry;
-        UpdateSearchSelection(entry);
-        FileSelected?.Invoke(this, new ArchiveFileSelectedEventArgs(entry));
-    }
-
-    private void UpdateSearchSelection(ArchiveFileEntry entry)
-    {
-        if (_searchMatches == null || _searchMatches.Count == 0)
-            return;
-
-        var index = _searchMatches.IndexOf(entry);
-        if (index < 0)
-        {
-            _activeSearchIndex = -1;
-            SetSearchStatus(FormatMatchCount(_searchMatches.Count));
-            return;
-        }
-
-        _activeSearchIndex = index;
-        SetSearchStatus(ArchiveSearchPresentation.FormatMatchPosition(
-            index,
-            _searchMatches.Count), entry.DisplayPath);
-    }
-
-    private void TreeView_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key is not (Key.Home or Key.End) || Keyboard.Modifiers != ModifierKeys.None)
-            return;
-
-        var direction = e.Key == Key.Home
-            ? FocusNavigationDirection.First
-            : FocusNavigationDirection.Last;
-        if (treeView.MoveFocus(new TraversalRequest(direction)))
-            e.Handled = true;
     }
 
     private sealed record SearchViewState(

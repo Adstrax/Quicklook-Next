@@ -1,40 +1,22 @@
-﻿<UserControl x:Class="QuickLook.Plugin.ArchiveViewer.ArchiveFile.ArchiveFileListView"
+<UserControl x:Class="QuickLook.Plugin.ArchiveViewer.ArchiveFile.ArchiveFileListView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:QuickLook.Plugin.ArchiveViewer.ArchiveFile"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             d:DesignHeight="300"
-             d:DesignWidth="300"
+             d:DesignHeight="600"
+             d:DesignWidth="1100"
              mc:Ignorable="d">
-    <Grid x:Name="treeGrid"
-          Grid.IsSharedSizeScope="True"
+    <Grid x:Name="rootGrid"
           TextElement.Foreground="White">
-        <Grid.RowDefinitions>
-            <!--  Archive name  -->
-            <RowDefinition Height="Auto" />
-            <!--  Header row  -->
-            <RowDefinition Height="Auto" />
-            <!--  Row for data  -->
-            <RowDefinition />
-            <!--  Archive search  -->
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
         <Grid.Resources>
-
-            <!--  Converts the level in the tree to the width of the spacer column  -->
-            <local:LevelToIndentConverter x:Key="LevelToIndentConverter" />
-            <local:BooleanToAsteriskConverter x:Key="BooleanToAsteriskConverter" />
             <local:SizePrettyPrintConverter x:Key="SizePrettyPrintConverter" />
-            <local:DatePrintConverter x:Key="DatePrintConverter" />
             <local:FileExtToIconConverter x:Key="FileExtToIconConverter" />
-            <local:LevelToBooleanConverter x:Key="LevelToBooleanConverter" />
 
             <Style x:Key="ArchiveSearchButtonStyle" TargetType="{x:Type Button}">
-                <Setter Property="Width" Value="28" />
-                <Setter Property="Height" Value="28" />
-                <Setter Property="Margin" Value="4,0,0,0" />
+                <Setter Property="Width" Value="26" />
+                <Setter Property="Height" Value="26" />
+                <Setter Property="Margin" Value="2,0,0,0" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Foreground" Value="White" />
                 <Setter Property="Background" Value="Transparent" />
@@ -49,8 +31,7 @@
                                     Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="4"
-                                    SnapsToDevicePixels="True">
+                                    CornerRadius="5">
                                 <ContentPresenter HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
                             </Border>
@@ -62,11 +43,8 @@
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="chrome" Property="Background" Value="#3DFFFFFF" />
                                 </Trigger>
-                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                    <Setter TargetName="chrome" Property="BorderBrush" Value="White" />
-                                </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter TargetName="chrome" Property="Opacity" Value="0.35" />
+                                    <Setter Property="Opacity" Value="0.35" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -74,203 +52,362 @@
                 </Setter>
             </Style>
 
-            <!--  Template for directory information at all levels  -->
-            <HierarchicalDataTemplate DataType="{x:Type local:ArchiveFileEntry}" ItemsSource="{Binding Children.Keys}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="2" />
-                        <RowDefinition />
-                        <RowDefinition Height="2" />
-                    </Grid.RowDefinitions>
-                    <Grid Grid.Row="1"
-                          ShowGridLines="False"
-                          ToolTip="{Binding DisplayPath}"
-                          ToolTipService.ShowDuration="60000">
-                        <!--
-                            All column widths are shared except for column 1 which is sized
-                            to compensate for different indentation at each level
-                        -->
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition MinWidth="300" SharedSizeGroup="rowHeaderColumn" />
-                            <ColumnDefinition />
-                            <ColumnDefinition MinWidth="100" SharedSizeGroup="column1" />
-                            <ColumnDefinition MinWidth="100" SharedSizeGroup="column2" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal">
-                            <Image Width="16" Height="16">
-                                <Image.Source>
-                                    <MultiBinding Converter="{StaticResource FileExtToIconConverter}">
-                                        <Binding Path="Name" />
-                                        <Binding Path="IsFolder" />
-                                    </MultiBinding>
-                                </Image.Source>
-                            </Image>
-                            <local:SearchHighlightTextBlock Content="{Binding Name}"
-                                                            Foreground="White"
-                                                            SearchQuery="{Binding SearchQuery}" />
-                            <TextBlock Foreground="White"
-                                       Text="{Binding Encrypted, Converter={StaticResource BooleanToAsteriskConverter}}" />
-                        </StackPanel>
-                        <Rectangle Grid.Column="1">
-                            <Rectangle.Width>
-                                <MultiBinding Converter="{StaticResource LevelToIndentConverter}">
-                                    <Binding Path="Level" />
-                                    <Binding ElementName="treeViewItemToMeasure" Path="ActualWidth" />
-                                </MultiBinding>
-                            </Rectangle.Width>
-                        </Rectangle>
-                        <TextBlock Grid.Column="2" Foreground="White">
-                            <TextBlock.Text>
-                                <MultiBinding Converter="{StaticResource SizePrettyPrintConverter}">
-                                    <Binding Path="Size" />
-                                    <Binding Path="IsFolder" />
-                                </MultiBinding>
-                            </TextBlock.Text>
-                        </TextBlock>
-                        <TextBlock Grid.Column="3" Foreground="White">
-                            <TextBlock.Text>
-                                <MultiBinding Converter="{StaticResource DatePrintConverter}">
-                                    <Binding Path="ModifiedDate" />
-                                    <Binding Path="IsFolder" />
-                                </MultiBinding>
-                            </TextBlock.Text>
-                        </TextBlock>
-                    </Grid>
+            <Style x:Key="ArchiveTreeExpanderStyle" TargetType="{x:Type ToggleButton}">
+                <Setter Property="Width" Value="18" />
+                <Setter Property="Height" Value="24" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ToggleButton}">
+                            <Border Background="Transparent">
+                                <Path x:Name="arrow"
+                                      Width="5"
+                                      Height="9"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Data="M 0,0 L 5,4.5 L 0,9"
+                                      RenderTransformOrigin="0.5,0.5"
+                                      Stroke="#CCFFFFFF"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      StrokeStartLineCap="Round"
+                                      StrokeThickness="1.2">
+                                    <Path.RenderTransform>
+                                        <RotateTransform Angle="0" />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="arrow" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <RotateTransform Angle="90" />
+                                        </Setter.Value>
+                                    </Setter>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="arrow" Property="Stroke" Value="White" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="ArchiveTreeItemStyle" TargetType="{x:Type TreeViewItem}">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="IsExpanded"
+                        Value="{Binding IsExpanded, Mode=TwoWay}" />
+                <Setter Property="IsSelected"
+                        Value="{Binding IsSelected, Mode=TwoWay}" />
+                <Setter Property="Padding" Value="3,1" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type TreeViewItem}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <ToggleButton x:Name="expander"
+                                              Style="{StaticResource ArchiveTreeExpanderStyle}"
+                                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                              ClickMode="Press" />
+                                <Border x:Name="headerChrome"
+                                        Grid.Column="1"
+                                        MinHeight="24"
+                                        Padding="{TemplateBinding Padding}"
+                                        Background="Transparent"
+                                        CornerRadius="4">
+                                    <ContentPresenter x:Name="PART_Header"
+                                                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                      VerticalAlignment="Center"
+                                                      ContentSource="Header" />
+                                </Border>
+                                <ItemsPresenter x:Name="ItemsHost"
+                                                Grid.Row="1"
+                                                Grid.Column="1" />
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="HasItems" Value="False">
+                                    <Setter TargetName="expander" Property="Visibility" Value="Hidden" />
+                                </Trigger>
+                                <Trigger Property="IsExpanded" Value="False">
+                                    <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="headerChrome" Property="Background" Value="#1FFFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="headerChrome" Property="Background" Value="#3DFFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Foreground" Value="#66FFFFFF" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <HierarchicalDataTemplate DataType="{x:Type local:ArchiveFileEntry}"
+                                      ItemsSource="{Binding Children.Keys}">
+                <Grid Margin="1,2"
+                      ToolTip="{Binding DisplayPath}"
+                      ToolTipService.ShowDuration="60000">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="72" />
+                    </Grid.ColumnDefinitions>
+                    <Image Width="16"
+                           Height="16"
+                           VerticalAlignment="Center">
+                        <Image.Source>
+                            <MultiBinding Converter="{StaticResource FileExtToIconConverter}">
+                                <Binding Path="Name" />
+                                <Binding Path="IsFolder" />
+                            </MultiBinding>
+                        </Image.Source>
+                    </Image>
+                    <local:SearchHighlightTextBlock Grid.Column="1"
+                                                    Margin="4,0,6,0"
+                                                    VerticalAlignment="Center"
+                                                    Content="{Binding Name}"
+                                                    Foreground="White"
+                                                    SearchQuery="{Binding SearchQuery}"
+                                                    TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="2"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="#99FFFFFF"
+                               TextAlignment="Right">
+                        <TextBlock.Text>
+                            <MultiBinding Converter="{StaticResource SizePrettyPrintConverter}">
+                                <Binding Path="Size" />
+                                <Binding Path="IsFolder" />
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
                 </Grid>
             </HierarchicalDataTemplate>
         </Grid.Resources>
 
-        <TextBlock x:Name="archiveNameText"
-                   Grid.Row="0"
-                   Margin="0,0,0,4"
-                   FontSize="13"
-                   FontWeight="SemiBold"
-                   TextTrimming="CharacterEllipsis" />
-
-        <Grid Grid.Row="3" Margin="0,6,0,0">
+        <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="fileListColumn"
+                                  Width="0.28*"
+                                  MinWidth="210" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition x:Name="previewColumn" Width="0.72*" />
             </Grid.ColumnDefinitions>
-            <Grid>
-                <TextBox x:Name="archiveSearchBox"
-                         Height="28"
-                         MaxLength="200"
-                         Padding="7,3"
-                         VerticalContentAlignment="Center"
-                         Background="Transparent"
-                         BorderBrush="#99FFFFFF"
-                         BorderThickness="1"
-                         CaretBrush="White"
-                         Foreground="White"
-                         PreviewKeyDown="ArchiveSearchBox_PreviewKeyDown"
-                         TextChanged="ArchiveSearchBox_TextChanged" />
-                <TextBlock x:Name="archiveSearchHint"
-                           Margin="9,0,0,0"
-                           VerticalAlignment="Center"
-                           Foreground="White"
-                           IsHitTestVisible="False"
-                           Opacity="0.75"
-                           Text="Search files or paths" />
-            </Grid>
-            <TextBlock x:Name="archiveSearchStatus"
-                       Grid.Column="1"
-                       Margin="8,0,0,0"
-                       VerticalAlignment="Center"
-                       AutomationProperties.LiveSetting="Polite"
-                       Foreground="White"
-                       Visibility="Collapsed" />
-            <Button x:Name="archivePreviousButton"
-                    Grid.Column="2"
-                    Style="{StaticResource ArchiveSearchButtonStyle}"
-                    Click="ArchivePreviousButton_Click"
-                    Content="↑"
-                    IsEnabled="False" />
-            <Button x:Name="archiveNextButton"
-                    Grid.Column="3"
-                    Style="{StaticResource ArchiveSearchButtonStyle}"
-                    Click="ArchiveNextButton_Click"
-                    Content="↓"
-                    IsEnabled="False" />
-            <Button x:Name="archiveClearButton"
-                    Grid.Column="4"
-                    Style="{StaticResource ArchiveSearchButtonStyle}"
-                    Click="ArchiveClearButton_Click"
-                    Content="×"
-                    IsEnabled="False" />
-        </Grid>
 
-        <!--  Tree view with one item for the header row  -->
+            <Border Grid.Column="0"
+                    Margin="0,0,0,2"
+                    Padding="8,6,6,6"
+                    Background="#16FFFFFF"
+                    BorderBrush="#33FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="7">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-        <TreeView Grid.Row="1"
-                  Background="Transparent"
-                  BorderThickness="0"
-                  Focusable="False"
-                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-            <TreeViewItem Focusable="False" Visibility="Collapsed">
-                <TreeViewItem.Header>
-                    <Grid ShowGridLines="False">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition SharedSizeGroup="rowHeaderColumn" />
-                            <ColumnDefinition />
-                            <ColumnDefinition SharedSizeGroup="column1" />
-                            <ColumnDefinition SharedSizeGroup="column2" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0"
-                                   Foreground="White"
-                                   Text=" " />
-                        <TreeViewItem Grid.Column="1">
-                            <TreeViewItem.Header>
-                                <TreeViewItem x:Name="treeViewItemToMeasure" Padding="0" />
-                            </TreeViewItem.Header>
+                    <TextBlock x:Name="archiveNameText"
+                               Margin="4,1,4,6"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
 
-                            <!--
-                                Set the width of Column 1 to the same width as the top level
-                                in the data
-                            -->
-                            <TreeViewItem.Width>
-                                <MultiBinding Converter="{StaticResource LevelToIndentConverter}">
-                                    <Binding Path="Level" />
-                                    <Binding ElementName="treeViewItemToMeasure" Path="ActualWidth" />
-                                </MultiBinding>
-                            </TreeViewItem.Width>
-                        </TreeViewItem>
-                        <TextBlock Grid.Column="2"
-                                   Foreground="White"
-                                   Text="Original Size" />
-                        <TextBlock Grid.Column="3"
-                                   Foreground="White"
-                                   Text="Modified Date" />
+                    <TreeView x:Name="treeView"
+                              Grid.Row="1"
+                              Margin="0,0,0,8"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              ItemContainerStyle="{StaticResource ArchiveTreeItemStyle}"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              SelectedItemChanged="TreeView_SelectedItemChanged"
+                              MouseDoubleClick="TreeView_MouseDoubleClick"
+                              PreviewKeyDown="TreeView_PreviewKeyDown" />
+
+                    <Grid x:Name="archiveSearchPanel"
+                          Grid.Row="2"
+                          Margin="2,4,2,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="archiveSearchStatus"
+                                   Margin="2,0,2,5"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   Foreground="#CCFFFFFF"
+                                   TextTrimming="CharacterEllipsis"
+                                   Visibility="Collapsed" />
+                        <Grid Grid.Row="1">
+                            <TextBox x:Name="archiveSearchBox"
+                                     Height="30"
+                                     MaxLength="200"
+                                     Padding="7,3,88,3"
+                                     VerticalContentAlignment="Center"
+                                     Background="#16FFFFFF"
+                                     BorderBrush="#99FFFFFF"
+                                     BorderThickness="1"
+                                     CaretBrush="White"
+                                     Foreground="White"
+                                     PreviewKeyDown="ArchiveSearchBox_PreviewKeyDown"
+                                     TextChanged="ArchiveSearchBox_TextChanged" />
+                            <TextBlock x:Name="archiveSearchHint"
+                                       Margin="9,0,88,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="White"
+                                       IsHitTestVisible="False"
+                                       Opacity="0.75"
+                                       Text="Search files or paths" />
+                            <StackPanel HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal">
+                                <Button x:Name="archivePreviousButton"
+                                        Style="{StaticResource ArchiveSearchButtonStyle}"
+                                        Click="ArchivePreviousButton_Click"
+                                        Content="↑"
+                                        IsEnabled="False" />
+                                <Button x:Name="archiveNextButton"
+                                        Style="{StaticResource ArchiveSearchButtonStyle}"
+                                        Click="ArchiveNextButton_Click"
+                                        Content="↓"
+                                        IsEnabled="False" />
+                                <Button x:Name="archiveClearButton"
+                                        Style="{StaticResource ArchiveSearchButtonStyle}"
+                                        Margin="2,0,2,0"
+                                        Click="ArchiveClearButton_Click"
+                                        Content="×"
+                                        IsEnabled="False" />
+                            </StackPanel>
+                        </Grid>
                     </Grid>
-                </TreeViewItem.Header>
-            </TreeViewItem>
-        </TreeView>
+                </Grid>
+            </Border>
 
-        <!--  Tree view that will display hierarchical data rows  -->
+            <GridSplitter x:Name="sidebarSplitter"
+                          Grid.Column="1"
+                          Width="6"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          Background="Transparent"
+                          ResizeBehavior="PreviousAndNext"
+                          ResizeDirection="Columns"
+                          ShowsPreview="False"
+                          DragCompleted="SidebarSplitter_DragCompleted">
+                <GridSplitter.Template>
+                    <ControlTemplate TargetType="{x:Type GridSplitter}">
+                        <Grid Background="Transparent">
+                            <Border Width="1"
+                                    HorizontalAlignment="Center"
+                                    Background="#66FFFFFF" />
+                        </Grid>
+                    </ControlTemplate>
+                </GridSplitter.Template>
+            </GridSplitter>
 
-        <TreeView x:Name="treeView"
-                  Grid.Row="2"
-                  ItemsSource="{Binding}"
-                  ScrollViewer.CanContentScroll="True"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling">
-            <TreeView.ItemContainerStyle>
-                <Style TargetType="{x:Type TreeViewItem}">
-                    <Setter Property="Foreground" Value="White" />
-                    <Setter Property="IsExpanded"
-                            Value="{Binding IsExpanded, Mode=TwoWay}" />
-                    <Setter Property="IsSelected"
-                            Value="{Binding IsSelected, Mode=TwoWay}" />
-                </Style>
-            </TreeView.ItemContainerStyle>
-            <TreeView.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <VirtualizingStackPanel />
-                </ItemsPanelTemplate>
-            </TreeView.ItemsPanel>
-        </TreeView>
+            <Border Grid.Column="2"
+                    Margin="0,0,0,2"
+                    Background="#0DFFFFFF"
+                    BorderBrush="#33FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="7">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Padding="12,6,10,6"
+                            BorderBrush="#26FFFFFF"
+                            BorderThickness="0,0,0,1">
+                        <TextBlock x:Name="previewTitleText"
+                                   VerticalAlignment="Center"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Text="Preview"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Border>
+
+                    <Grid Grid.Row="1">
+                        <ContentControl x:Name="previewContent"
+                                        Margin="8"
+                                        HorizontalContentAlignment="Stretch"
+                                        VerticalContentAlignment="Stretch"
+                                        Focusable="False" />
+                        <Grid x:Name="previewStatusPanel"
+                              Background="#52000000">
+                            <StackPanel Margin="24"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                <ProgressBar x:Name="previewProgress"
+                                             Width="150"
+                                             Height="4"
+                                             Margin="0,0,0,12"
+                                             IsIndeterminate="True"
+                                             Visibility="Collapsed" />
+                                <TextBlock x:Name="previewStatusText"
+                                           MaxWidth="460"
+                                           FontSize="13"
+                                           Foreground="#CCFFFFFF"
+                                           Text="Select a file to preview it."
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+
+                    <Border Grid.Row="2"
+                            Padding="10,0"
+                            BorderBrush="#26FFFFFF"
+                            BorderThickness="0,1,0,0">
+                        <Grid Height="29">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="2*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="archiveCountText"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="#B3FFFFFF"
+                                       Text="Archive: 0 folders and 0 files"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="archiveSizeCText"
+                                       Grid.Column="1"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="#B3FFFFFF"
+                                       Text="Compressed size: 0 bytes"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="archiveSizeUText"
+                                       Grid.Column="2"
+                                       Margin="0,0,8,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="#B3FFFFFF"
+                                       Text="Uncompressed size: 0 bytes"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

@@ -133,7 +133,7 @@ public partial class PakInfoPanel : UserControl, IDisposable, INotifyPropertyCha
                 currentPath = string.IsNullOrEmpty(currentPath) ? dirName : currentPath + "\\" + dirName;
                 if (!_fileEntries.TryGetValue(currentPath, out var dirEntry))
                 {
-                    dirEntry = new ArchiveFileEntry(dirName, true, parent)
+                    dirEntry = new ArchiveFileEntry(dirName, true, parent, currentPath)
                     {
                         ModifiedDate = modifiedDate,
                     };
@@ -146,7 +146,7 @@ public partial class PakInfoPanel : UserControl, IDisposable, INotifyPropertyCha
             var filePath = fragments.Length > 1 ? currentPath + "\\" + fileName : fileName;
             if (!_fileEntries.ContainsKey(filePath))
             {
-                var entry = new ArchiveFileEntry(fileName, false, parent)
+                var entry = new ArchiveFileEntry(fileName, false, parent, filePath)
                 {
                     Size = (ulong)kv.Value.Length,
                     ModifiedDate = modifiedDate,

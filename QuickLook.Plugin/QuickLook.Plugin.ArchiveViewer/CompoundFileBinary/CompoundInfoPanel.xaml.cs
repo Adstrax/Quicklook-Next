@@ -117,7 +117,7 @@ public partial class CompoundInfoPanel : UserControl, IDisposable, INotifyProper
                     return;
 
                 fileListView.SetArchiveName(Path.GetFileName(path));
-                fileListView.SetDataContext(_fileEntries[string.Empty].Children.Keys);
+                fileListView.SetDataContext(_fileEntries[string.Empty]);
                 archiveCount.Content = $"Compound File{t}";
                 archiveSizeC.Content = string.Empty;
                 archiveSizeU.Content = $"Total stream size {((long)sizeU).ToPrettySize(2)}";
@@ -148,7 +148,7 @@ public partial class CompoundInfoPanel : UserControl, IDisposable, INotifyProper
 
             if (stat.type == (int)STGTY.STGTY_STORAGE)
             {
-                var entry = new ArchiveFileEntry(name, true, parent);
+                var entry = new ArchiveFileEntry(name, true, parent, fullPath);
                 _fileEntries.Add(fullPath, entry);
 
                 using var subStorage = storage.OpenStorage(name, null, STGM.READ | STGM.SHARE_EXCLUSIVE, IntPtr.Zero);
@@ -157,7 +157,7 @@ public partial class CompoundInfoPanel : UserControl, IDisposable, INotifyProper
             else if (stat.type == (int)STGTY.STGTY_STREAM)
             {
                 long fileTime = ((long)stat.mtime.dwHighDateTime << 32) | (uint)stat.mtime.dwLowDateTime;
-                var entry = new ArchiveFileEntry(name, false, parent)
+                var entry = new ArchiveFileEntry(name, false, parent, fullPath)
                 {
                     Size = (ulong)stat.cbSize,
                     ModifiedDate = DateTime.FromFileTimeUtc(fileTime).ToLocalTime()

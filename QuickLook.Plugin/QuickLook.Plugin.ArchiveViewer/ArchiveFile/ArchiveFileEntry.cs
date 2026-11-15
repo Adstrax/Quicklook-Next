@@ -17,15 +17,19 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 
-public class ArchiveFileEntry : IComparable<ArchiveFileEntry>
+public class ArchiveFileEntry : IComparable<ArchiveFileEntry>, INotifyPropertyChanged
 {
     private readonly ArchiveFileEntry _parent;
     private int _cachedDepth = -1;
     private int _cachedLevel = -1;
+    private bool _isExpanded;
+    private bool _isSelected;
 
     public ArchiveFileEntry(
         string name,
@@ -49,14 +53,26 @@ public class ArchiveFileEntry : IComparable<ArchiveFileEntry>
     public bool IsFolder { get; set; }
     public ulong Size { get; set; }
     public DateTime ModifiedDate { get; set; }
-    public bool IsExpanded { get; set; }
-    public bool IsSelected { get; set; }
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set => SetField(ref _isExpanded, value);
+    }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetField(ref _isSelected, value);
+    }
     public bool IsSearchMatch { get; set; }
     public string SearchQuery { get; set; }
-    internal ArchiveFileEntry Parent => _parent;
+    public ArchiveFileEntry Parent => _parent;
+    public IEnumerable<ArchiveFileEntry> Folders =>
+        Children.Keys.Where(entry => entry.IsFolder);
     public string DisplayPath => string.IsNullOrWhiteSpace(ArchivePath)
         ? Name ?? string.Empty
         : ArchivePath.Replace('/', '\\');
+
+    public event PropertyChangedEventHandler PropertyChanged;
 
     /// <summary>
     /// Returns the maximum depth of all siblings
@@ -99,6 +115,18 @@ public class ArchiveFileEntry : IComparable<ArchiveFileEntry>
         var max = Children.Keys.Count == 0 ? 0 : Children.Keys.Max(r => r.GetDepth());
         _cachedDepth = max + 1;
         return _cachedDepth;
+    }
+
+    private void SetField<T>(
+        ref T field,
+        T value,
+        [CallerMemberName] string propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return;
+
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     public override string ToString()

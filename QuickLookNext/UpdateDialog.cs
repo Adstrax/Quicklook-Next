@@ -46,12 +46,14 @@ internal sealed class UpdateDialog : Window
 {
     private readonly bool _isDark;
     private readonly UpdateReleaseInfo _release;
+    private readonly bool _upToDate;
     private bool _accentApplied;
     private UpdateDialogAction _action;
 
-    private UpdateDialog(UpdateReleaseInfo release)
+    private UpdateDialog(UpdateReleaseInfo release, bool upToDate)
     {
         _release = release;
+        _upToDate = upToDate;
         _isDark = TrayIconManager.IsDarkTheme();
 
         Title = TranslationHelper.Get("Update_Title", failsafe: "Software Update");
@@ -60,7 +62,9 @@ internal sealed class UpdateDialog : Window
         ResizeMode = ResizeMode.NoResize;
         SizeToContent = SizeToContent.Manual;
         Width = Math.Max(360, Math.Min(680, SystemParameters.WorkArea.Width - 48));
-        Height = Math.Max(400, Math.Min(620, SystemParameters.WorkArea.Height - 48));
+        Height = upToDate
+            ? Math.Max(320, Math.Min(420, SystemParameters.WorkArea.Height - 48))
+            : Math.Max(400, Math.Min(620, SystemParameters.WorkArea.Height - 48));
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
         Topmost = true;
@@ -97,7 +101,8 @@ internal sealed class UpdateDialog : Window
             }
             else if (e.Key == Key.Enter)
             {
-                _action = UpdateDialogAction.UpdateNow;
+                if (!_upToDate)
+                    _action = UpdateDialogAction.UpdateNow;
                 Close();
             }
         };
@@ -120,8 +125,29 @@ internal sealed class UpdateDialog : Window
 
     /// <summary>Must be called on the UI thread; returns the user's choice.</summary>
     internal static UpdateDialogAction Ask(UpdateReleaseInfo release)
+        => AskCore(release, upToDate: false);
+
+    /// <summary>
+    /// Shows the same channel settings when a manual check has no newer build.
+    /// A stable user can therefore opt into Beta previews without visiting a
+    /// separate menu or waiting for a stable release first.
+    /// </summary>
+    internal static UpdateDialogAction AskUpToDate()
     {
-        var dialog = new UpdateDialog(release);
+        var currentVersion = Updater.GetCurrentVersionText();
+        var info = UpdateReleaseInfo.Create(
+            currentVersion,
+            $"QuickLook-Next {currentVersion}",
+            string.Empty,
+            string.Empty,
+            null,
+            currentVersion);
+        return AskCore(info, upToDate: true);
+    }
+
+    private static UpdateDialogAction AskCore(UpdateReleaseInfo release, bool upToDate)
+    {
+        var dialog = new UpdateDialog(release, upToDate);
         dialog.RunSmokeTestHook();
         dialog.ShowDialog();
         return dialog._action;
@@ -215,8 +241,13 @@ internal sealed class UpdateDialog : Window
 
         var headline = new TextBlock
         {
-            Text = string.Format(
-                TranslationHelper.Get("Update_FoundInline", failsafe: "Version {0} is available"), release.Version),
+            Text = _upToDate
+                ? TranslationHelper.Get(
+                    "Update_UpToDateInline",
+                    failsafe: "QuickLook-Next is up to date")
+                : string.Format(
+                    TranslationHelper.Get("Update_FoundInline", failsafe: "Version {0} is available"),
+                    release.Version),
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -246,8 +277,14 @@ internal sealed class UpdateDialog : Window
 
         var body = new TextBlock
         {
-            Text = TranslationHelper.Get("Update_Review",
-                failsafe: "Review the changes below, then update now or skip this version."),
+            Text = _upToDate
+                ? TranslationHelper.Get(
+                    "Update_UpToDateBody",
+                    failsafe: "No newer release is available on your current update channel. " +
+                              "Select Beta preview updates below to check preview builds.")
+                : TranslationHelper.Get(
+                    "Update_Review",
+                    failsafe: "Review the changes below, then update now or skip this version."),
             TextWrapping = TextWrapping.Wrap,
             Foreground = ThemePalette.SecondaryText(_isDark),
             LineHeight = 19,
@@ -291,28 +328,48 @@ internal sealed class UpdateDialog : Window
             Close();
         };
 
-        var update = CreateButton(TranslationHelper.Get("Update_Now", failsafe: "Update now"), primary: true, subtle: false);
-        update.IsDefault = true;
-        update.Click += (_, _) =>
-        {
-            _action = UpdateDialogAction.UpdateNow;
-            Close();
-        };
-
-        var ignore = CreateButton(TranslationHelper.Get("Update_Ignore", failsafe: "Skip this version"), primary: false, subtle: false);
-        ignore.IsCancel = true;
-        ignore.Margin = new Thickness(8, 0, 0, 0);
-        ignore.Click += (_, _) => Close();
-
-        _buttonLabels = $"update={update.Content};ignore={ignore.Content}";
-
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
         };
-        actions.Children.Add(ignore);
-        actions.Children.Add(update);
+
+        if (_upToDate)
+        {
+            var done = CreateButton(
+                TranslationHelper.Get("Update_Done", failsafe: "Done"),
+                primary: true,
+                subtle: false);
+            done.IsDefault = true;
+            done.Click += (_, _) => Close();
+            actions.Children.Add(done);
+            _buttonLabels = $"done={done.Content}";
+        }
+        else
+        {
+            var update = CreateButton(
+                TranslationHelper.Get("Update_Now", failsafe: "Update now"),
+                primary: true,
+                subtle: false);
+            update.IsDefault = true;
+            update.Click += (_, _) =>
+            {
+                _action = UpdateDialogAction.UpdateNow;
+                Close();
+            };
+
+            var ignore = CreateButton(
+                TranslationHelper.Get("Update_Ignore", failsafe: "Skip this version"),
+                primary: false,
+                subtle: false);
+            ignore.IsCancel = true;
+            ignore.Margin = new Thickness(8, 0, 0, 0);
+            ignore.Click += (_, _) => Close();
+
+            _buttonLabels = $"update={update.Content};ignore={ignore.Content}";
+            actions.Children.Add(ignore);
+            actions.Children.Add(update);
+        }
 
         var notesTitle = new TextBlock
         {
@@ -350,6 +407,12 @@ internal sealed class UpdateDialog : Window
             Child = notesViewer,
             Margin = new Thickness(0, 7, 0, 14),
         };
+
+        if (_upToDate)
+        {
+            notesTitle.Visibility = Visibility.Collapsed;
+            notesCard.Visibility = Visibility.Collapsed;
+        }
 
         var footer = new Grid();
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

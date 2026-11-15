@@ -19,6 +19,7 @@ using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using QuickLookNext.Helpers;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -42,6 +43,7 @@ public class ViewWindowManager : IDisposable
     // see PreviewSession for the measurements behind this.
     private readonly PreviewSession _session = new();
     private readonly object _sessionTimerSync = new();
+    private readonly List<DetachedPreviewSession> _detachedPreviews = [];
 
     // v6.5.1: the idle deadline is a threading timer, not a DispatcherTimer. A
     // DispatcherTimer at Background priority can remain queued indefinitely in a
@@ -117,9 +119,10 @@ public class ViewWindowManager : IDisposable
     /// shown - a handle that does not exist cannot be under the cursor.
     /// </summary>
     internal nint PreviewWindowHandle =>
-        _viewerWindow == null || _viewerWindow.IsClosedWindow
+        ActiveDetachedPreview?.WindowHandle ??
+        (_viewerWindow == null || _viewerWindow.IsClosedWindow
             ? IntPtr.Zero
-            : new System.Windows.Interop.WindowInteropHelper(_viewerWindow).Handle;
+            : new System.Windows.Interop.WindowInteropHelper(_viewerWindow).Handle);
 
     private ViewerWindow EnsureViewerWindow()
     {
@@ -134,12 +137,23 @@ public class ViewWindowManager : IDisposable
 
     public void Dispose()
     {
+        foreach (var preview in _detachedPreviews.ToArray())
+            preview.Dispose();
+        _detachedPreviews.Clear();
+
         StopFocusMonitor();
         StopSessionTimer();
     }
 
     public void RunAndClosePreview()
     {
+        var detached = ActiveDetachedPreview;
+        if (detached != null)
+        {
+            detached.RunAndClose();
+            return;
+        }
+
         if (string.IsNullOrEmpty(_invokedPath))
             return;
 
@@ -166,6 +180,9 @@ public class ViewWindowManager : IDisposable
 
     public void ClosePreview()
     {
+        if (CloseDetachedPreview())
+            return;
+
         if (string.IsNullOrEmpty(_invokedPath))
             return;
 
@@ -442,8 +459,49 @@ public class ViewWindowManager : IDisposable
         return new EmbeddedPreviewSession(path, source);
     }
 
+    /// <summary>
+    /// Creates a complete preview window beside the current one. ArchiveViewer
+    /// uses this for extracted entries so the nested preview keeps the normal
+    /// WCA backdrop, content sizing and window controls.
+    /// </summary>
+    public IDetachedPreviewSession CreateDetachedPreview(object owner, object source = null)
+    {
+        if (owner is not System.Windows.Window ownerWindow)
+            return null;
+
+        var session = new DetachedPreviewSession(ownerWindow, source, this);
+        _detachedPreviews.Add(session);
+        return session;
+    }
+
+    internal void UnregisterDetachedPreview(DetachedPreviewSession session)
+    {
+        _detachedPreviews.Remove(session);
+    }
+
+    private DetachedPreviewSession ActiveDetachedPreview =>
+        _detachedPreviews.LastOrDefault(preview => preview.IsVisible);
+
+    private bool CloseDetachedPreview()
+    {
+        var preview = ActiveDetachedPreview;
+        if (preview == null)
+            return false;
+
+        preview.Close();
+        return true;
+    }
+
     public void ReloadPreview()
     {
+        var detached = ActiveDetachedPreview;
+        if (detached != null)
+        {
+            Helpers.PreviewWarmUp.NotePreviewRequested();
+            _ = detached.ReloadAsync();
+            return;
+        }
+
         var window = EnsureViewerWindow();
         if (!window.IsVisible || string.IsNullOrEmpty(_invokedPath))
             return;
@@ -457,6 +515,13 @@ public class ViewWindowManager : IDisposable
 
     public void ToggleFullscreen()
     {
+        var detached = ActiveDetachedPreview;
+        if (detached != null)
+        {
+            detached.ToggleFullscreen();
+            return;
+        }
+
         var window = EnsureViewerWindow();
         if (!window.IsVisible)
             return;

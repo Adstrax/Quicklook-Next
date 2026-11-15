@@ -33,17 +33,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 
 namespace QuickLook.Plugin.ArchiveViewer.ArchiveFile;
 
 public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropertyChanged
 {
-    private const string SplitRatioSetting = "ArchiveFileListRatio";
     private const string SettingsDomain = "QuickLook.Plugin.ArchiveViewer";
+    private static readonly TimeSpan SelectionPreviewDelay = TimeSpan.FromMilliseconds(50);
 
     private readonly Dictionary<string, ArchiveFileEntry> _fileEntries =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ArchiveEntryPreviewCache _embeddedPreviewCache = new();
     private readonly string _archivePath;
     private readonly string _translationsPath;
     private volatile bool _disposed;
@@ -51,13 +52,24 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
     private double _loadPercent;
     private int _previewVersion;
     private CancellationTokenSource _previewCancellation;
-    private IEmbeddedPreviewSession _previewSession;
+    private IDetachedPreviewSession _detachedPreview;
     private string _temporaryDirectory;
+    private readonly DispatcherTimer _selectionPreviewTimer;
+    private IEmbeddedPreviewSession _embeddedPreview;
+    private CancellationTokenSource _embeddedPreviewCancellation;
+    private string _embeddedPreviewTitle;
+    private ArchiveFileEntry _pendingSelectionPreview;
+    private int _embeddedPreviewVersion;
     private ulong _totalZippedSize;
     private string _type;
 
     public ArchiveInfoPanel(string path)
     {
+        _selectionPreviewTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = SelectionPreviewDelay
+        };
+
         InitializeComponent();
         _archivePath = path;
         _translationsPath = Path.Combine(
@@ -69,10 +81,10 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         Resources.MergedDictionaries.Clear();
 
         fileListView.SetArchiveName(Path.GetFileName(path));
-        fileListView.FileSelected += FileListView_FileSelected;
+        fileListView.PreviewRequested += FileListView_PreviewRequested;
+        fileListView.SelectionPreviewRequested += FileListView_SelectionPreviewRequested;
+        _selectionPreviewTimer.Tick += SelectionPreviewTimer_Tick;
         lblLoading.Content = Translate("ArchivePreview_LoadingArchive", "Loading archive ...");
-        SetPreviewMessage(Translate("ArchivePreview_SelectFile", "Select a file in the archive to preview it."));
-        Loaded += ArchiveInfoPanel_Loaded;
 
         BeginLoadArchive(path);
     }
@@ -97,67 +109,273 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         var archiveLoad = Interlocked.Exchange(ref _archiveLoadCancellation, null);
         archiveLoad?.Cancel();
 
-        Loaded -= ArchiveInfoPanel_Loaded;
-        fileListView.FileSelected -= FileListView_FileSelected;
+        fileListView.PreviewRequested -= FileListView_PreviewRequested;
+        fileListView.SelectionPreviewRequested -= FileListView_SelectionPreviewRequested;
+        _selectionPreviewTimer.Stop();
+        _selectionPreviewTimer.Tick -= SelectionPreviewTimer_Tick;
+        StopEmbeddedPreview();
+        _embeddedPreviewCache.Dispose();
+        if (_detachedPreview != null)
+        {
+            _detachedPreview.Closed -= DetachedPreview_Closed;
+            _detachedPreview.Dispose();
+            _detachedPreview = null;
+        }
         StopCurrentPreview();
         fileListView.Dispose();
     }
 
     public event PropertyChangedEventHandler PropertyChanged;
 
-    private async void FileListView_FileSelected(object sender, ArchiveFileSelectedEventArgs e)
+    private void FileListView_PreviewRequested(object sender, ArchiveFileSelectedEventArgs e)
     {
-        var entry = e.Entry;
-        if (_disposed)
+        if (_disposed || e.Entry is not { IsFolder: false })
             return;
 
-        if (entry == null || entry.IsFolder)
+        _selectionPreviewTimer.Stop();
+        _pendingSelectionPreview = null;
+        _ = PreviewEntryAsync(e.Entry);
+    }
+
+    private void FileListView_SelectionPreviewRequested(
+        object sender,
+        ArchiveFileSelectedEventArgs e)
+    {
+        if (_disposed || e.Entry is not { IsFolder: false })
+            return;
+
+        _pendingSelectionPreview = e.Entry;
+        _selectionPreviewTimer.Stop();
+        CancelPendingEmbeddedPreview();
+        fileListView.ShowPreviewStatus(
+            e.Entry.Name,
+            Translate("ArchivePreview_Loading", "Preparing preview ..."),
+            showProgress: true);
+        _selectionPreviewTimer.Start();
+    }
+
+    private void SelectionPreviewTimer_Tick(object sender, EventArgs e)
+    {
+        _selectionPreviewTimer.Stop();
+        var entry = _pendingSelectionPreview;
+        _pendingSelectionPreview = null;
+        if (entry != null)
+            _ = PreviewSelectionAsync(entry);
+    }
+
+    private async Task PreviewSelectionAsync(ArchiveFileEntry entry)
+    {
+        if (entry.Encrypted)
         {
-            StopCurrentPreview();
-            previewTitle.Text = entry?.Name ?? string.Empty;
-            SetPreviewMessage(Translate(
-                "ArchivePreview_SelectFile",
-                "Select a file in the archive to preview it."));
+            fileListView.ShowPreviewStatus(
+                entry.Name,
+                Translate(
+                    "ArchivePreview_Encrypted",
+                    "Encrypted files cannot be previewed yet."),
+                showProgress: false);
             return;
         }
 
-        await PreviewEntryAsync(entry);
+        if (entry.Size > ArchiveEntryExtractor.MaxPreviewBytes)
+        {
+            fileListView.ShowPreviewStatus(
+                entry.Name,
+                Translate(
+                    "ArchivePreview_TooLarge",
+                    "This file is larger than 512 MB and was not extracted."),
+                showProgress: false);
+            return;
+        }
+
+        var version = ++_embeddedPreviewVersion;
+        var cancellation = new CancellationTokenSource();
+        _embeddedPreviewCancellation = cancellation;
+        _embeddedPreviewTitle = entry.Name;
+        fileListView.ShowPreviewStatus(
+            entry.Name,
+            Translate("ArchivePreview_Loading", "Preparing preview ..."),
+            showProgress: true);
+
+        ExtractedArchiveEntry extracted = null;
+        try
+        {
+            extracted = await Task.Run(() =>
+                GetOrExtractEmbeddedEntry(entry, cancellation.Token));
+
+            if (_disposed || version != _embeddedPreviewVersion ||
+                !ReferenceEquals(_embeddedPreviewCancellation, cancellation))
+            {
+                return;
+            }
+
+            var session = PluginHelper.CreateEmbeddedPreview(
+                extracted.FilePath,
+                fileListView);
+            if (session == null)
+            {
+                fileListView.ShowPreviewStatus(
+                    entry.Name,
+                    Translate(
+                        "ArchivePreview_Failed",
+                        "Preview failed. See the diagnostic log for more details."),
+                    showProgress: false);
+                return;
+            }
+
+            await session.StartAsync();
+
+            if (_disposed || version != _embeddedPreviewVersion ||
+                !ReferenceEquals(_embeddedPreviewCancellation, cancellation))
+            {
+                session.Dispose();
+                return;
+            }
+
+            SwapEmbeddedPreview(session, entry.Name);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            ProcessHelper.WriteLog(ex.ToString());
+            if (version == _embeddedPreviewVersion && !_disposed)
+            {
+                fileListView.ShowPreviewStatus(
+                    entry.Name,
+                    Translate(
+                        "ArchivePreview_Failed",
+                        "Preview failed. See the diagnostic log for more details."),
+                    showProgress: false);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_embeddedPreviewCancellation, cancellation))
+                _embeddedPreviewCancellation = null;
+
+            cancellation.Dispose();
+        }
     }
 
-    private void ArchiveInfoPanel_Loaded(object sender, RoutedEventArgs e)
+    private void EmbeddedPreview_Changed(object sender, EventArgs e)
     {
-        ApplySplitRatio(SettingHelper.Get(
-            SplitRatioSetting,
-            ArchiveSplitLayout.DefaultRatio,
-            SettingsDomain));
+        if (!_disposed && ReferenceEquals(sender, _embeddedPreview))
+            UpdateEmbeddedPreview();
     }
 
-    private void ArchiveSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    private ExtractedArchiveEntry GetOrExtractEmbeddedEntry(
+        ArchiveFileEntry entry,
+        CancellationToken cancellationToken)
     {
-        var ratio = ArchiveSplitLayout.RatioFromWidths(
-            fileListColumn.ActualWidth,
-            previewColumn.ActualWidth);
-        ApplySplitRatio(ratio);
-        SettingHelper.Set(SplitRatioSetting, ratio, SettingsDomain);
+        if (_embeddedPreviewCache.TryGet(
+            _archivePath,
+            entry.ArchivePath,
+            entry.Size,
+            out var cached))
+        {
+            return cached;
+        }
+
+        var extracted = ArchiveEntryExtractor.Extract(
+            _archivePath,
+            entry.ArchivePath,
+            entry.Size,
+            cancellationToken);
+
+        if (!_embeddedPreviewCache.TryAdd(
+            _archivePath,
+            entry.ArchivePath,
+            entry.Size,
+            extracted))
+        {
+            ArchiveEntryExtractor.DeleteDirectoryWhenUnused(
+                extracted.TemporaryDirectory);
+        }
+
+        return extracted;
     }
 
-    private void ApplySplitRatio(double ratio)
+    private void SwapEmbeddedPreview(
+        IEmbeddedPreviewSession session,
+        string title)
     {
-        var normalized = ArchiveSplitLayout.Normalize(ratio);
-        fileListColumn.Width = new GridLength(normalized, GridUnitType.Star);
-        previewColumn.Width = new GridLength(1 - normalized, GridUnitType.Star);
+        var previous = _embeddedPreview;
+        _embeddedPreview = session;
+        _embeddedPreviewTitle = title;
+        session.Changed += EmbeddedPreview_Changed;
+        UpdateEmbeddedPreview();
+
+        if (previous != null)
+        {
+            previous.Changed -= EmbeddedPreview_Changed;
+            previous.Dispose();
+        }
+    }
+
+    private void UpdateEmbeddedPreview()
+    {
+        var session = _embeddedPreview;
+        if (session == null || _disposed)
+            return;
+
+        if (!string.IsNullOrEmpty(session.Error))
+        {
+            fileListView.ShowPreviewStatus(
+                _embeddedPreviewTitle,
+                Translate(
+                    "ArchivePreview_Failed",
+                    "Preview failed. See the diagnostic log for more details."),
+                showProgress: false);
+            return;
+        }
+
+        if (session.ViewerContent != null)
+        {
+            fileListView.ShowPreviewContent(
+                _embeddedPreviewTitle,
+                session.ViewerContent);
+            return;
+        }
+
+        fileListView.ShowPreviewStatus(
+            _embeddedPreviewTitle,
+            session.IsBusy
+                ? Translate("ArchivePreview_Loading", "Preparing preview ...")
+                : Translate(
+                    "No preview is available for this file.",
+                    "此文件暂无可用的内容预览。"),
+            session.IsBusy);
+    }
+
+    private void CancelPendingEmbeddedPreview()
+    {
+        ++_embeddedPreviewVersion;
+
+        var cancellation = _embeddedPreviewCancellation;
+        _embeddedPreviewCancellation = null;
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+    }
+
+    private void StopEmbeddedPreview()
+    {
+        CancelPendingEmbeddedPreview();
+
+        var session = _embeddedPreview;
+        _embeddedPreview = null;
+        if (session != null)
+        {
+            session.Changed -= EmbeddedPreview_Changed;
+            session.Dispose();
+        }
     }
 
     private async Task PreviewEntryAsync(ArchiveFileEntry entry)
     {
-        StopCurrentPreview();
-        var version = _previewVersion;
-
-        previewTitle.Text = entry.Name;
-
         if (entry.Encrypted)
         {
-            SetPreviewMessage(Translate(
+            ShowPreviewMessage(entry.Name, Translate(
                 "ArchivePreview_Encrypted",
                 "Encrypted files cannot be previewed yet."));
             return;
@@ -165,17 +383,16 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
         if (entry.Size > ArchiveEntryExtractor.MaxPreviewBytes)
         {
-            SetPreviewMessage(Translate(
+            ShowPreviewMessage(entry.Name, Translate(
                 "ArchivePreview_TooLarge",
                 "This file is larger than 512 MB and was not extracted."));
             return;
         }
 
+        StopCurrentPreview(deleteTemporary: false);
+        var version = ++_previewVersion;
         var cancellation = new CancellationTokenSource();
         _previewCancellation = cancellation;
-        SetPreviewMessage(
-            Translate("ArchivePreview_Loading", "Preparing preview ..."),
-            showProgress: true);
 
         ExtractedArchiveEntry extracted = null;
         try
@@ -193,23 +410,44 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
                 return;
             }
 
+            var previousTemporaryDirectory = _temporaryDirectory;
             _temporaryDirectory = extracted.TemporaryDirectory;
-
-            var session = PluginHelper.CreateEmbeddedPreview(extracted.FilePath, this);
-            if (session == null)
+            var preview = EnsureDetachedPreview();
+            if (preview == null)
             {
-                SetPreviewMessage(Translate(
-                    "ArchivePreview_Unavailable",
-                    "No preview is available for this file."));
+                _temporaryDirectory = previousTemporaryDirectory;
+                ArchiveEntryExtractor.DeleteDirectoryWhenUnused(
+                    extracted.TemporaryDirectory);
+                ShowPreviewMessage(entry.Name, Translate(
+                    "ArchivePreview_Failed",
+                    "Preview failed. See the diagnostic log for more details."));
                 return;
             }
 
-            _previewSession = session;
-            session.Changed += PreviewSession_Changed;
-            await session.StartAsync();
+            try
+            {
+                await preview.ShowAsync(extracted.FilePath);
+                ArchiveEntryExtractor.DeleteDirectoryWhenUnused(
+                    previousTemporaryDirectory);
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog(ex.ToString());
+                if (version == _previewVersion &&
+                    ReferenceEquals(_temporaryDirectory, extracted.TemporaryDirectory))
+                {
+                    _temporaryDirectory = previousTemporaryDirectory;
+                }
 
-            if (!_disposed && ReferenceEquals(_previewSession, session))
-                UpdatePreviewFromSession();
+                ArchiveEntryExtractor.DeleteDirectoryWhenUnused(
+                    extracted.TemporaryDirectory);
+                if (version == _previewVersion)
+                {
+                    ShowPreviewMessage(entry.Name, Translate(
+                        "ArchivePreview_Failed",
+                        "Preview failed. See the diagnostic log for more details."));
+                }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -223,7 +461,7 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
                 ProcessHelper.WriteLog(ex.ToString());
 
             if (version == _previewVersion)
-                SetPreviewFailure(failure);
+                ShowPreviewMessage(entry.Name, GetFailureMessage(failure));
         }
         finally
         {
@@ -234,43 +472,7 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         }
     }
 
-    private void PreviewSession_Changed(object sender, EventArgs e)
-    {
-        if (!_disposed && ReferenceEquals(sender, _previewSession))
-            UpdatePreviewFromSession();
-    }
-
-    private void UpdatePreviewFromSession()
-    {
-        var session = _previewSession;
-        if (session == null)
-            return;
-
-        if (!string.IsNullOrEmpty(session.Error))
-        {
-            SetPreviewMessage(Translate(
-                "ArchivePreview_Failed",
-                "Preview failed. See the diagnostic log for more details."));
-            return;
-        }
-
-        if (session.ViewerContent != null)
-        {
-            previewContent.Content = session.ViewerContent;
-            return;
-        }
-
-        if (session.IsBusy)
-            SetPreviewMessage(
-                Translate("ArchivePreview_Loading", "Preparing preview ..."),
-                showProgress: true);
-        else
-            SetPreviewMessage(Translate(
-                "ArchivePreview_Unavailable",
-                "No preview is available for this file."));
-    }
-
-    private void StopCurrentPreview()
+    private void StopCurrentPreview(bool deleteTemporary = true)
     {
         _previewVersion++;
 
@@ -279,52 +481,62 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         cancellation?.Cancel();
         cancellation?.Dispose();
 
-        var session = _previewSession;
-        _previewSession = null;
-        if (session != null)
-        {
-            session.Changed -= PreviewSession_Changed;
-            session.Dispose();
-        }
+        if (deleteTemporary)
+            DeleteCurrentTemporaryDirectory();
+    }
 
-        previewContent.Content = null;
-
+    private void DeleteCurrentTemporaryDirectory()
+    {
         var temporaryDirectory = _temporaryDirectory;
         _temporaryDirectory = null;
         ArchiveEntryExtractor.DeleteDirectoryWhenUnused(temporaryDirectory);
     }
 
-    private void SetPreviewMessage(string message, bool showProgress = false)
+    private IDetachedPreviewSession EnsureDetachedPreview()
     {
-        var panel = new StackPanel
-        {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            MaxWidth = 320,
-        };
+        if (_detachedPreview != null)
+            return _detachedPreview;
 
-        if (showProgress)
+        var owner = Window.GetWindow(this);
+        if (owner == null)
+            return null;
+
+        _detachedPreview = PluginHelper.CreateDetachedPreview(owner, this);
+        if (_detachedPreview != null)
+            _detachedPreview.Closed += DetachedPreview_Closed;
+
+        return _detachedPreview;
+    }
+
+    private void DetachedPreview_Closed(object sender, EventArgs e)
+    {
+        if (!ReferenceEquals(sender, _detachedPreview))
+            return;
+
+        _detachedPreview.Closed -= DetachedPreview_Closed;
+        _detachedPreview = null;
+        DeleteCurrentTemporaryDirectory();
+    }
+
+    private void ShowPreviewMessage(string title, string message)
+    {
+        var owner = Window.GetWindow(this);
+        if (owner == null)
         {
-            panel.Children.Add(new ProgressBar
-            {
-                Width = 130,
-                Height = 4,
-                Margin = new Thickness(0, 0, 0, 14),
-                IsIndeterminate = true,
-            });
+            MessageBox.Show(
+                message,
+                title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
         }
 
-        var text = new TextBlock
-        {
-            Text = message,
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            FontSize = 13,
-        };
-        text.SetResourceReference(TextBlock.ForegroundProperty, "WindowTextForegroundAlternative");
-        panel.Children.Add(text);
-
-        previewContent.Content = panel;
+        MessageBox.Show(
+            owner,
+            message,
+            title,
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
     }
 
     private string Translate(string id, string fallback)
@@ -396,23 +608,22 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
         var d = folders != 0 ? $"{folders} folders" : string.Empty;
         var f = files != 0 ? $"{files} files" : string.Empty;
         if (!string.IsNullOrEmpty(d) && !string.IsNullOrEmpty(f))
-            t = $", {d} and {f}";
+            t = $": {d} and {f}";
         else if (string.IsNullOrEmpty(d) && string.IsNullOrEmpty(f))
             t = string.Empty;
         else
-            t = $", {d}{f}";
+            t = $": {d}{f}";
 
         QueueUiAction(() =>
         {
             if (_disposed || token.IsCancellationRequested)
                 return;
 
-            fileListView.SetDataContext(_fileEntries[string.Empty].Children.Keys);
-            archiveCount.Content =
-                $"{_type} archive{t}";
-            archiveSizeC.Content =
-                $"Compressed size {((long)_totalZippedSize).ToPrettySize(2)}";
-            archiveSizeU.Content = $"Uncompressed size {((long)sizeU).ToPrettySize(2)}";
+            fileListView.SetDataContext(_fileEntries[string.Empty]);
+            fileListView.SetArchiveSummary(
+                $"{_type} archive{t}",
+                $"Compressed size: {((long)_totalZippedSize).ToPrettySize(2)}",
+                $"Uncompressed size: {((long)sizeU).ToPrettySize(2)}");
             LoadPercent = 100d;
         });
     }
@@ -551,11 +762,6 @@ public partial class ArchiveInfoPanel : UserControl, IDisposable, INotifyPropert
 
         loadingProgress.Visibility = Visibility.Collapsed;
         lblLoading.Content = GetFailureMessage(ArchivePreviewFailureClassifier.Classify(exception));
-    }
-
-    private void SetPreviewFailure(ArchivePreviewFailure failure)
-    {
-        SetPreviewMessage(GetFailureMessage(failure));
     }
 
     private string GetFailureMessage(ArchivePreviewFailure failure)

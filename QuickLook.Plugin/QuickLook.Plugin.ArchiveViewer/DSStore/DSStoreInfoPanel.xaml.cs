@@ -93,7 +93,7 @@ public partial class DSStoreInfoPanel : UserControl, IDisposable, INotifyPropert
                 if (_disposed) return;
 
                 fileListView.SetArchiveName(Path.GetFileName(path));
-                fileListView.SetDataContext(root.Children.Keys);
+                fileListView.SetDataContext(root);
                 archiveCount.Content = $"DS_Store, {f}";
                 archiveSizeC.Content = string.Empty;
                 archiveSizeU.Content = string.Empty;
@@ -115,7 +115,7 @@ public partial class DSStoreInfoPanel : UserControl, IDisposable, INotifyPropert
             if (string.IsNullOrEmpty(name)) continue;
             if (!seen.Add(name)) continue;
 
-            _ = new ArchiveFileEntry(name, false, root);
+            _ = new ArchiveFileEntry(name, false, root, name);
         }
     }
 
