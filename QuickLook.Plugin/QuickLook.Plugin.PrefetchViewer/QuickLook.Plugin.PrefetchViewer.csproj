@@ -75,7 +75,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Prefetch" Version="2026.5.2" />
+        <PackageReference Include="Prefetch" Version="2026.10.1" />
     </ItemGroup>
 
     <ItemGroup>

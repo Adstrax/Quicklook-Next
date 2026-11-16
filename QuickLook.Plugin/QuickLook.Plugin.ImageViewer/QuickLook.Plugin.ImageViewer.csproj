@@ -85,16 +85,16 @@
         <PackageReference Include="fo-dicom.Imaging.Desktop" Version="5.2.6">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11">
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.16.0">
+        <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="15.1.0">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44">
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Google.Protobuf" Version="3.35.1">
+        <PackageReference Include="Google.Protobuf" Version="3.36.2">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
         <PackageReference Include="QuickLook.LibAPNG" Version="0.3.1">
@@ -103,7 +103,7 @@
     </ItemGroup>
 
     <ItemGroup Condition=" '$(DefineConstants)' != '' and $(DefineConstants.Contains('USESVGSKIA')) ">
-        <PackageReference Include="Svg.Skia" Version="3.0.3">
+        <PackageReference Include="Svg.Skia" Version="5.2.3">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
     </ItemGroup>

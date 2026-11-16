@@ -16,10 +16,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using CsvHelper;
-using CsvHelper.Configuration;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -129,34 +127,26 @@ public partial class CsvViewerPanel : UserControl
 
         // Use fixed delimiters for known extensions to avoid mis-detection on small samples.
         var extension = Path.GetExtension(path);
-        var delimiter = extension.Equals(".tsv", StringComparison.OrdinalIgnoreCase)
-            ? "\t"
+        char? delimiter = extension.Equals(".tsv", StringComparison.OrdinalIgnoreCase)
+            ? '\t'
             : extension.Equals(".psv", StringComparison.OrdinalIgnoreCase)
-                ? "|"
+                ? '|'
                 : null;
 
-        var conf = new CsvConfiguration(CultureInfo.CurrentUICulture)
+        var options = new CsvReaderOptions
         {
-            MissingFieldFound = null,
-            BadDataFound = null,
-            DetectDelimiter = delimiter == null,
+            HasHeader = false,
+            Separator = delimiter,
+            Encoding = encoding,
         };
 
-        if (delimiter != null)
-        {
-            // Force delimiter for TSV/PSV so CsvHelper doesn't auto-detect incorrectly.
-            conf.Delimiter = delimiter;
-        }
-
-        using var parser = new CsvParser(sr, conf);
+        using var parser = CsvReader.Create(sr, options);
         var i = 0;
         while (parser.Read())
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var row = parser.Record;
-            if (row == null)
-                break;
+            var row = parser.Current.ToArray();
             row = Concat([$"{i++ + 1}".PadLeft(6)], row);
 
             if (i > limit)

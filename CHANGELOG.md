@@ -7,6 +7,25 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 7.1.1
+
+### Dependency refresh and preview compatibility
+
+7.1.1 refreshes the third-party components bundled with the application and
+built-in preview plugins while keeping the 7.1 preview behaviour.
+
+- **Modern preview engines:** WebView2, PDFium, Magick.NET, MediaKit, Svg.Skia
+  and the supporting media/document libraries now use their latest compatible
+  stable releases.
+- **CSV preview remains compatible:** the CsvHelper 34 parser changes are
+  handled explicitly, including delimiter detection, malformed-row recovery and
+  the existing 10,000-row preview limit.
+- **Shared plugin dependencies stay aligned:** WebView2 native loaders and the
+  application-level managed DLLs are rebuilt together so previews do not mix
+  old and new component versions.
+- **Validation:** Release build completed with 0 warnings and 0 errors; all
+  444 automated tests passed.
+
 ## QuickLook-Next 7.1.0
 
 ### Archive browser redesign and faster preview switching

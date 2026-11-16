@@ -101,13 +101,13 @@
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" Version="1.1.142">
+        <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" Version="1.1.161">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="WPF-UI.Violeta" Version="4.3.0.3">
+        <PackageReference Include="WPF-UI.Violeta" Version="4.3.0.19">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Lib.Harmony" Version="2.4.2">
+        <PackageReference Include="Lib.Harmony" Version="2.4.3">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
         <PackageReference Include="UnblockZoneIdentifier" Version="1.0.1">

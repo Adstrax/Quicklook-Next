@@ -2,6 +2,20 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 7.1.1
+
+### 组件更新与预览兼容性
+
+7.1.1 更新应用和内置预览插件使用的第三方组件，同时保持 7.1 的预览行为。
+
+- **预览引擎更新**：WebView2、PDFium、Magick.NET、MediaKit、Svg.Skia 以及相关的
+  媒体和文档处理库均更新到最新的兼容稳定版。
+- **CSV 预览保持兼容**：针对 CsvHelper 34 的解析 API 变化完成适配，继续支持分隔符识别、
+  异常行恢复和原有的 10,000 行预览上限。
+- **共享插件依赖保持版本一致**：WebView2 原生加载器和应用级托管 DLL 一起重新构建，
+  避免预览插件混用新旧组件。
+- **验证结果**：Release 构建 0 警告、0 错误；444 项自动化测试全部通过。
+
 ## QuickLook-Next 7.1.0
 
 ### 压缩包浏览界面重构与预览加速

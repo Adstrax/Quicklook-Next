@@ -92,8 +92,8 @@
     <ItemGroup>
         <PackageReference Include="UnblockZoneIdentifier " Version="1.0.1" />
         <!-- v3.12.0: self-rendered spreadsheet preview (xlsx/xlsm). -->
-        <PackageReference Include="MiniExcel" Version="1.45.0" />
-        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+        <PackageReference Include="MiniExcel" Version="1.47.1" />
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     </ItemGroup>
     
     <ItemGroup>

@@ -74,7 +74,7 @@
 
     <ItemGroup>
         <PackageReference Include="PureSharpCompress" Version="0.40.0" />
-        <PackageReference Include="UTF.Unknown" Version="2.6.0" />
+        <PackageReference Include="UTF.Unknown" Version="2.8.0" />
         <PackageReference Include="WindowsAPICodePack.Shell.CommonFileDialogs" Version="1.1.5" />
     </ItemGroup>
 
