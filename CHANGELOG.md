@@ -7,6 +7,21 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 7.1.2
+
+### Clearer Acrylic preview backdrop
+
+7.1.2 lowers the tint strength of the default Acrylic preview window so the wallpaper's
+colour and light are more visible while the frosted blur, title bar and preview layout
+remain unchanged.
+
+- **Clearer default Acrylic:** the WCA tint strength for Acrylic and Acrylic 11 is
+  reduced from 0.4 to 0.3, cutting about one quarter of the tint overlay.
+- **Same interface hierarchy:** the title-bar gradient, content surfaces, text colours
+  and every other backdrop mode are unchanged.
+- **Validation:** local light-theme and dark-theme previews passed; Release build
+  completed with 0 warnings and 0 errors; all 444 automated tests passed.
+
 ## QuickLook-Next 7.1.1
 
 ### Dependency refresh and preview compatibility

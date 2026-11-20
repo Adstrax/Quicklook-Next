@@ -46,6 +46,8 @@ namespace QuickLookNext;
 
 public partial class ViewerWindow : Window
 {
+    private const double AcrylicTintOpacity = 0.3d;
+
     private Size _customWindowSize = Size.Empty;
     private bool _ignoreNextWindowSizeChange;
     private string _path = string.Empty;
@@ -532,7 +534,7 @@ public partial class ViewerWindow : Window
                     // routing, so both 1.3.2 defects are fixed at once.
                     SetGlassFrameThickness(0d);
                     WindowHelper.DisableDwmBlur(this); // clear previous DWM backdrop, restore rounded corners
-                    _lastAcrylicOk = WindowHelper.EnableAcrylicBlur(this, GetAcrylicTintColor(), CurrentTheme == Themes.Dark, 0.4d);
+                    _lastAcrylicOk = WindowHelper.EnableAcrylicBlur(this, GetAcrylicTintColor(), CurrentTheme == Themes.Dark, AcrylicTintOpacity);
                     Background = Brushes.Transparent;
                 }
                 else if (App.IsWin10)
@@ -569,7 +571,7 @@ public partial class ViewerWindow : Window
                     // v1.3.5: same non-layered WCA recipe as Acrylic.
                     SetGlassFrameThickness(0d);
                     WindowHelper.DisableDwmBlur(this);
-                    _lastAcrylicOk = WindowHelper.EnableAcrylicBlur(this, GetAcrylicTintColor(), CurrentTheme == Themes.Dark, 0.4d);
+                    _lastAcrylicOk = WindowHelper.EnableAcrylicBlur(this, GetAcrylicTintColor(), CurrentTheme == Themes.Dark, AcrylicTintOpacity);
                     Background = Brushes.Transparent;
                 }
                 else if (App.IsWin10)
