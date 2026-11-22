@@ -689,10 +689,14 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
             : Size.Empty;
         var longImage = UseLongImageScrolling && ImageZoom.IsLongImage(imageSize);
         var controlPressed = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        var viewport = new Size(viewPanel.ViewportWidth, viewPanel.ViewportHeight);
 
-        // A long image already opens at a readable scale, so the ordinary wheel is more useful
-        // for moving through it. Ctrl+wheel still zooms, matching the rest of the image viewer.
-        if (longImage && !controlPressed)
+        // A long image whose fitted long axis actually overflows opens at a readable scale, so the
+        // ordinary wheel is more useful for moving through it. Ultra-thin strips can fit completely
+        // after the responsive window sizing, where consuming the wheel for a no-op scroll would
+        // stop zooming entirely. Ctrl+wheel always zooms.
+        if (longImage && !controlPressed &&
+            ImageZoom.HasLongAxisOverflow(viewport, imageSize, ZoomFactor))
         {
             ScrollImageByWheel(e.Delta, imageSize.Width > imageSize.Height);
             return;
@@ -855,8 +859,8 @@ public partial class ImagePanel : UserControl, INotifyPropertyChanged, IDisposab
         var oneToOne = DecodeScale > 0 ? 1d / DecodeScale : 1d;
         factor = ImageZoom.LandOnLandmark(ZoomFactor, factor, oneToOne);
 
-        factor = Math.Max(factor, MinZoomFactor);
-        factor = Math.Min(factor, EffectiveMaxZoomFactor);
+        factor = ImageZoom.LimitZoom(
+            factor, MinZoomFactor, EffectiveMaxZoomFactor, ZoomToFitFactor);
 
         ZoomFactor = factor;
         ZoomToFit = isToFit || Math.Abs(factor - ZoomToFitFactor) < 0.001d;

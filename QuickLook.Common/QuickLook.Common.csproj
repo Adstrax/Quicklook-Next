@@ -77,7 +77,8 @@
 
     <PropertyGroup>
     </PropertyGroup>
-    <Target Name="UpdateVersion" BeforeTargets="BeforeBuild">
+    <Target Name="UpdateVersion" BeforeTargets="BeforeBuild"
+            Condition="'$(SkipVersionUpdate)' != 'true'">
         <Exec Command="powershell -ExecutionPolicy Bypass -file &quot;$(MSBuildThisFileDirectory)..\Scripts\update-version.ps1&quot;" />
     </Target>
 </Project>

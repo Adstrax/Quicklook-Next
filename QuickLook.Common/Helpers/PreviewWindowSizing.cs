@@ -42,6 +42,15 @@ namespace QuickLook.Common.Helpers;
 public static class PreviewWindowSizing
 {
     /// <summary>
+    /// Very thin long images need a readable short edge, but filling the entire desktop makes
+    /// them look like a full-screen window with a tiny picture inside. Thirty percent of the
+    /// available short dimension is large enough to inspect the content without wasting space.
+    /// </summary>
+    private const double LongImageReadableShortEdgeRatio = 0.3d;
+    private const double LongImageMinimumHeight = 200d;
+    private const double LongImageMinimumWidth = 400d;
+
+    /// <summary>
     /// The ratio <paramref name="content"/> has to be scaled by so that it fits
     /// into <paramref name="desktop"/> * <paramref name="maxRatio"/>.
     /// <para>
@@ -94,10 +103,11 @@ public static class PreviewWindowSizing
     }
 
     /// <summary>
-    /// Sizes a long image preview without shrinking its long edge onto the screen. A vertical
-    /// long image keeps its natural short-side width and takes up to <paramref name="maxRatio"/>
-    /// of the desktop height; a horizontal one does the opposite. The overflow is intentionally
-    /// available to the image panel's scroll viewer.
+    /// Sizes a long image preview without shrinking its long edge onto the screen. The short edge
+    /// keeps its natural size when that is already readable; ultra-thin strips are enlarged enough
+    /// to avoid being stranded inside the viewer's minimum window size. The aspect ratio is kept
+    /// whenever the fitted long edge fits on screen, and otherwise the long edge is capped so the
+    /// image panel can scroll it.
     /// </summary>
     public static Size FitLongImageWithin(Size content, Size desktop, double maxRatio)
     {
@@ -115,9 +125,28 @@ public static class PreviewWindowSizing
         if (!IsUsable(availableWidth) || !IsUsable(availableHeight))
             return content;
 
-        return content.Height > content.Width
-            ? new Size(Math.Min(content.Width, availableWidth), availableHeight)
-            : new Size(availableWidth, Math.Min(content.Height, availableHeight));
+        var vertical = content.Height > content.Width;
+        var availableShortEdge = vertical ? availableWidth : availableHeight;
+        var naturalShortEdge = vertical ? content.Width : content.Height;
+        var minimumReadableShortEdge = vertical
+            ? LongImageMinimumWidth
+            : LongImageMinimumHeight;
+        var preferredShortEdge = Math.Min(
+            availableShortEdge,
+            Math.Max(
+                naturalShortEdge,
+                Math.Max(minimumReadableShortEdge,
+                    availableShortEdge * LongImageReadableShortEdgeRatio)));
+
+        var scale = preferredShortEdge / naturalShortEdge;
+        var availableLongEdge = vertical ? availableHeight : availableWidth;
+        var preferredLongEdge = Math.Min(
+            availableLongEdge,
+            (vertical ? content.Height : content.Width) * scale);
+
+        return vertical
+            ? new Size(preferredShortEdge, preferredLongEdge)
+            : new Size(preferredLongEdge, preferredShortEdge);
     }
 
     /// <summary>

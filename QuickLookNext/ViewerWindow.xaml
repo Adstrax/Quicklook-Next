@@ -212,6 +212,8 @@
                       Visibility="{Binding ContextObject.TitlebarOverlap, ElementName=mainWindow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <ContentControl x:Name="container"
                                 Content="{Binding ContextObject.ViewerContent, ElementName=mainWindow}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
                                 Foreground="{DynamicResource WindowTextForeground}" />
             </DockPanel>
             <!-- v6.0.0: a different web format is attached here first, off the visible

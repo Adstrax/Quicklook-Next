@@ -89,6 +89,46 @@ internal class PreviewWindowSizingTests
         Assert.Equal(750d, size.Height, "the natural short-side height is kept");
     }
 
+    public void AThinLandscapeStripKeepsItsAspectRatioAndBecomesReadable()
+    {
+        var content = new Size(248, 63);
+        var size = PreviewWindowSizing.FitLongImageWithin(content, ScreenFullHd, 0.8d);
+
+        Assert.True(size.Height >= 200d,
+            $"the strip must clear the viewer's minimum readable height, got {size.Height:0.##}");
+        Assert.True(size.Width < ScreenFullHd.Width * 0.8d,
+            "a small strip should not request a full-width window with a tiny picture inside");
+        Assert.True(Math.Abs(size.Width / size.Height - content.Width / content.Height) < 0.001d,
+            "the window follows the strip's aspect ratio instead of leaving large blank areas");
+    }
+
+    public void AThinPortraitStripIsNotSquashedIntoTheMinimumWindowWidth()
+    {
+        var content = new Size(68, 800);
+        var size = PreviewWindowSizing.FitLongImageWithin(content, ScreenFullHd, 0.8d);
+
+        Assert.True(size.Width > content.Width,
+            "a very thin portrait strip is enlarged to a readable width");
+        Assert.True(Math.Abs(size.Height - ScreenFullHd.Height * 0.8d) < 0.01d,
+            "the window uses the available height and leaves the long axis scrollable");
+        Assert.True(size.Width < ScreenFullHd.Width,
+            "the readable short edge does not consume the whole desktop width");
+    }
+
+    public void ThinStripsStayReadableOnSmallerScreensToo()
+    {
+        var desktop = new Size(1280, 720);
+        var landscape = PreviewWindowSizing.FitLongImageWithin(
+            new Size(248, 63), desktop, 0.8d);
+        var portrait = PreviewWindowSizing.FitLongImageWithin(
+            new Size(68, 800), desktop, 0.8d);
+
+        Assert.True(landscape.Height >= 200d,
+            "a landscape strip still clears the viewer's minimum height");
+        Assert.True(portrait.Width >= 400d,
+            "a portrait strip still clears the viewer's minimum width");
+    }
+
     public void LongImageSizingLeavesOrdinaryImagesOnTheContainedPath()
     {
         var content = new Size(800, 600);

@@ -27,7 +27,7 @@ if (-not (Test-Path -LiteralPath $depsPath)) {
 
 $deps = Get-Content -LiteralPath $depsPath -Raw
 foreach ($name in @('Microsoft.Windows.SDK.NET', 'WinRT.Runtime')) {
-    if ($deps.Contains($name, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($deps.IndexOf($name, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         throw "Runtime footprint check failed: QuickLook-Next.deps.json still references $name"
     }
 }

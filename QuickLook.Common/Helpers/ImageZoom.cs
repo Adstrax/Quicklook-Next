@@ -108,6 +108,56 @@ public static class ImageZoom
     }
 
     /// <summary>
+    /// Whether the long axis of a fitted long image actually extends beyond the viewport. A thin
+    /// strip can be enlarged into a window that contains all of it; the ordinary mouse wheel should
+    /// still zoom in that case instead of being consumed by a scroll that cannot move.
+    /// </summary>
+    public static bool HasLongAxisOverflow(Size viewport, Size content, double zoomFactor)
+    {
+        if (!IsLongImage(content) || viewport.IsEmpty || content.IsEmpty ||
+            viewport.Width <= 0 || viewport.Height <= 0 ||
+            content.Width <= 0 || content.Height <= 0 ||
+            zoomFactor <= 0 || double.IsNaN(zoomFactor) || double.IsInfinity(zoomFactor))
+        {
+            return false;
+        }
+
+        // Window chrome, scrollbars and layout rounding can make a fitted strip differ by a
+        // fraction of a DIP. Do not let that hairline consume the wheel as a scrubbing gesture.
+        const double layoutTolerance = 2d;
+        return content.Height > content.Width
+            ? content.Height * zoomFactor > viewport.Height + layoutTolerance
+            : content.Width * zoomFactor > viewport.Width + layoutTolerance;
+    }
+
+    /// <summary>
+    /// Keeps zoom inside its normal bounds while always admitting the current fit factor. A very
+    /// thin image can need a larger factor than the manual 8x limit merely to fill the short edge
+    /// of its window; clamping that fit leaves most of the content area empty and makes the picture
+    /// look as though long-image fitting never ran.
+    /// </summary>
+    public static double LimitZoom(double factor, double minimum, double maximum,
+        double fitFactor)
+    {
+        if (double.IsNaN(factor) || double.IsInfinity(factor))
+            return factor;
+
+        var upper = maximum > 0 && !double.IsNaN(maximum) && !double.IsInfinity(maximum)
+            ? maximum
+            : double.PositiveInfinity;
+        if (fitFactor > upper &&
+            !double.IsNaN(fitFactor) && !double.IsInfinity(fitFactor))
+        {
+            upper = fitFactor;
+        }
+
+        var lower = minimum > 0 && !double.IsNaN(minimum) && !double.IsInfinity(minimum)
+            ? Math.Min(minimum, upper)
+            : 0d;
+        return Math.Max(lower, Math.Min(factor, upper));
+    }
+
+    /// <summary>
     /// The initial decode size for an image preview. A long image must not be decoded into the
     /// short, fully fitted window: that compresses the long axis before the scrolling view gets
     /// its first frame. Keep the short side at its requested device resolution and let the long

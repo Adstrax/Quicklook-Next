@@ -7,6 +7,27 @@
 > - **3.x and earlier** get one line per release here (closely related releases share a line); their
 >   detailed notes are kept in [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md).
 
+## QuickLook-Next 7.1.3
+
+### Better previews for ultra-thin images
+
+7.1.3 makes very wide and very tall image strips open at a useful size instead of
+placing a tiny picture inside an oversized or minimum-width window.
+
+- **Readable strip previews:** the short edge grows to a comfortable readable size,
+  while the window keeps the image's aspect ratio whenever the full strip fits.
+- **No unnecessary empty area:** small horizontal strips no longer request a
+  full-width, very shallow window; narrow vertical strips are no longer stretched
+  to the viewer's minimum width with large empty sides. Preview content now
+  stretches to the full available window area instead of retaining its measured width,
+  and automatic fitting may exceed the normal manual zoom cap when a tiny source must
+  be enlarged to fill the short edge.
+- **Smarter wheel behaviour:** the ordinary wheel scrolls only when the long axis
+  actually overflows. A fully visible strip can still be zoomed normally, while
+  Ctrl+wheel continues to zoom long images at any time.
+- **Validation:** Release build completed with 0 warnings and 0 errors; all
+  449 automated tests and the runtime footprint check passed.
+
 ## QuickLook-Next 7.1.2
 
 ### Clearer Acrylic preview backdrop

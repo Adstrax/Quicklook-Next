@@ -115,6 +115,47 @@ internal class ImageZoomTests
             "and overflows horizontally so it can scroll");
     }
 
+    public void AThinStripScrollsOnlyWhenItsLongAxisActuallyOverflows()
+    {
+        var compact = new System.Windows.Size(248, 63);
+        var compactViewport = new System.Windows.Size(983, 250);
+        var compactZoom = ImageZoom.ImageFitFactor(compactViewport, compact);
+
+        Assert.False(
+            ImageZoom.HasLongAxisOverflow(compactViewport, compact, compactZoom),
+            "a fully visible thin strip leaves the wheel available for zooming");
+
+        var tall = new System.Windows.Size(68, 800);
+        var tallViewport = new System.Windows.Size(461, 832);
+        var tallZoom = ImageZoom.ImageFitFactor(tallViewport, tall);
+
+        Assert.True(
+            ImageZoom.HasLongAxisOverflow(tallViewport, tall, tallZoom),
+            "a tall strip that cannot all fit remains wheel-scrollable");
+        Assert.False(
+            ImageZoom.HasLongAxisOverflow(tallViewport, new System.Windows.Size(800, 600), 1d),
+            "ordinary images do not use long-image wheel handling");
+    }
+
+    public void AutomaticFitCanExceedTheManualZoomLimitForAThinImage()
+    {
+        const double fitFactor = 12.75d;
+
+        var fitted = ImageZoom.LimitZoom(
+            fitFactor, 0.1d, 8d, fitFactor);
+        var zoomingOut = ImageZoom.LimitZoom(
+            11.5d, 0.1d, 8d, fitFactor);
+        var zoomingIn = ImageZoom.LimitZoom(
+            20d, 0.1d, 8d, fitFactor);
+
+        Assert.Equal(fitFactor, fitted,
+            "a thin image can fill its short edge above the manual zoom cap");
+        Assert.Equal(11.5d, zoomingOut,
+            "wheel zoom can leave the fit smoothly instead of jumping down to 8x");
+        Assert.Equal(fitFactor, zoomingIn,
+            "beyond the fit there is no useful headroom for this already enlarged strip");
+    }
+
     public void InitialLongImageDecodeKeepsTheOriginalAspectRatio()
     {
         var portrait = ImageZoom.InitialImageDecodeSize(
